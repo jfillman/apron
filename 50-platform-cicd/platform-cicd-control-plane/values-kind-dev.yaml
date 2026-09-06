@@ -1,0 +1,16 @@
+# values-kind-dev.yaml (renamed to values-<your-cluster-name>.yaml by
+# hack/customize-cluster.sh)
+#
+# This cluster's per-cluster overrides for platform-cicd's platform-cicd-control-plane
+# chart - cluster STATE, not application source, so it lives here (the cluster-config
+# repo) rather than in platform-cicd.git's own hack/ - see ../application.yaml's own
+# header for the multi-source mechanism that wires this file in.
+#
+# Deliberately minimal: Fulcio's root key/cert material is NOT here (and never will
+# be) - hooks/fulcio-bootstrap-job.yaml generates it live, inside the cluster, on
+# first sync (ADR-0006's "Update", docs/admin/adr/0006-cluster-agnostic-bootstrap.md).
+# As real Applications get onboarded to this cluster, this file will grow the same way
+# gitops-cluster-dev's own copy did: appSecretStores entries, registered upper
+# clusters, etc. - see that repo's own values-kind-dev.yaml for what those look like
+# once real tenants exist.
+clusterName: kind-dev

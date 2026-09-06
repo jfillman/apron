@@ -194,6 +194,17 @@ if [ "${INFISICAL_HOST}" = "true" ]; then
   INFISICAL_PG_PASSWORD="$(openssl rand -hex 20)"
   INFISICAL_REDIS_PASSWORD="$(openssl rand -hex 20)"
 fi
+REKOR_MYSQL_PASSWORD=""
+REKOR_MYSQL_ROOT_PASSWORD=""
+if [ "${PLATFORM_CICD}" = "true" ]; then
+  # Low-stakes internal DB auth, not real crypto material - see
+  # 50-platform-cicd/rekor/values-secrets.yaml's own header for why a committed value
+  # is fine here (unlike Fulcio's signing key, which this script never touches at all -
+  # hooks/fulcio-bootstrap-job.yaml generates that one live, inside the cluster).
+  require openssl
+  REKOR_MYSQL_PASSWORD="$(openssl rand -hex 20)"
+  REKOR_MYSQL_ROOT_PASSWORD="$(openssl rand -hex 20)"
+fi
 
 log "3/5 - substituting identity strings"
 # Longest/most-specific literal first — gitops-cluster-dev-tenants is a superstring of
@@ -240,6 +251,8 @@ substitute "kind-dev" "${CLUSTER_NAME}"
 substitute "kind-prod" "${CLUSTER_NAME}"
 [ -z "${INFISICAL_PG_PASSWORD}" ]    || substitute "__INFISICAL_PG_PASSWORD__" "${INFISICAL_PG_PASSWORD}"
 [ -z "${INFISICAL_REDIS_PASSWORD}" ] || substitute "__INFISICAL_REDIS_PASSWORD__" "${INFISICAL_REDIS_PASSWORD}"
+[ -z "${REKOR_MYSQL_PASSWORD}" ]      || substitute "__REKOR_MYSQL_PASSWORD__" "${REKOR_MYSQL_PASSWORD}"
+[ -z "${REKOR_MYSQL_ROOT_PASSWORD}" ] || substitute "__REKOR_MYSQL_ROOT_PASSWORD__" "${REKOR_MYSQL_ROOT_PASSWORD}"
 
 # hack/kind-config.yaml is excluded from the sweep above (all of hack/ is), but it
 # carries one real per-cluster field of its own — handled directly, not via
@@ -253,6 +266,15 @@ if [ -f "hack/kind-config.yaml" ]; then
       warn "clusterName '${CLUSTER_NAME}' doesn't start with kind- — hack/kind-config.yaml's name: field left as __KIND_SHORT_NAME__, edit it by hand (or delete the file if this isn't a local kind cluster)."
       ;;
   esac
+fi
+
+# values-kind-dev.yaml's own CONTENT already got "kind-dev" -> "${CLUSTER_NAME}"
+# rewritten by the substitute() pass above (its own clusterName: field included) - only
+# the FILENAME itself (and application.yaml's $ref to it, also content-rewritten
+# already) needs a separate rename to match.
+if [ "${PLATFORM_CICD}" = "true" ] && [ -f "50-platform-cicd/platform-cicd-control-plane/values-kind-dev.yaml" ]; then
+  mv "50-platform-cicd/platform-cicd-control-plane/values-kind-dev.yaml" \
+     "50-platform-cicd/platform-cicd-control-plane/values-${CLUSTER_NAME}.yaml"
 fi
 
 log "4/5 - cleanup"
@@ -289,7 +311,7 @@ cat <<EOF
 $( [ "${INFISICAL_HOST}" = "true" ] && echo "3. Create infisical-secrets / infisical-bootstrap-credentials by hand before 10-crds-operators/infisical/application.yaml's first sync — see that file's own header for the exact kubectl create secret commands. Never paste these into chat." )
 $( [ "${INFISICAL_HOST}" = "true" ] && echo "3b. Once Infisical's autoBootstrap Job has run, fill in the real org id in place of __INFISICAL_ORG_ID__ in 10-crds-operators/infisical-secretstore-operator/deployment.yaml — see that file's own header for the exact lookup command. Nothing reads InfisicalProject/InfisicalEnvironment CRs correctly until this is a real value." )
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && echo "3c. Copy infisical-bootstrap-secret from kind-dev's infisical namespace into this cluster's own infisical namespace (kubectl-to-kubectl pipe, never pasted/displayed — see 10-crds-operators/infisical-secretstore-operator/deployment.yaml's own header) before the infisical-secretstore-operator Deployment can start. Also verify that file's INFISICAL_API_URL still matches kind-dev's live NodePort address — it drifts on kind-dev restarts/rebuilds and the committed value can be stale." )
-$( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Run platform-cicd/hack/generate-cluster-values.sh ${CLUSTER_NAME} ${CLUSTER_NAME} 50-platform-cicd/platform-cicd-control-plane/ against the real cluster (once it exists) to produce values-${CLUSTER_NAME}.yaml — this repo deliberately does not vendor another cluster's Fulcio/CA material (ADR-0006)." )
+$( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Nothing to run by hand for Fulcio/Rekor - hooks/fulcio-bootstrap-job.yaml generates this cluster's own Fulcio root live on first sync (values-${CLUSTER_NAME}.yaml deliberately carries no Fulcio material, ADR-0006), and 50-platform-cicd/rekor/ deploys Rekor/Trillian/MySQL from the real upstream chart with the credentials already generated into values-secrets.yaml above. Only ever run platform-cicd/hack/generate-cluster-values.sh FORCE=1 by hand later, and only to deliberately rotate the Fulcio root." )
 
 5. Run the real cluster bootstrap sequence (kind create cluster / Calico / apply
    01-argocd-platform/install.yaml --server-side / restore argocd-repo-creds-* /

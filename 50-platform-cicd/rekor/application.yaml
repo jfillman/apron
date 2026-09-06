@@ -1,0 +1,58 @@
+# 50-platform-cicd/rekor/application.yaml
+#
+# Rekor+Trillian+MySQL, deployed declaratively from the real upstream chart -
+# docs/admin/provenance-policy.md (platform-cicd.git) has the full incident history and
+# the real bugs found bringing this up for the first time: the chart's pinned MySQL
+# image (gcr.io/trillian-opensource-ci/db_server) and its netcat init-container image
+# are genuinely single-arch (amd64-only) and fail outright on a real arm64 node - see
+# values-rekor-shared.yaml's own header for the fixes.
+#
+# Three sources, same $ref pattern platform-cicd-control-plane/application.yaml already
+# uses for one - this Application needs two anchors instead of one:
+#   - platformcicd: the shared, cluster-agnostic parts of the values (image digest
+#     overrides, probes, resource caps) - reusable across any cluster, so it lives in
+#     platform-cicd.git, not copied per cluster.
+#   - clustercfg: just the two MySQL credentials (values-secrets.yaml, next to this
+#     file) - genuinely per-cluster, but low-stakes internal DB auth, not real crypto
+#     material - see that file's own header for why a committed value is fine here
+#     when it wouldn't be for Fulcio's signing key.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rekor
+  namespace: argocd
+  labels:
+    platform.io/component: cluster-config
+    platform.io/subcomponent: platform-cicd
+spec:
+  project: default
+  sources:
+    - repoURL: https://sigstore.github.io/helm-charts
+      chart: rekor
+      targetRevision: 1.8.3
+      helm:
+        releaseName: rekor
+        valueFiles:
+          - $platformcicd/platform/sigstore/rekor-helm-values.yaml
+          - $clustercfg/50-platform-cicd/rekor/values-secrets.yaml
+    - repoURL: https://github.com/jfillman/platform-cicd.git
+      targetRevision: main
+      ref: platformcicd
+      directory:
+        exclude: "*"
+    - repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    # rekor-system is this release's OWN target; the chart's own namespace.create /
+    # trillian.namespace.create templates take care of trillian-system too (confirmed
+    # live - both chart-owned Namespace objects, no CreateNamespace-only assumption).
+    namespace: rekor-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
