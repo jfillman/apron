@@ -25,3 +25,7 @@ metadata:
     platform.io/subcomponent: crds-operators
 spec:
   package: xpkg.upbound.io/crossplane-contrib/provider-upjet-github:v0.19.1
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-github-runtime

@@ -1,0 +1,42 @@
+# DeploymentRuntimeConfig for provider-github, referenced by provider-github.yaml's
+# runtimeConfigRef (this directory).
+#
+# --poll=1h and --max-reconcile-rate=50 are a learned-good default, not a guess:
+# root-caused live on kiac-dev 2026-09-07 (see gitops-cluster-dev's own copy of this
+# file, and project_kiac_github_rate_limit_investigation.md) - the binary's own
+# --poll default (10m, confirmed via `provider --help` in the running pod) meant
+# every managed Repository resource reconciled every ~10 minutes forever, which is
+# background traffic against GitHub's primary rate limit. That limit is scoped
+# per-account and shared across every classic PAT under the account (including
+# Backstage's own dedicated PAT for scaffolder PR creation) - so this provider's own
+# poll cadence was a direct, continuous contributor to chronic rate-limit exhaustion
+# that broke Backstage plugin testing on kiac-dev. Not a Terraform/upjet
+# field-comparison drift bug - spec.forProvider and status.atProvider matched
+# exactly when checked live; every failing resource showed the same real-time
+# "403 API rate limit ... still exceeded" Observe() error, nothing more subtle.
+#
+# Stamped into every new cluster from this template so it doesn't need
+# rediscovering per-cluster - a cluster that never enables
+# components.crossplane.providerGithub never installs provider-github at all
+# (see provider-github.yaml's own header), so this file is harmless dead config on
+# clusters that don't need it.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-github-runtime
+  labels:
+    platform.io/component: cluster-config
+    platform.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/provider: provider-github
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --max-reconcile-rate=50
+                - --poll=1h
