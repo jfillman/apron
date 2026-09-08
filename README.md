@@ -1,4 +1,8 @@
-# Apron
+<div align="center">
+  <img src="docs/brand/apron-tile.svg" width="88" height="88" alt="Apron mark" />
+  <h1>Apron</h1>
+  <p><i>Ground infrastructure a cluster needs before a Hangar can run on it.</i></p>
+</div>
 
 Gold-standard starting point for a new `gitops-cluster-<name>` repo — per
 `idp/docs/gitops-strategy.md` §1's per-cluster repo shape, and closes the
