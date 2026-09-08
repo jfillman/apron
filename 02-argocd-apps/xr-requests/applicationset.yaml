@@ -21,8 +21,8 @@ metadata:
   name: xr-requests
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: xr-requests
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: xr-requests
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
@@ -36,9 +36,9 @@ spec:
     metadata:
       name: "{{.path.basename}}-xr-requests"
       labels:
-        platform.io/component: cluster-config
-        platform.io/subcomponent: xr-requests
-        platform.io/app: "{{.path.basename}}"
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: xr-requests
+        hangar.io/app: "{{.path.basename}}"
       # Cascade-deletes everything this Application created (the Bootstrap-tier XRs) if
       # a tenant's whole tenants/<app>/ directory is ever removed - same finalizer,
       # same reasoning as the sibling ApplicationSets in this repo.

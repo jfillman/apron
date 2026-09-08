@@ -66,8 +66,8 @@ metadata:
   name: tenant-onboarding
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: tenant-onboarding
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
@@ -81,19 +81,19 @@ spec:
     metadata:
       name: "{{.appName}}-{{.env}}"
       labels:
-        platform.io/component: cluster-config
-        platform.io/subcomponent: tenant-onboarding
-        platform.io/app: "{{.appName}}"
-        platform.io/env: "{{.env}}"
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: tenant-onboarding
+        hangar.io/app: "{{.appName}}"
+        hangar.io/env: "{{.env}}"
       finalizers:
         - resources-finalizer.argocd.argoproj.io
       namespace: argocd-apps
     spec:
       project: "{{.appName}}"
       sources:
-        - repoURL: https://github.com/jfillman/idp-service-catalog.git
+        - repoURL: https://github.com/jfillman/airframe.git
           targetRevision: v0.3.40
-          path: charts/idp-application
+          path: charts/airframe-application
           helm:
             valuesObject:
               appName: "{{.appName}}"
@@ -105,7 +105,7 @@ spec:
               # once the chart renders its own Namespace object.
               namespace:
                 labels:
-                  platform.io/managed-secrets: "true"
+                  hangar.io/managed-secrets: "true"
             valueFiles:
               # $-ref value files resolve relative to that source's checkout ROOT -
               # confirmed live in platform-cicd's own version of this pattern.
@@ -135,9 +135,9 @@ spec:
     {{- if .configMapGenerator }}
     spec:
       sources:
-        - repoURL: https://github.com/jfillman/idp-service-catalog.git
+        - repoURL: https://github.com/jfillman/airframe.git
           targetRevision: v0.3.40
-          path: charts/idp-application
+          path: charts/airframe-application
           helm:
             valuesObject:
               appName: "{{.appName}}"
@@ -145,7 +145,7 @@ spec:
               envName: "{{.env}}"
               namespace:
                 labels:
-                  platform.io/managed-secrets: "true"
+                  hangar.io/managed-secrets: "true"
             valueFiles:
               - $appsrc/kind-dev/{{.env}}/values.yaml
         - repoURL: "{{.gitopsRepoUrl}}"

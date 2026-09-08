@@ -295,7 +295,7 @@ cat <<EOF
        name: ${CLUSTER_NAME}
        namespace: crossplane-system
        labels:
-         platform.io/cluster-registry: "true"
+         hangar.io/cluster-registry: "true"
      data:
        type: ${TYPE}
        cicdReady: "false"

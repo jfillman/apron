@@ -1,4 +1,4 @@
-# gitops-cluster-template
+# Apron
 
 Gold-standard starting point for a new `gitops-cluster-<name>` repo — per
 `idp/docs/gitops-strategy.md` §1's per-cluster repo shape, and closes the

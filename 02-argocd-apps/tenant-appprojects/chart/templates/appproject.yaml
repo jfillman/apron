@@ -11,9 +11,9 @@ metadata:
   name: {{ .Values.appName }}
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: tenant-onboarding
-    platform.io/app: {{ .Values.appName }}
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+    hangar.io/app: {{ .Values.appName }}
 spec:
   description: "Per-app AppProject for {{ .Values.appName }}, gitops-strategy.md §6"
   sourceRepos:

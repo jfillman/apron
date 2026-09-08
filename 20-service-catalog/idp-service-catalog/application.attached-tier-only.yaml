@@ -20,12 +20,12 @@ metadata:
   name: idp-service-catalog
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: service-catalog
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: service-catalog
 spec:
   project: default
   source:
-    repoURL: https://github.com/jfillman/idp-service-catalog.git
+    repoURL: https://github.com/jfillman/airframe.git
     targetRevision: v0.3.35
     path: .
     directory:

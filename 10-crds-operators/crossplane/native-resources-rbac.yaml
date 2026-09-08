@@ -36,8 +36,8 @@ metadata:
   name: crossplane:native-resources:aggregate-to-crossplane
   labels:
     rbac.crossplane.io/aggregate-to-crossplane: "true"
-    platform.io/component: cluster-config
-    platform.io/subcomponent: crds-operators
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
 rules:
   - apiGroups: ["argoproj.io"]
     resources: ["rollouts", "rollouts/status", "analysistemplates", "analysistemplates/status"]

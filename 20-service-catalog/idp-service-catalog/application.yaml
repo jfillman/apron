@@ -28,12 +28,12 @@ metadata:
   name: idp-service-catalog
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: service-catalog
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: service-catalog
 spec:
   project: default
   source:
-    repoURL: https://github.com/jfillman/idp-service-catalog.git
+    repoURL: https://github.com/jfillman/airframe.git
     # 2026-08-19: bumped from v0.3.24, found live stuck there while chasing an
     # unrelated registry-credentials sync failure - checkout-api-dev's own
     # idp-application chart (pinned separately, in

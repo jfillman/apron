@@ -65,8 +65,8 @@ metadata:
   name: tenant-appprojects
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: tenant-onboarding
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
@@ -80,9 +80,9 @@ spec:
     metadata:
       name: "{{.platformIdentity.appName}}-onboarding"
       labels:
-        platform.io/component: cluster-config
-        platform.io/subcomponent: tenant-onboarding
-        platform.io/app: "{{.platformIdentity.appName}}"
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: tenant-onboarding
+        hangar.io/app: "{{.platformIdentity.appName}}"
       # Cascade-deletes the AppProject if a tenant's identity.yaml is ever removed -
       # same finalizer/reasoning as platform-cicd's own tenant-onboarding-applicationset.yaml.
       finalizers:
@@ -99,7 +99,7 @@ spec:
             appName: "{{.platformIdentity.appName}}"
             gitopsRepoUrl: "{{.platformIdentity.gitopsRepoUrl}}"
             appRepoUrl: "{{.platformIdentity.appRepoUrl}}"
-            idpServiceCatalogRepoUrl: "https://github.com/jfillman/idp-service-catalog.git"
+            idpServiceCatalogRepoUrl: "https://github.com/jfillman/airframe.git"
       destination:
         server: https://kubernetes.default.svc
         namespace: argocd-apps

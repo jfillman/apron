@@ -35,8 +35,8 @@ metadata:
   name: testkube
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: platform-cicd
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: platform-cicd
 spec:
   project: default
   source:

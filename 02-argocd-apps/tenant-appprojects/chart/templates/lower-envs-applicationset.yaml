@@ -51,10 +51,10 @@ metadata:
   name: {{ .Values.appName }}-lower-envs
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: tenant-onboarding
-    platform.io/app: {{ .Values.appName }}
-    platform.io/env-tier: lower
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+    hangar.io/app: {{ .Values.appName }}
+    hangar.io/env-tier: lower
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
@@ -68,11 +68,11 @@ spec:
     metadata:
       name: "{{ .Values.appName }}-{{ "{{" }}.envName{{ "}}" }}"
       labels:
-        platform.io/component: cluster-config
-        platform.io/subcomponent: tenant-onboarding
-        platform.io/app: {{ .Values.appName }}
-        platform.io/env: "{{ "{{" }}.envName{{ "}}" }}"
-        platform.io/env-tier: lower
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: tenant-onboarding
+        hangar.io/app: {{ .Values.appName }}
+        hangar.io/env: "{{ "{{" }}.envName{{ "}}" }}"
+        hangar.io/env-tier: lower
       # Cascade-deletes this env's real resources, AND the namespace itself, if the
       # developer removes their own platform/envs/<file>.yaml - idp-application now
       # renders an explicit Namespace object (v0.3.40+, see that chart's own
@@ -116,7 +116,7 @@ spec:
         # argocd-repo-creds-jfillman, this namespace).
         - repoURL: {{ .Values.idpServiceCatalogRepoUrl }}
           targetRevision: v0.3.40
-          path: charts/idp-application
+          path: charts/airframe-application
           helm:
             valuesObject:
               appName: {{ .Values.appName }}
@@ -128,7 +128,7 @@ spec:
               # once the chart renders its own Namespace object.
               namespace:
                 labels:
-                  platform.io/managed-secrets: "true"
+                  hangar.io/managed-secrets: "true"
             valueFiles:
               # Confirmed live (two real failures getting here, both left as history
               # in this comment since the exact shape of ArgoCD's git-files-generator

@@ -13,6 +13,6 @@ apiVersion: v2
 # own platform/envs/*.yaml. Cosmetic-only bump - this Application source pins
 # targetRevision: main + path:, not a chart-version target, so this doesn't affect
 # ArgoCD's resolution; kept for consistency with this project's practice elsewhere.
-name: tenant-appproject
+name: apron-tenant-appproject
 description: Renders one app's per-app AppProjects (upper + lower-env) and lower-env ApplicationSet, values-driven, for the tenant-appprojects ApplicationSet
 version: 0.2.0

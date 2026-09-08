@@ -25,7 +25,7 @@ metadata:
   name: platform-cicd-kind-prod
   namespace: platform-secrets
   labels:
-    platform.io/subcomponent: "secretstore"
+    hangar.io/subcomponent: "secretstore"
 spec:
   projectName: platform-cicd-kind-prod
   slug: platform-cicd-kind-prod

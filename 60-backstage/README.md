@@ -25,7 +25,7 @@ hand-deployed straight to `kind-man`.
   (`ghcr.io/jfillman/backstage:1.0.0-0b52ebe`). Manually bump the tag here after each
   new CI build for now - no GitOps image-updater wired up yet. `POSTGRES_*` env vars
   wire it to `postgres/`'s own instance; `imagePullSecrets: registry-credentials`
-  needs the `backstage` namespace's `platform.io/managed-secrets: "true"` label
+  needs the `backstage` namespace's `hangar.io/managed-secrets: "true"` label
   (declared in this directory's own `Namespace` manifest) for kind-man's
   `registry-credentials` `ClusterExternalSecret` to populate it - the image is
   genuinely private. `app.baseUrl`/`backend.baseUrl` are still the image's baked-in

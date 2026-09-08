@@ -24,8 +24,8 @@ metadata:
   name: idp-onboarding
   namespace: argocd-apps
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: xr-requests
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: xr-requests
 spec:
   # Kept under AppProject's 255-byte description limit (hit live, first pass was too
   # long) - full rationale lives in this file's own header comment instead.

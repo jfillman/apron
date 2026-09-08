@@ -12,7 +12,7 @@ kind: Provider
 metadata:
   name: provider-kubernetes
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: crds-operators
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
 spec:
   package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes:v1.2.1

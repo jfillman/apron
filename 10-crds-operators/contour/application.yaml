@@ -11,8 +11,8 @@ metadata:
   name: contour
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: crds-operators
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
 spec:
   project: default
   # No `directory:` block (was `exclude: "{application.yaml}"`) - this directory now

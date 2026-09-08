@@ -67,8 +67,8 @@ metadata:
   name: argocd-apps-install
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: argocd-apps
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: argocd-apps
 spec:
   project: default
   source:

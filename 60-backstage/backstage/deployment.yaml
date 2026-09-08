@@ -15,7 +15,7 @@
 # defaults when that Application was written.
 #
 # imagePullSecrets: registry-credentials - this namespace needs the
-# platform.io/managed-secrets: "true" label for kind-man's registry-credentials
+# hangar.io/managed-secrets: "true" label for kind-man's registry-credentials
 # ClusterExternalSecret to populate it (see the Namespace manifest below) - confirmed
 # live the image is genuinely private (src repo's own visibility: private XR field)
 # and pulls fail without this.
@@ -34,7 +34,7 @@ kind: Namespace
 metadata:
   name: backstage
   labels:
-    platform.io/managed-secrets: "true"
+    hangar.io/managed-secrets: "true"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -31,8 +31,8 @@ metadata:
   name: backstage-postgres
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: backstage
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: backstage
 spec:
   project: default
   source:

@@ -11,12 +11,12 @@ metadata:
   name: backstage
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: backstage
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: backstage
 spec:
   project: default
   source:
-    repoURL: https://github.com/jfillman/gitops-cluster-template.git
+    repoURL: https://github.com/jfillman/apron.git
     targetRevision: main
     path: 60-backstage/backstage
     directory:

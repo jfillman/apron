@@ -22,8 +22,8 @@ metadata:
   name: rekor
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: platform-cicd
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: platform-cicd
 spec:
   project: default
   sources:
@@ -35,7 +35,7 @@ spec:
         valueFiles:
           - $platformcicd/platform/sigstore/rekor-helm-values.yaml
           - $clustercfg/50-platform-cicd/rekor/values-secrets.yaml
-    - repoURL: https://github.com/jfillman/platform-cicd.git
+    - repoURL: https://github.com/jfillman/glidepath.git
       targetRevision: main
       ref: platformcicd
       directory:

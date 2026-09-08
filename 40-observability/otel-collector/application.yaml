@@ -9,8 +9,8 @@ metadata:
   name: otel-collector
   namespace: argocd
   labels:
-    platform.io/component: cluster-config
-    platform.io/subcomponent: observability
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
 spec:
   project: default
   source:
