@@ -260,6 +260,50 @@ spec:
               hs.status = "Healthy"
               hs.message = ""
               return hs
+            # Same PVC-health override, and same rationale, as 01-argocd-platform/
+            # install.yaml's own argocd-cm - see that ConfigMap's inline comment (right
+            # above this same key) for the full write-up. Two separate ArgoCD installs,
+            # two separate ConfigMaps (see this file's own comment above
+            # accounts.backstage/resource.customizations.health.argoproj.io_Rollout for
+            # why both need every override independently), so this one needs it too
+            # rather than assuming the platform instance's copy is enough.
+            resource.customizations.health.PersistentVolumeClaim: |
+              hs = {}
+              hs.status = "Healthy"
+              hs.message = "Not tracking Bound status - WaitForFirstConsumer PVCs stay Pending until first real consumer schedules, which is expected, not a failure (see comment above this key in argocd-cm)."
+              return hs
+            # ExternalSecret health check (added 2026-09-14): without this, ArgoCD
+            # treats any external-secrets.io/ExternalSecret as "Healthy" the instant
+            # the object itself applies - it has no built-in awareness that ESO's own
+            # reconcile into a real Secret is a separate, asynchronous step. That gap
+            # deadlocked a brand-new env's PreSync outcome-hook Job on kiac-prod
+            # (airframe's relay-token-external-secret.yaml, confirmed live): wave-
+            # ordering alone got the ExternalSecret object created first, but the next
+            # wave's Job still started before ESO had actually populated the Secret.
+            # Standard ESO status.conditions[].type == "Ready" check, same
+            # Synced/Ready-condition shape as catalog.idp.io/*'s own health.lua below,
+            # just a single specific Kind via the flat resource.customizations.health.
+            # key form (like PersistentVolumeClaim above) rather than that block's
+            # nested per-group form.
+            resource.customizations.health.external-secrets.io_ExternalSecret: |
+              hs = {}
+              if obj.status ~= nil and obj.status.conditions ~= nil then
+                for i, condition in ipairs(obj.status.conditions) do
+                  if condition.type == "Ready" then
+                    if condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = condition.message or condition.reason or "Ready"
+                    else
+                      hs.status = "Degraded"
+                      hs.message = condition.message or condition.reason or "Not ready"
+                    end
+                    return hs
+                  end
+                end
+              end
+              hs.status = "Progressing"
+              hs.message = "Waiting for ExternalSecret to sync"
+              return hs
             resource.customizations: |
               catalog.idp.io/*:
                 health.lua: |

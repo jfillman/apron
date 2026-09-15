@@ -31417,6 +31417,29 @@ data:
     hs.status = "Healthy"
     hs.message = ""
     return hs
+  # WaitForFirstConsumer StorageClasses (this cluster's default `standard` class, and any
+  # real multi-node-safe dynamic provisioner) deliberately leave a PVC Pending until a Pod
+  # actually schedules and claims it - not a failure, just correct binding deferral so the
+  # PV lands on the right node. ArgoCD's BUILT-IN PVC health check only treats `Bound` as
+  # Healthy; everything else (including a perfectly normal Pending-awaiting-first-consumer)
+  # reports Progressing with no timeout, which blocks the owning sync operation from ever
+  # reaching a terminal phase. Confirmed live 2026-09-10 on kiac-dev/kiac-prod:
+  # charts/glidepath-app/templates/env/build-cache-pvc.yaml's PVC for a never-yet-built app
+  # sat Pending for days, which in turn meant onboarding-resync-bootstrap.yaml's Sync-phase
+  # hook Job - already Succeeded - never had its argocd.argoproj.io/hook-finalizer cleared
+  # (finalizer cleanup only happens once the sync operation itself finishes), permanently
+  # stuck Terminating until manually force-deleted, every single sync.
+  #
+  # Trade-off, accepted deliberately: this reports Healthy for ANY Pending PVC
+  # platform-wide, not just build-cache ones, so a genuinely stuck/misconfigured PVC (no
+  # matching PV, exhausted storage, bad StorageClass) no longer surfaces as Degraded either
+  # - it was already an un-alerted, timeout-less Progressing before this change, so nothing
+  # that used to page anyone stops paging them.
+  resource.customizations.health.PersistentVolumeClaim: |
+    hs = {}
+    hs.status = "Healthy"
+    hs.message = "Not tracking Bound status - WaitForFirstConsumer PVCs stay Pending until first real consumer schedules, which is expected, not a failure (see comment above this key in argocd-cm)."
+    return hs
   # Crossplane XR/Claim health - every idp-service-catalog XRD (catalog.idp.io/*, see
   # idp-service-catalog/xrds/) exposes the standard Crossplane Synced/Ready conditions;
   # ArgoCD has no built-in notion of them, so composites otherwise sit at "Unknown"
