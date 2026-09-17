@@ -35,8 +35,11 @@
 # each completed run's CR within an hour of completion, well ahead of the separate
 # pipelinerun-pruner-cronjob's 24h RETENTION_HOURS, so it becomes a no-op safety net
 # rather than racing Results for the same objects. watcher.disable_storing_incomplete_runs:
-# true - only finished runs are archived. logs_api: true - step logs are queryable from
-# Results, not just CR spec/status.
+# true - only finished runs are archived. logs_api: true + logs_type: S3 - step logs are
+# queryable from Results and actually land in the MinIO bucket, not just CR spec/status;
+# logs_api alone does NOT pick a storage backend (confirmed live on kiac-dev: DB records
+# archived fine with just logs_api: true, but zero objects ever reached the bucket until
+# logs_type: S3 was added).
 #
 # No HTTPRoute for the Results API - it's TLS-only on its single port (gRPC+REST share
 # one socket; upstream install docs require generating a TLS cert as a hard
@@ -73,6 +76,7 @@ spec:
     disabled: false
     is_external_db: false
     logs_api: true
+    logs_type: S3
     secret_name: tekton-results-s3
     watcher:
       completed_run_grace_period: "1h"
