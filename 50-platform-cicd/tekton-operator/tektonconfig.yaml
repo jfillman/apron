@@ -35,11 +35,15 @@
 # each completed run's CR within an hour of completion, well ahead of the separate
 # pipelinerun-pruner-cronjob's 24h RETENTION_HOURS, so it becomes a no-op safety net
 # rather than racing Results for the same objects. watcher.disable_storing_incomplete_runs:
-# true - only finished runs are archived. logs_api: true + logs_type: S3 - step logs are
-# queryable from Results and actually land in the MinIO bucket, not just CR spec/status;
-# logs_api alone does NOT pick a storage backend (confirmed live on kiac-dev: DB records
-# archived fine with just logs_api: true, but zero objects ever reached the bucket until
-# logs_type: S3 was added).
+# true - only finished runs are archived.
+#
+# Three SEPARATE flags are all required for logs to actually reach the S3 bucket, not
+# just the confusingly-similarly-named result.logs_api: (1) result.logs_api: true enables
+# the API server's log-retrieval endpoints, (2) result.logs_type: S3 picks the storage
+# backend, and (3) watcher.logs_api: true - a DIFFERENT field on the watcher's own config,
+# not inherited from result.logs_api - actually makes the watcher push step logs to the
+# API at all (confirmed live on kiac-dev: the watcher's own startup log prints "logs
+# disable in watcher" verbatim when this is unset, regardless of the other two).
 #
 # No HTTPRoute for the Results API - it's TLS-only on its single port (gRPC+REST share
 # one socket; upstream install docs require generating a TLS cert as a hard
@@ -81,6 +85,7 @@ spec:
     watcher:
       completed_run_grace_period: "1h"
       disable_storing_incomplete_runs: true
+      logs_api: true
   platforms:
     kubernetes:
       pipelinesAsCode:
