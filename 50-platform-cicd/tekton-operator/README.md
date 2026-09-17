@@ -47,9 +47,21 @@ bundled with the operator release is what you get.
   comment: a write-enabled dashboard is a standing bypass around the "no elevated
   identity anywhere" posture). Set explicitly in `tektonconfig.yaml`, confirmed live via
   the rendered Deployment's own `--read-only=true` arg - not trusted as inherited.
-- **`profile: all` bundles Tekton Results** (an archival/results-API component this
-  platform has never used) automatically. Disabled via `spec.result.disabled: true` -
-  confirmed live it tears down cleanly, not just that the field exists.
+- **`profile: all` bundles Tekton Results** (an archival/results-API component).
+  Enabled via `spec.result.disabled: false` for long-term pipeline data retention - a
+  durable archive of full PipelineRun/TaskRun objects and step logs, which nothing else
+  in this platform provides (Grafana/DORA-exporter/CDEvents track metrics and events, not
+  the run objects; `pipelinerun-pruner-cronjob` just deletes them). Uses the operator's
+  own auto-managed internal Postgres (`is_external_db: false`) and reuses the
+  observability MinIO instance for S3 storage via a `tekton-results` bucket
+  (`40-observability/minio/create-buckets-job.yaml`) and
+  `tekton-results-s3-secret.yaml` (this directory). `watcher.completed_run_grace_period:
+  "1h"` makes Results the primary CR-cleanup path, well ahead of
+  `pipelinerun-pruner-cronjob`'s 24h retention. Deliberately no `HTTPRoute` - the Results
+  API is TLS-only on its single port and a plain-HTTP Gateway listener can't front it;
+  add one only once the target cluster's Gateway has a real TLS/passthrough listener. See
+  `docs/admin/tekton-results.md` and `docs/admin/adr/0016-tekton-results-archival.md` in
+  `glidepath` for the full writeup.
 - **Pipelines-as-Code IS covered on plain Kubernetes** via
   `spec.platforms.kubernetes.pipelinesAsCode.enable` - a real, documented field, separate
   from the OpenShift-only `TektonAddon`/`OpenShiftPipelinesAsCode` mechanism this session
@@ -70,7 +82,9 @@ bundled with the operator release is what you get.
 Proven twice: first against a real throwaway kind cluster (created and torn down same
 session, never touched `kind-dev`) - operator installs cleanly, `TektonConfig` reaches
 `Ready`, all expected component Deployments come up healthy in one namespace, Dashboard
-confirmed read-only, Results confirmed absent, PAC confirmed enabled and healthy. Then
+confirmed read-only, PAC confirmed enabled and healthy (Results was disabled and confirmed
+absent at the time of this original proof - see the 2026-09-17 update above for it being
+enabled since). Then
 applied for real to `kind-dev` and live-verified end-to-end with a real signed build -
 see `50-platform-cicd/README.md`'s own status for the full writeup (including the
 `scheduler`/`tektonpruner` gap above, only surfaced on the real apply, and two real

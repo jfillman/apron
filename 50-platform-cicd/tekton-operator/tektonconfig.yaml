@@ -16,9 +16,33 @@
 # this makes the operator match that same posture explicitly rather than silently
 # installing the wrong mode.
 #
-# result.disabled: true - Tekton Results (archival/results-API) is bundled by profile:
-# all but this platform has never used it (build/test/deploy/release history is tracked
-# via Grafana/DORA-exporter/CDEvents instead) - disabled rather than left running unused.
+# result.disabled: false - Tekton Results ENABLED 2026-09-17 for long-term pipeline data
+# retention. Grafana/DORA-exporter/CDEvents track metrics and events, not the actual
+# PipelineRun/TaskRun objects (full spec+status+step logs) - those previously only lived
+# in etcd until pipelinerun-pruner-cronjob (glidepath-control-plane chart) deleted
+# everything past the newest-per-pipeline after 24h, with no durable archive at all.
+#
+# is_external_db: false (unchanged) - no general-purpose Postgres provisioning path
+# exists in this stack (Crossplane here only manages GitHub repos), so the operator's own
+# auto-managed internal Postgres+PVC is used rather than standing up a dedicated one.
+#
+# secret_name: tekton-results-s3 (this directory's own tekton-results-s3-secret.yaml) -
+# S3 log/result storage reuses the observability MinIO instance (a `tekton-results`
+# bucket added to 40-observability/minio/create-buckets-job.yaml's existing
+# thanos/loki/tempo bucket job) rather than a dedicated MinIO.
+#
+# watcher.completed_run_grace_period: "1h" - the Results watcher archives-then-deletes
+# each completed run's CR within an hour of completion, well ahead of the separate
+# pipelinerun-pruner-cronjob's 24h RETENTION_HOURS, so it becomes a no-op safety net
+# rather than racing Results for the same objects. watcher.disable_storing_incomplete_runs:
+# true - only finished runs are archived. logs_api: true - step logs are queryable from
+# Results, not just CR spec/status.
+#
+# No HTTPRoute for the Results API - it's TLS-only on its single port (gRPC+REST share
+# one socket; upstream install docs require generating a TLS cert as a hard
+# prerequisite), and a plain-HTTP Gateway listener can't front it. Only add one once the
+# target cluster's Gateway has a real TLS/passthrough listener - see
+# docs/admin/tekton-results.md (glidepath) for the full writeup.
 #
 # platforms.kubernetes.pipelinesAsCode.enable: true - explicit, not relied on as an
 # undocumented default (it happens to already be on with profile: all on vanilla
@@ -46,8 +70,13 @@ spec:
   dashboard:
     readonly: true
   result:
-    disabled: true
+    disabled: false
     is_external_db: false
+    logs_api: true
+    secret_name: tekton-results-s3
+    watcher:
+      completed_run_grace_period: "1h"
+      disable_storing_incomplete_runs: true
   platforms:
     kubernetes:
       pipelinesAsCode:

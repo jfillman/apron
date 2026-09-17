@@ -10,6 +10,10 @@
 # Picked up automatically by minio-secrets' directory-source Application alongside
 # thanos-objstore-secret.yaml (its exclude list only excludes the two Application
 # objects themselves, not this file) - no separate Application needed.
+#
+# tekton-results bucket added 2026-09-17 - Tekton Results' S3 log/result storage,
+# see 50-platform-cicd/tekton-operator/tekton-results-s3-secret.yaml for the creds
+# that reference it.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -30,4 +34,5 @@ spec:
               mc alias set myminio http://minio:9000 admin minioadmin123 &&
               mc mb --ignore-existing myminio/thanos &&
               mc mb --ignore-existing myminio/loki &&
-              mc mb --ignore-existing myminio/tempo
+              mc mb --ignore-existing myminio/tempo &&
+              mc mb --ignore-existing myminio/tekton-results
