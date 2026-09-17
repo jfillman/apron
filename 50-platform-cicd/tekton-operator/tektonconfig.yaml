@@ -45,6 +45,17 @@
 # API at all (confirmed live on kiac-dev: the watcher's own startup log prints "logs
 # disable in watcher" verbatim when this is unset, regardless of the other two).
 #
+# result.options.deployments.tekton-results-api - even with all three flags above
+# correct, every log upload failed live on kiac-dev with "operation error S3: UploadPart,
+# compute input header checksum failed, unseekable stream is not supported without TLS
+# and trailing checksum": aws-sdk-go-v2 (which the API server's S3 client is built on)
+# defaults to a trailing-checksum multipart upload that requires TLS, and MinIO here is
+# plain HTTP. Fixed via the operator's documented deployment-override mechanism
+# (tektoncd/operator's TektonConfig.md), setting AWS_REQUEST_CHECKSUM_CALCULATION/
+# AWS_RESPONSE_CHECKSUM_VALIDATION=when_required on the `api` container - a real,
+# documented aws-sdk-go-v2 behavior change (config v1.27+/SDK v1.30+ default to
+# when_supported), not a MinIO-specific issue.
+#
 # No HTTPRoute for the Results API - it's TLS-only on its single port (gRPC+REST share
 # one socket; upstream install docs require generating a TLS cert as a hard
 # prerequisite), and a plain-HTTP Gateway listener can't front it. Only add one once the
@@ -86,6 +97,19 @@ spec:
       completed_run_grace_period: "1h"
       disable_storing_incomplete_runs: true
       logs_api: true
+    options:
+      deployments:
+        tekton-results-api:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: api
+                    env:
+                      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+                        value: when_required
+                      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+                        value: when_required
   platforms:
     kubernetes:
       pipelinesAsCode:
