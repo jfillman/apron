@@ -1,0 +1,28 @@
+# DeploymentRuntimeConfig for provider-infisical, referenced by
+# provider-infisical.yaml's runtimeConfigRef (this directory).
+#
+# Own dedicated runtime config, never the shared "default" one - a
+# DeploymentRuntimeConfig named "default" is the fallback for every package that
+# doesn't specify its own runtimeConfigRef, Providers and Composition Functions
+# alike; editing a shared one has previously crash-looped every Function
+# cluster-wide from a single flag meant for one provider
+# (feedback_crossplane_provider_live_ops.md). No custom --poll/--max-reconcile-rate
+# args here (unlike provider-github-runtime.yaml's own, which exists to fix a real,
+# externally-imposed GitHub rate limit) - this provider talks to a self-hosted
+# in-cluster/local Infisical instance with no comparable external limit, so the
+# binary's own defaults apply. Revisit if a real reconcile-load problem shows up.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-infisical-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/provider: provider-infisical
+      template:
+        spec: {}

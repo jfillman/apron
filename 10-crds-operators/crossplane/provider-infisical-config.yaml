@@ -1,0 +1,31 @@
+# ProviderConfig for provider-infisical.
+#
+# ClusterProviderConfig (infisical.m.hangar.io/v1beta1, the namespaced managed-resource
+# family's cluster-scoped config kind - see provider-github-config.yaml's own header
+# for why every XRD in this catalog needs the namespaced family, not the legacy
+# Cluster-scoped one) so this one credential is referenceable from every namespace's
+# managed resources without duplicating the Secret per namespace.
+#
+# Auth: Universal Auth via a single admin-scoped machine identity - the
+# terraform-provider-infisical equivalent of the current operator's single shared
+# INFISICAL_ADMIN_TOKEN model (its own top-level client_id/client_secret and
+# service_token fields are explicitly deprecated in the provider's own docs; auth.universal
+# is the supported path). Credential JSON: {"host": "...", "client_id": "...",
+# "client_secret": "..."} - see internal/clients/infisical.go in
+# github.com/jfillman/provider-infisical for exactly how this maps into the
+# Terraform provider's own configuration block. The Secret itself is never committed
+# here - see provider-infisical-creds-external-secret.yaml (this directory).
+apiVersion: infisical.m.hangar.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      name: provider-infisical-creds
+      namespace: crossplane-system
+      key: credentials
