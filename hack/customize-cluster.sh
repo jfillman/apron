@@ -183,6 +183,8 @@ if [ "${SERVICE_CATALOG_ENABLED}" = "true" ]; then
 else
   prune "20-service-catalog"
   prune "02-argocd-apps/xr-requests"
+  # identity.yaml files come from ApplicationEnvironment, which needs the service catalog
+  prune "02-argocd-apps/tenant-identity"
 fi
 
 log "2/5 - generating fresh per-cluster secret material (never copied from another cluster)"

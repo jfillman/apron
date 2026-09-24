@@ -26,13 +26,14 @@ spec:
   project: default
   source:
     repoURL: https://github.com/jfillman/airframe.git
-    # 2026-09-23: v0.3.35 -> v0.3.82. REQUIRED, not cosmetic: the SecretStore Composition at
+    # 2026-09-23: v0.3.35 -> v0.3.83. REQUIRED, not cosmetic: the SecretStore Composition at
     # v0.3.35 renders the retired infisical-secretstore-operator's InfisicalProject CR, and this
     # template no longer installs that operator (it installs provider-infisical instead).
     # v0.3.81+ is provider-infisical only; v0.3.82 also keeps Infisical projects/environments
     # alive when a SecretStore is deleted. Same three attached-tier files as before (SLO,
-    # SecretStore, RolloutWatch); v0.3.82 is what gitops-cluster-kind-prod runs live.
-    targetRevision: v0.3.82
+    # SecretStore, RolloutWatch); kind-prod runs v0.3.82 live, and v0.3.83 changes none of these
+    # three files' behaviour (only the SecretStore composition's header comment differs).
+    targetRevision: v0.3.83
     path: .
     directory:
       recurse: true
