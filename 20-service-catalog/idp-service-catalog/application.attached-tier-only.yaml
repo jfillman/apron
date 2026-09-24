@@ -33,7 +33,7 @@ spec:
     # alive when a SecretStore is deleted. Same three attached-tier files as before (SLO,
     # SecretStore, RolloutWatch); kind-prod runs v0.3.82 live, and v0.3.83 changes none of these
     # three files' behaviour (only the SecretStore composition's header comment differs).
-    targetRevision: v0.3.83
+    targetRevision: v0.3.85
     path: .
     directory:
       recurse: true
