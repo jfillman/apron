@@ -62,10 +62,12 @@
 # (ENCRYPTION_KEY must be exactly 32 hex chars / 16 bytes - confirmed against Infisical's
 # own .env.example, which documents this shape, not guessed.)
 #
-# infisical.autoBootstrap: enabled for infisical-secretstore-operator's benefit (the
-# new operator in this same directory) - it needs an instance-admin machine-identity
-# token to call Infisical's API, and this chart's own post-install Job is the
-# declarative, one-shot way to mint one (infisical bootstrap CLI under the hood).
+# infisical.autoBootstrap: enabled so a fresh instance gets its organization and an
+# instance-admin machine identity declaratively (infisical bootstrap CLI under the hood),
+# rather than by clicking through setup. It was originally wanted for the retired
+# infisical-secretstore-operator, which consumed that identity's token; nothing consumes it by
+# default any more (provider-infisical uses its own hand-created universal-auth identity), so
+# the Instance Admin Identity's token is a leftover - revoke it once the instance is up.
 # `--ignore-if-bootstrapped=true` (chart default, unconditional) makes this safe to
 # leave enabled permanently - a no-op Job on every sync after the first.
 # organization: "idp" overrides the chart default "default-org" - traced through
@@ -109,8 +111,8 @@ spec:
           replicaCount: 1
           kubeSecretRef: infisical-secrets
           extraEnv:
-            # Required for infisical-secretstore-operator's Kubernetes Auth config
-            # (main.py's configure_kubernetes_auth()) to work at all - confirmed
+            # Required for provider-infisical's IdentityKubernetesAuth (which sets kubernetesHost to
+            # this cluster's in-cluster API address) to work at all - confirmed
             # live: Infisical's backend rejects kubernetesHost with a real "Local IPs
             # not allowed as URL" 400 otherwise, an SSRF guard that has no exception
             # for "this is a self-hosted instance and the target IS the same

@@ -46,7 +46,17 @@ spec:
     # idp.io` returned NotFound on kind-dev. v0.3.24..v0.3.35's only xrds/
     # compositions/ diff is that one addition (checked via `git diff --stat`) -
     # a clean, additive-only bump, not a version chosen at random.
-    targetRevision: v0.3.35
+    # 2026-09-23: v0.3.35 -> v0.3.82. REQUIRED, not cosmetic: the SecretStore Composition at
+    # v0.3.35 renders the retired infisical-secretstore-operator's InfisicalProject CR, and this
+    # template no longer installs that operator (it installs provider-infisical instead), so a
+    # cluster built from the old pin would compose objects with no CRD behind them. v0.3.81+
+    # is provider-infisical only; v0.3.82 also keeps Infisical projects/environments alive when
+    # a SecretStore is deleted. CAVEAT: this `full` scope (dev clusters) spans ~45 catalog
+    # releases and has NOT been built from this template at v0.3.82 - the live dev cluster
+    # (gitops-cluster-dev) runs a forked provider-github (v0.20.0-2.g7530c3d) and provider-helm
+    # that this template's crossplane/ directory does not ship. Re-verify the Bootstrap-tier
+    # XRDs on a real dev cluster before trusting it.
+    targetRevision: v0.3.82
     path: .
     directory:
       recurse: true

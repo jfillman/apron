@@ -1,28 +1,20 @@
-# Rebuilds airframe's hand-rolled infisical-secretstore-operator (kopf/Python,
-# operators/infisical-secretstore-operator/) as a real upjet-generated Crossplane
-# provider, wrapping the official Infisical/infisical Terraform provider instead of
-# hand-written REST calls. Source: github.com/jfillman/provider-infisical.
+# provider-infisical: the Crossplane provider airframe's SecretStore Composition drives to
+# provision Infisical projects, environments, machine identities (universal auth or
+# kubernetes auth) and project memberships. Source: github.com/jfillman/provider-infisical
+# (upjet-generated from the official Infisical/infisical Terraform provider). It REPLACES
+# the hand-rolled infisical-secretstore-operator, which is retired on every cluster - a
+# cluster built from this template installs no operator.
 #
-# Installed alongside the existing operator, not replacing it yet - the Composition
-# migration (SecretStore's templates re-pointed at this provider's native
-# Project/ProjectEnvironment/Identity/... kinds instead of
-# secrets.idp.io/v1alpha1 InfisicalProject/InfisicalEnvironment) is a separate,
-# later step, done once this install itself is live-verified. See the plan's Part A
-# rollout-safety section.
+# Version: v0.0.0-7.gb220ec2 or later is REQUIRED. Earlier builds (this file pinned
+# v0.0.0-5 until 2026-09-23) fail IdentityUniversalAuthClientSecret's first Observe
+# ("cannot unmarshal array into Go struct field ...") because upjet seeds the Terraform state
+# with an empty id and the Terraform provider then calls the client-secret LIST endpoint.
+# Fixed in -7 (a non-empty seeded id) - which universal auth, i.e. every remote-consumer
+# cluster, depends on. The package is a multi-arch index (amd64 and arm64).
 #
-# MVP resource set mirrors the current operator's scope exactly: Project,
-# ProjectEnvironment, Identity, IdentityUniversalAuth,
+# Resource set: Project, ProjectEnvironment, Identity, IdentityUniversalAuth,
 # IdentityUniversalAuthClientSecret, IdentityKubernetesAuth, ProjectIdentity - all
-# namespaced (infisical.m.hangar.io). Live-verified 2026-09-17 on kind-dev: full
-# create->Ready:True->delete lifecycle for Project/ProjectEnvironment/Identity/
-# IdentityUniversalAuth/ProjectIdentity (the last one with adoptExisting: true - the
-# native fix for the current operator's known non-idempotent membership-grant bug).
-# IdentityKubernetesAuth correctly surfaces a real upstream validation error against
-# an incomplete config (expected). IdentityUniversalAuthClientSecret hits a real bug
-# in terraform-provider-infisical's own Go SDK (GetIdentityUniversalAuthClientSecretResponse.clientSecretData
-# unmarshals an array into a single-object struct field) that blocks its Observe path
-# entirely - not fixable from this repo, worth filing upstream; the resource is
-# still installed since Create-side generation/config is otherwise correct.
+# namespaced (infisical.m.hangar.io).
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
@@ -31,7 +23,7 @@ metadata:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: crds-operators
 spec:
-  package: ghcr.io/jfillman/provider-infisical:v0.0.0-5.gc808a9d
+  package: ghcr.io/jfillman/provider-infisical:v0.0.0-7.gb220ec2
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig

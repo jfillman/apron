@@ -18,9 +18,9 @@
 # controller now composes directly (ConfigMap needed no such grant either way
 # - already covered by Crossplane's own core-API-group role).
 #
-# secrets.idp.io (InfisicalProject) added for the SecretStore Composition
-# (service-catalog-design.md Item 8) - same gap, same fix: composed directly, not a
-# Crossplane-owned API type. external-secrets.io/ClusterSecretStore is NOT here,
+# (secrets.idp.io InfisicalProject/InfisicalEnvironment were granted here for the retired
+# infisical-secretstore-operator path of the SecretStore Composition; removed 2026-09-23 - that
+# Composition now composes provider-infisical kinds, whose RBAC the provider package grants.) external-secrets.io/ClusterSecretStore is NOT here,
 # deliberately - that Composition wraps it in a provider-kubernetes Object instead
 # of composing it directly (Crossplane v2 rejects composing a cluster-scoped native
 # resource from this namespaced XR) - see
@@ -50,8 +50,4 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["sloth.slok.dev"]
     resources: ["prometheusservicelevels", "prometheusservicelevels/status"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["secrets.idp.io"]
-    resources:
-      ["infisicalprojects", "infisicalprojects/status", "infisicalenvironments", "infisicalenvironments/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

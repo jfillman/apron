@@ -6,19 +6,40 @@
 # Cluster-scoped one) so this one credential is referenceable from every namespace's
 # managed resources without duplicating the Secret per namespace.
 #
-# Auth: Universal Auth via a single admin-scoped machine identity - the
-# terraform-provider-infisical equivalent of the current operator's single shared
-# INFISICAL_ADMIN_TOKEN model (its own top-level client_id/client_secret and
-# service_token fields are explicitly deprecated in the provider's own docs; auth.universal
-# is the supported path). Credential JSON: {"host": "...", "client_id": "...",
-# "client_secret": "..."} - see internal/clients/infisical.go in
-# github.com/jfillman/provider-infisical for exactly how this maps into the
-# Terraform provider's own configuration block. The Secret itself is never committed
-# here - see provider-infisical-creds-external-secret.yaml (this directory).
+# Auth: Universal Auth via a machine identity with org-level admin - credential JSON:
+#   {"host": "http://dev.kiac.local:31800", "client_id": "...", "client_secret": "..."}
+# `host` has NO /api suffix (the Terraform provider appends its own; ESO's hostAPI is the
+# one that carries /api). Use the in-cluster Infisical Service URL on the host cluster.
+#
+# THE SECRET IS CREATED BY HAND, not delivered by an ExternalSecret (this directory used to
+# carry provider-infisical-creds-external-secret.yaml; removed 2026-09-23). Reason: the
+# obvious source is the platform project in Infisical, but that project is provisioned BY
+# this provider (external-secrets/secretstore-xr.yaml) - a credential that lives inside a
+# project its own consumer creates, adopts or recreates is a bootstrap cycle (the provider
+# cannot start until the project exists; the project cannot exist until the provider starts)
+# and a lockout waiting to happen. So:
+#   1. In Infisical, create a machine identity for THIS cluster (name it per cluster so it
+#      can be revoked independently), universal auth, org role able to create projects,
+#      identities and memberships, and a client secret.
+#   2. Put the JSON above in a file and create the Secret yourself, WITH the `credentials=`
+#      prefix so the key is `credentials` (without it the key becomes the filename and the
+#      provider reads nothing - "unexpected end of JSON input"):
+#        kubectl -n crossplane-system create secret generic provider-infisical-creds \
+#          --from-file=credentials=<path-to-that-file>
+#      then delete the file. Never commit or paste it.
+#   3. On a project the provider did NOT create (adopting an existing one), also make this
+#      identity an admin member of that project, or every read is a 403.
+#
+# Sync-wave 1 + SkipDryRunOnMissingResource: this kind's CRD only exists once
+# provider-infisical (provider-infisical.yaml) has installed and gone Healthy, so a first
+# sync would otherwise be rejected at dry-run and roll back the whole Application.
 apiVersion: infisical.m.hangar.io/v1beta1
 kind: ClusterProviderConfig
 metadata:
   name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
   labels:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: crds-operators

@@ -82,16 +82,18 @@ used in `platform_cicd_session_argocd_onboarding`.
   `infisical-secrets` Secret (`AUTH_SECRET`/`ENCRYPTION_KEY`/`SITE_URL`) and an
   `infisical-bootstrap-credentials` Secret (one-time admin login, consumed once by
   the bootstrap Job) - see the Application's header for both commands.
-- **`infisical-secretstore-operator/`** — kopf (Python) controller reconciling
-  `InfisicalProject` CRs against Infisical's real REST API (project + machine
-  identity + Universal Auth per (app,cluster) pair) - source in
-  `idp-service-catalog/operators/`. No registry yet - `kind load image-archive`'d
-  directly. Real bugs found live, not caught by any offline check: kopf's
-  `getpass.getuser()` crashes for a bare numeric UID with no `/etc/passwd` entry
-  (fixed with a `USER` env var + `--standalone`); a JWT-claim-decode approach to
-  discovering the Infisical org id doesn't work against real tokens (no such claim
-  exists) - replaced with a one-time-looked-up `INFISICAL_ORG_ID` constant;
-  `imagePullPolicy: Never` needs the image ref's `localhost/` prefix explicitly.
+- **`infisical-shared-k8s-auth/`** — the Infisical-host cluster's shared Infisical
+  infrastructure: the NodePort (31800) that exposes Infisical to every other cluster, and
+  the ServiceAccount/token Secret Infisical's Kubernetes Auth uses to TokenReview against
+  this cluster. Host cluster only (pruned by `hack/customize-cluster.sh` for remote
+  consumers). Split out of the retired `infisical-secretstore-operator/` directory
+  2026-09-23 - these manifests are not operator-specific.
+- **`crossplane/provider-infisical*.yaml`** — `provider-infisical` (upjet-generated from
+  the Infisical Terraform provider), which airframe's `SecretStore` Composition drives to
+  provision Infisical projects, environments and machine identities. **It replaces the
+  hand-rolled `infisical-secretstore-operator`** (kopf/Python, removed from this template
+  2026-09-23; the source is in airframe git history at v0.3.81 and earlier). Its credential
+  is created by hand, not by an ExternalSecret - see `provider-infisical-config.yaml`.
 - **`crossplane/provider-kubernetes-config.yaml`** (new) — `provider-kubernetes` was
   installed but never configured until the `SecretStore` Composition needed it:
   Crossplane v2 rejects composing a cluster-scoped native resource
@@ -103,7 +105,7 @@ used in `platform_cicd_session_argocd_onboarding`.
 
 Full chain live-proven on `kind-dev`, not just "resources exist": a real
 `SecretStore` XR → a real Infisical project + environment + machine identity +
-Universal Auth credentials (via `infisical-secretstore-operator`) → a real,
+Universal Auth credentials (originally via the now-retired `infisical-secretstore-operator`, since `provider-infisical`) → a real,
 `Ready: True` `ClusterSecretStore` → a real secret written to Infisical's own API →
 pulled by a real `ExternalSecret` into a real Kubernetes Secret with the correct
 value. Also surfaced a real, pre-existing bug in the already-shipped

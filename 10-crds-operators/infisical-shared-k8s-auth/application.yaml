@@ -1,0 +1,43 @@
+# infisical-shared-k8s-auth - the Infisical-host cluster's shared Infisical infrastructure:
+# the NodePort that exposes Infisical to every OTHER cluster (which reach it as a remote
+# consumer at dev.kiac.local:31800), and the ServiceAccount/token Secret Infisical's own
+# Kubernetes Auth uses to TokenReview against THIS cluster's API.
+#
+# Lived inside the infisical-secretstore-operator's directory until 2026-09-23, when that
+# operator was retired (replaced by provider-infisical driven by airframe's SecretStore
+# XRD). These manifests are NOT operator-specific - they outlive it - so they get their own
+# Application, exactly as gitops-cluster-dev already did when it split this out.
+#
+# Host cluster only: hack/customize-cluster.sh prunes this whole directory for a cluster
+# that does not run Infisical itself (components.secrets.infisicalHost: false) - a remote
+# consumer needs neither the NodePort nor the token reviewer (only the host cluster's
+# Infisical validates Kubernetes Auth requests; every other cluster uses Universal Auth).
+#
+# The SecretStore Composition's kubernetes-auth branch reads infisical-token-reviewer-token
+# (ExtraResources lookup, namespace infisical) to configure Infisical's Kubernetes Auth for
+# this cluster's own app projects - that is what this directory provides.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infisical-shared-k8s-auth
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+    targetRevision: main
+    path: 10-crds-operators/infisical-shared-k8s-auth
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: infisical
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

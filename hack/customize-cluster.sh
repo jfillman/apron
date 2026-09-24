@@ -99,6 +99,16 @@ if [ "${TYPE}" = "upper" ] && [ "${SERVICE_CATALOG_SCOPE}" = "full" ]; then
   die "type: upper should not set components.serviceCatalog.scope: full — that includes Bootstrap-tier XRDs, which require providerGithub (refused above). Use scope: attached-tier-only."
 fi
 
+# A remote-consumer cluster (external-secrets without the Infisical server) provisions its
+# platform Infisical project through a SecretStore XR (10-crds-operators/external-secrets/
+# secretstore-xr.yaml), which needs airframe's SecretStore XRD + Composition installed by
+# 20-service-catalog/. Without the service catalog that XR has no CRD to land on and
+# platform-secret-store would never get credentials. (Before 2026-09-23 this cluster shape
+# needed the infisical-secretstore-operator instead; that operator is retired.)
+if [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && [ "${SERVICE_CATALOG_ENABLED}" != "true" ]; then
+  die "components.externalSecrets: true on a cluster that does not host Infisical (secrets.infisicalHost: false) requires components.serviceCatalog.enabled: true - the platform Infisical project is a SecretStore XR, which needs the service catalog's SecretStore XRD."
+fi
+
 log "1/5 - pruning components not selected in ${CONFIG}"
 
 prune() {
@@ -133,38 +143,27 @@ fi
 
 if [ "${EXTERNAL_SECRETS}" = "true" ]; then
   if [ "${INFISICAL_HOST}" = "true" ]; then
-    # This cluster runs the real Infisical server — the other clusters' "remote
-    # consumer" files don't apply here.
+    # This cluster runs the real Infisical server - the remote-consumer files don't apply
+    # here. Its platform project is provisioned by platform-cicd's own control-plane chart
+    # (a SecretStore XR rendered from the chart), not by external-secrets/secretstore-xr.yaml.
     prune "10-crds-operators/external-secrets/cluster-secret-store.yaml"
-    prune "10-crds-operators/external-secrets/infisical-project.yaml"
+    prune "10-crds-operators/external-secrets/secretstore-xr.yaml"
     prune "10-crds-operators/external-secrets/registry-credentials-cluster-external-secret.yaml"
     prune "10-crds-operators/external-secrets/packages-application.yaml"
-    prune "10-crds-operators/infisical-secretstore-operator/deployment.remote-consumer.yaml"
   else
-    # Remote consumer — this cluster doesn't run its own Infisical server, so it also
-    # doesn't need the NodePort that exposes it cross-cluster or the ServiceAccount
-    # Infisical's own Kubernetes Auth uses to TokenReview against THIS cluster's API
-    # (only the host cluster's Infisical instance validates Kubernetes Auth requests
-    # at all — every other cluster, including a hypothetical second dev cluster, uses
-    # Universal Auth instead, per gitops-cluster-dev's own cluster-registry
-    # infisicalHost note).
+    # Remote consumer - this cluster doesn't run its own Infisical server, so it also
+    # doesn't need infisical-shared-k8s-auth (the NodePort that exposes Infisical
+    # cross-cluster, and the ServiceAccount Infisical's own Kubernetes Auth uses to
+    # TokenReview against THIS cluster's API - only the host cluster's Infisical validates
+    # Kubernetes Auth requests at all; every other cluster uses Universal Auth instead, per
+    # gitops-cluster-dev's own cluster-registry infisicalHost note).
     prune "10-crds-operators/infisical"
-    prune "10-crds-operators/infisical-secretstore-operator/infisical-nodeport.yaml"
-    prune "10-crds-operators/infisical-secretstore-operator/token-reviewer-rbac.yaml"
-    # Swap in the remote-consumer variant of the operator's own Deployment - same
-    # full/attached-tier-only swap pattern as idp-service-catalog/application.yaml
-    # below. Real bug this closes: the host-variant deployment.yaml (still the
-    # unconditional default before this swap existed) references
-    # infisical-token-reviewer-token, a Secret that token-reviewer-rbac.yaml (just
-    # pruned above) is the only thing that ever creates - CreateContainerConfigError
-    # on every remote-consumer cluster, caught live on kind-man 2026-08-26.
-    prune "10-crds-operators/infisical-secretstore-operator/deployment.yaml"
-    mv "10-crds-operators/infisical-secretstore-operator/deployment.remote-consumer.yaml" \
-       "10-crds-operators/infisical-secretstore-operator/deployment.yaml"
+    prune "10-crds-operators/infisical-shared-k8s-auth"
   fi
 else
   prune "10-crds-operators/external-secrets"
   prune "10-crds-operators/infisical"
+  prune "10-crds-operators/infisical-shared-k8s-auth"
 fi
 
 if [ "${SERVICE_CATALOG_ENABLED}" = "true" ]; then
@@ -309,8 +308,8 @@ cat <<EOF
    this script does not push to that repo itself.
 
 $( [ "${INFISICAL_HOST}" = "true" ] && echo "3. Create infisical-secrets / infisical-bootstrap-credentials by hand before 10-crds-operators/infisical/application.yaml's first sync — see that file's own header for the exact kubectl create secret commands. Never paste these into chat." )
-$( [ "${INFISICAL_HOST}" = "true" ] && echo "3b. Once Infisical's autoBootstrap Job has run, fill in the real org id in place of __INFISICAL_ORG_ID__ in 10-crds-operators/infisical-secretstore-operator/deployment.yaml — see that file's own header for the exact lookup command. Nothing reads InfisicalProject/InfisicalEnvironment CRs correctly until this is a real value." )
-$( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && echo "3c. Copy infisical-bootstrap-secret from kind-dev's infisical namespace into this cluster's own infisical namespace (kubectl-to-kubectl pipe, never pasted/displayed — see 10-crds-operators/infisical-secretstore-operator/deployment.yaml's own header) before the infisical-secretstore-operator Deployment can start. Also verify that file's INFISICAL_API_URL still matches kind-dev's live NodePort address — it drifts on kind-dev restarts/rebuilds and the committed value can be stale." )
+$( [ "${EXTERNAL_SECRETS}" = "true" ] && echo "3b. Create the provider-infisical credential by hand BEFORE the first sync of 10-crds-operators/crossplane/: a universal-auth machine identity for THIS cluster in Infisical, then kubectl -n crossplane-system create secret generic provider-infisical-creds --from-file=credentials=<file> - WITH the credentials= prefix, or the provider reads nothing. See provider-infisical-config.yaml's header for the JSON shape and why this is NOT an ExternalSecret (bootstrap cycle with the platform project it provisions). Never paste it into chat or commit it." )
+$( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && echo "3c. Set the dev.kiac.local hostAliases IP to the address your fleet's Infisical NodePort is reachable on, in BOTH 10-crds-operators/external-secrets/application.yaml and 10-crds-operators/crossplane/provider-infisical-runtime.yaml (template defaults - they drift), and confirm the provider credential's host is http://dev.kiac.local:31800 (no /api). The platform project (external-secrets/secretstore-xr.yaml) is created on first sync by the SecretStore Composition; if a project with that slug already exists in Infisical from an earlier cluster, adopt it instead - see that file's header." )
 $( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Nothing to run by hand for Fulcio/Rekor - hooks/fulcio-bootstrap-job.yaml generates this cluster's own Fulcio root live on first sync (values-${CLUSTER_NAME}.yaml deliberately carries no Fulcio material, ADR-0006), and 50-platform-cicd/rekor/ deploys Rekor/Trillian/MySQL from the real upstream chart with the credentials already generated into values-secrets.yaml above. Only ever run platform-cicd/hack/generate-cluster-values.sh FORCE=1 by hand later, and only to deliberately rotate the Fulcio root." )
 
 5. Run the real cluster bootstrap sequence (kind create cluster / Calico / apply

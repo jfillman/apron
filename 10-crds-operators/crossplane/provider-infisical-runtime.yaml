@@ -25,4 +25,19 @@ spec:
         matchLabels:
           pkg.crossplane.io/provider: provider-infisical
       template:
-        spec: {}
+        spec:
+          # Remote-consumer clusters reach Infisical at dev.kiac.local, which pod DNS cannot
+          # resolve (CoreDNS never consults the host's /etc/hosts), so the provider pod needs
+          # the same hostAliases entry external-secrets/application.yaml carries. The IP is a
+          # TEMPLATE DEFAULT - set it to the address Infisical's NodePort is reachable on for
+          # your fleet, and keep it in step with that file. Unused (harmless) on the Infisical
+          # host cluster, whose provider credential points at the in-cluster Service instead.
+          hostAliases:
+            - ip: "192.168.64.11"
+              hostnames:
+                - "dev.kiac.local"
+          # containers[0].name is required even with no other overrides:
+          # deploymentTemplate.spec.template.spec.containers is a required field, not an
+          # optional strategic-merge overlay - an empty `spec: {}` fails validation.
+          containers:
+            - name: package-runtime
