@@ -64,6 +64,8 @@ spec:
     - group: catalog.idp.io
       kind: SpringBootApplication
     - group: catalog.idp.io
+      kind: InfraService
+    - group: catalog.idp.io
       kind: ApplicationEnvironment
     - group: catalog.idp.io
       kind: SecretStore
