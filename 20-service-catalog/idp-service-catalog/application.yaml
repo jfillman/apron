@@ -56,7 +56,7 @@ spec:
     # (gitops-cluster-dev) runs a forked provider-github (v0.20.0-2.g7530c3d) and provider-helm
     # that this template's crossplane/ directory does not ship. Re-verify the Bootstrap-tier
     # XRDs on a real dev cluster before trusting it.
-    targetRevision: v0.3.85
+    targetRevision: v0.3.86
     path: .
     directory:
       recurse: true
