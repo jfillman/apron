@@ -106,10 +106,17 @@ spec:
               namespace:
                 labels:
                   hangar.io/managed-secrets: "true"
+            # D9/AF-5 release-file split (hangar/docs/autopilot/release-file-split.md):
+            # base < values < release, last wins. Both base.yaml and release.yaml are
+            # optional until an app opts in - ignoreMissingValueFiles covers both,
+            # neither exists for any live app yet.
+            ignoreMissingValueFiles: true
             valueFiles:
               # $-ref value files resolve relative to that source's checkout ROOT -
               # confirmed live in platform-cicd's own version of this pattern.
+              - $appsrc/kind-dev/base.yaml
               - $appsrc/kind-dev/{{.env}}/values.yaml
+              - $appsrc/kind-dev/{{.env}}/release.yaml
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           ref: appsrc
@@ -156,8 +163,11 @@ spec:
               namespace:
                 labels:
                   hangar.io/managed-secrets: "true"
+            ignoreMissingValueFiles: true
             valueFiles:
+              - $appsrc/kind-dev/base.yaml
               - $appsrc/kind-dev/{{.env}}/values.yaml
+              - $appsrc/kind-dev/{{.env}}/release.yaml
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           ref: appsrc

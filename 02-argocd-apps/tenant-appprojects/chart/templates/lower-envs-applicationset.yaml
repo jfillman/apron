@@ -63,7 +63,15 @@ spec:
         repoURL: {{ .Values.appRepoUrl }}
         revision: main
         files:
+          # D9/AF-5 release-file split: platform/envs/*.yaml's own glob also matches
+          # *.release.yaml (a bare `*` matches the dot too), so the release file has
+          # to be explicitly excluded here or it would generate a second, bogus
+          # Application per env (envName would come from a machine-owned file with no
+          # envName: field of its own). Proven live on a scratch copy of this exact
+          # generator shape 2026-09-27 - see release-file-split.md's "Proven live".
           - path: "platform/envs/*.yaml"
+          - path: "platform/envs/*.release.yaml"
+            exclude: true
   template:
     metadata:
       name: "{{ .Values.appName }}-{{ "{{" }}.envName{{ "}}" }}"
@@ -129,7 +137,13 @@ spec:
               namespace:
                 labels:
                   hangar.io/managed-secrets: "true"
+            # D9/AF-5 release-file split: base < human env file < release file, last
+            # wins (Helm deep-merges maps). base.yaml and the release file are both
+            # optional until an app opts in (no live app's cicd.yaml sets
+            # deploy.releaseFile yet) - ignoreMissingValueFiles covers both.
+            ignoreMissingValueFiles: true
             valueFiles:
+              - $appsrc/platform/base.yaml
               # Confirmed live (two real failures getting here, both left as history
               # in this comment since the exact shape of ArgoCD's git-files-generator
               # `path` param isn't documented anywhere in this project otherwise):
@@ -147,6 +161,13 @@ spec:
               # single convenience field because none exists in this generator's
               # param shape.
               - $appsrc/{{ "{{" }}.path.path{{ "}}" }}/{{ "{{" }}.path.filename{{ "}}" }}
+              # The release file's own path can't be built from this SAME matched-file
+              # entry's params (it's excluded from generation by the entry above, so
+              # it never becomes .path.* here) - built by convention from .envName
+              # instead, matching exactly where deploy-manifests.yaml (glidepath)
+              # writes it once an app's cicd.yaml sets
+              # deploy.releaseFile: platform/envs/{env}.release.yaml.
+              - $appsrc/platform/envs/{{ "{{" }}.envName{{ "}}" }}.release.yaml
         # Source 1: $ref-only into the SAME app repo the generator above already
         # reads from - this tier has no separate gitops repo at all (§10's whole
         # point). directory.exclude: "*" - without it, ArgoCD's directory-source
