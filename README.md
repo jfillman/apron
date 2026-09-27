@@ -11,7 +11,7 @@ means using this repo as a GitHub template, running one script against a small
 declarative config, and following the bootstrap sequence below — instead of hand-
 copying the last cluster's repo and hoping nothing real diverged silently (the
 divergence between the fleet's first two clusters, `gitops-cluster-dev` and
-`gitops-cluster-kind-prod`, is exactly what motivated building this).
+`gitops-cluster-prod`, is exactly what motivated building this).
 
 See `idp/docs/cluster-provisioning.md` for the full design.
 
@@ -19,7 +19,7 @@ See `idp/docs/cluster-provisioning.md` for the full design.
 
 1. **Use this template** (GitHub's own "Use this template" button — mark this repo as
    a template repository in its GitHub settings first, one-time setup) to create a new
-   repo, e.g. `gitops-cluster-kind-staging`. Clone it locally.
+   repo, e.g. `gitops-cluster-staging`. Clone it locally.
 2. `cp cluster.yaml.example cluster.yaml` and edit it — at minimum `clusterName`,
    `clusterRepoName`, and `type` (`dev` or `upper`). See that file's own comments for
    the full schema, including the component-subset toggles.
@@ -34,7 +34,7 @@ See `idp/docs/cluster-provisioning.md` for the full design.
 
 ## What this template does *not* model yet
 
-- **AI-triage / HolmesGPT** (`30-ai-triage/` on `gitops-cluster-kind-prod`) — that
+- **AI-triage / HolmesGPT** (`30-ai-triage/` on `gitops-cluster-prod`) — that
   mechanism is still only partially designed platform-wide
   (`idp/docs/gitops-strategy.md`'s "Forward-looking" section), so there's no
   `components.aiTriage` toggle here yet. Add one the same way the existing toggles
@@ -64,7 +64,7 @@ cluster's own repo carries a copy of.
 
 ## Bootstrap sequence
 
-Same shape as both existing clusters' own (`gitops-cluster-kind-prod/README.md`'s
+Same shape as both existing clusters' own (`gitops-cluster-prod/README.md`'s
 "Bootstrap steps, in order" is the most current, GitOps-native version — this repo's
 own `01-argocd-platform/README.md` predates and describes the same steps in more
 detail):
