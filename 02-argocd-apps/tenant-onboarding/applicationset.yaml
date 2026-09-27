@@ -125,6 +125,16 @@ spec:
       syncPolicy:
         automated:
           selfHeal: true
+        # retry: a brand-new environment's first sync can lose a race with its own identity Application
+        # (airframe-identity creates the platform-outcome-hook ServiceAccount the PreSync hook Job needs), and
+        # selfHeal does NOT retry a failed sync operation (it reacts to drift). Without a retry policy the
+        # Application stays failed until someone syncs it by hand. Found 2026-09-27 on baggage-api-staging.
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 10m
         syncOptions:
           # Harmless to leave set - a no-op once idp-application's own Namespace
           # manifest already declares the namespace (only fires when the destination
