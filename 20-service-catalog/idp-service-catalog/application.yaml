@@ -56,11 +56,19 @@ spec:
     # (gitops-cluster-dev) runs a forked provider-github (v0.20.0-2.g7530c3d) and provider-helm
     # that this template's crossplane/ directory does not ship. Re-verify the Bootstrap-tier
     # XRDs on a real dev cluster before trusting it.
-    targetRevision: v0.3.94
+    # 2026-09-28: v0.3.94 -> v0.3.96 (AF-6a ComponentReady + SP-3 MongoDB), and `include` narrowed
+    # from the `xrds/*.yaml` wildcard to an explicit per-file list - the same fix gitops-cluster-dev
+    # needed at v0.3.95 (commit 2925bdd there). AF-3 added non-manifest xrds/<type>.meta.yaml
+    # sidecars (component output contracts, no apiVersion/kind); SP-3's xrds/mongodb.meta.yaml is a
+    # fourth one. A cluster bootstrapped from this template at the old wildcard would hand ArgoCD
+    # every .meta.yaml file as an invalid manifest the moment it synced past v0.3.94. Listed every
+    # real XRD file as of this tag (14); a future XRD needs adding here too, same as
+    # compositions/*/composition.yaml already requires per-composition entries there.
+    targetRevision: v0.3.96
     path: .
     directory:
       recurse: true
-      include: "{xrds/*.yaml,compositions/*/composition.yaml}"
+      include: "{xrds/applicationenvironment.yaml,xrds/goapplication.yaml,xrds/infraservice.yaml,xrds/mongodb.yaml,xrds/nodejsapplication.yaml,xrds/postgresql.yaml,xrds/pythonapplication.yaml,xrds/rabbitmq.yaml,xrds/redis.yaml,xrds/rolloutwatch.yaml,xrds/secretstore.yaml,xrds/slo.yaml,xrds/springbootapplication.yaml,xrds/tektoncicd.yaml,compositions/*/composition.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: crossplane-system

@@ -123,7 +123,7 @@ spec:
         # registered git credentials for private app repos like checkout-api - see
         # argocd-repo-creds-jfillman, this namespace).
         - repoURL: {{ .Values.idpServiceCatalogRepoUrl }}
-          targetRevision: v0.3.94
+          targetRevision: v0.3.96
           path: charts/airframe-application
           helm:
             valuesObject:
