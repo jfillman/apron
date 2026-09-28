@@ -60,8 +60,13 @@ spec:
               appName: "{{.appName}}"
               cluster: kind-dev
               envName: "{{.env}}"
+            # releaseTracking (which this chart keys the hook identity on) lives in release.yaml once an app
+            # sets deploy.releaseFile (D9/AF-5), so read it here too - without it a new app's release hooks had
+            # no ServiceAccount and every release sync hung at PreSync. Same files as tenant-onboarding.
+            ignoreMissingValueFiles: true
             valueFiles:
               - $appsrc/kind-dev/{{.env}}/values.yaml
+              - $appsrc/kind-dev/{{.env}}/release.yaml
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           ref: appsrc
