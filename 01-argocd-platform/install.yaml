@@ -31440,16 +31440,16 @@ data:
     hs.status = "Healthy"
     hs.message = "Not tracking Bound status - WaitForFirstConsumer PVCs stay Pending until first real consumer schedules, which is expected, not a failure (see comment above this key in argocd-cm)."
     return hs
-  # Crossplane XR/Claim health - every idp-service-catalog XRD (catalog.idp.io/*, see
+  # Crossplane XR/Claim health - every idp-service-catalog XRD (catalog.hangar.io/*, see
   # idp-service-catalog/xrds/) exposes the standard Crossplane Synced/Ready conditions;
   # ArgoCD has no built-in notion of them, so composites otherwise sit at "Unknown"
   # forever. Bulk wildcard form (not the per-key resource.customizations.health.<group>_
   # <kind> style, which can't glob) so new XRD kinds added later are covered without
-  # another argocd-cm edit. Scoped to catalog.idp.io specifically, not a generic
+  # another argocd-cm edit. Scoped to catalog.hangar.io specifically, not a generic
   # crossplane.io wildcard - this cluster's XRDs are the only composites ArgoCD is
   # expected to render health for today.
   resource.customizations: |
-    catalog.idp.io/*:
+    catalog.hangar.io/*:
       health.lua: |
         health_status = {}
         if obj.status == nil or obj.status.conditions == nil then

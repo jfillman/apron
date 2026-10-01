@@ -42,14 +42,14 @@ spec:
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
-  # Explicit kinds, not a wildcard on the catalog.idp.io group - Attached-tier XRDs
+  # Explicit kinds, not a wildcard on the catalog.hangar.io group - Attached-tier XRDs
   # (SLO, future Redis/OAuthServer) are also in this group but are deliberately NOT
   # meant to go through xr-requests/ (they're values.yaml fields in the app's own
   # gitops repo, rendered by the idp-application chart).
   #
   # SecretStore added 2026-08-18 (Item 8's second multi-cluster revision) - real gap
   # caught live the first time NodeJSApplication's own new secretstore-xr.yaml
-  # commit actually synced: "resource catalog.idp.io:SecretStore is not permitted in
+  # commit actually synced: "resource catalog.hangar.io:SecretStore is not permitted in
   # project idp-onboarding". Unlike SLO/Redis/OAuthServer, SecretStore genuinely does
   # go through xr-requests/ now (NodeJSApplication/ApplicationEnvironment both commit
   # it directly) - not a values.yaml/chart-rendered Attached resource anymore.
@@ -59,13 +59,13 @@ spec:
   # gitops-cluster-kind-prod's narrower copy of this file). Hit the same
   # "not permitted in project idp-onboarding" gap live on the first order-api commit.
   namespaceResourceWhitelist:
-    - group: catalog.idp.io
+    - group: catalog.hangar.io
       kind: NodeJSApplication
-    - group: catalog.idp.io
+    - group: catalog.hangar.io
       kind: SpringBootApplication
-    - group: catalog.idp.io
+    - group: catalog.hangar.io
       kind: InfraService
-    - group: catalog.idp.io
+    - group: catalog.hangar.io
       kind: ApplicationEnvironment
-    - group: catalog.idp.io
+    - group: catalog.hangar.io
       kind: SecretStore

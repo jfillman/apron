@@ -281,7 +281,7 @@ spec:
             # ordering alone got the ExternalSecret object created first, but the next
             # wave's Job still started before ESO had actually populated the Secret.
             # Standard ESO status.conditions[].type == "Ready" check, same
-            # Synced/Ready-condition shape as catalog.idp.io/*'s own health.lua below,
+            # Synced/Ready-condition shape as catalog.hangar.io/*'s own health.lua below,
             # just a single specific Kind via the flat resource.customizations.health.
             # key form (like PersistentVolumeClaim above) rather than that block's
             # nested per-group form.
@@ -305,7 +305,7 @@ spec:
               hs.message = "Waiting for ExternalSecret to sync"
               return hs
             resource.customizations: |
-              catalog.idp.io/*:
+              catalog.hangar.io/*:
                 health.lua: |
                   health_status = {}
                   if obj.status == nil or obj.status.conditions == nil then
