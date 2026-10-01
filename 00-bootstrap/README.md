@@ -27,7 +27,7 @@ Namespace inventory, by owner, as of 2026-08-12:
 | `observability` | `kube-prometheus-stack`/`loki`/`minio`/`otel-collector`/`tempo`/`thanos` — `40-observability/` |
 | `holmesgpt` | Own Helm chart — `40-observability/` (tentative grouping, see that dir's README) |
 | `platform-system`, `platform-catalog`, `platform-secrets`, `pipelines-as-code`, `tekton-pipelines`, `tekton-pipelines-resolvers`, `tekton-chains`, `fulcio-system`, `rekor-system` | `platform-cicd`'s own charts + raw installs — `50-platform-cicd/` |
-| `app-<name>-<env>` (per app, e.g. `app-nodejs-demo-app-cicd`) | Per-app onboarding — will move to `gitops-cluster-dev-tenants` (Phase 2) |
+| `app-<name>-<env>` (per app, e.g. `app-boarding-api-cicd`) | Per-app onboarding — will move to `gitops-cluster-dev-tenants` (Phase 2) |
 | `demo`, `demo-apps` | `ai-rollout`'s standalone demo (folded into `idp`'s design, not this cluster-config repo — see Item 7/8 discussion in `service-catalog-design.md`) |
 
 **Known, real gap, not addressed by this pass**: no `NetworkPolicy` enforcement anywhere
