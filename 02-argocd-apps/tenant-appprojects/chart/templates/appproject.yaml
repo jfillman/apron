@@ -18,7 +18,10 @@ spec:
   description: "Per-app AppProject for {{ .Values.appName }}, gitops-strategy.md §6"
   sourceRepos:
     - {{ .Values.idpServiceCatalogRepoUrl }}
+    {{- /* No gitops repo (a function): nothing to allow, and a null entry is invalid. */}}
+    {{- if .Values.gitopsRepoUrl }}
     - {{ .Values.gitopsRepoUrl }}
+    {{- end }}
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "app-{{ .Values.appName }}-*"
