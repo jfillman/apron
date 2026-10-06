@@ -69,8 +69,18 @@ spec:
           # Application per env (envName would come from a machine-owned file with no
           # envName: field of its own). Proven live on a scratch copy of this exact
           # generator shape 2026-09-27 - see release-file-split.md's "Proven live".
+          #
+          # ADR-0018 dual-path window: an app repo keeps its environments in platform/ or, once
+          # moved, glidepath/. Both are watched; everything below derives its paths from the
+          # matched file's own folder, so a repo on either side renders the same Applications.
+          # An env file in both folders would be two Applications with one name - the
+          # ApplicationSet then refuses to update this app's set (not other apps'), and
+          # deploy-manifests refuses to deploy it.
           - path: "platform/envs/*.yaml"
           - path: "platform/envs/*.release.yaml"
+            exclude: true
+          - path: "glidepath/envs/*.yaml"
+          - path: "glidepath/envs/*.release.yaml"
             exclude: true
   template:
     metadata:
@@ -143,7 +153,8 @@ spec:
             # deploy.releaseFile yet) - ignoreMissingValueFiles covers both.
             ignoreMissingValueFiles: true
             valueFiles:
-              - $appsrc/platform/base.yaml
+              # The folder the matched env file lives in (platform or glidepath, ADR-0018).
+              - $appsrc/{{ "{{" }}index .path.segments 0{{ "}}" }}/base.yaml
               # Confirmed live (two real failures getting here, both left as history
               # in this comment since the exact shape of ArgoCD's git-files-generator
               # `path` param isn't documented anywhere in this project otherwise):
@@ -167,7 +178,7 @@ spec:
               # instead, matching exactly where deploy-manifests.yaml (glidepath)
               # writes it once an app's cicd.yaml sets
               # deploy.releaseFile: platform/envs/{env}.release.yaml.
-              - $appsrc/platform/envs/{{ "{{" }}.envName{{ "}}" }}.release.yaml
+              - $appsrc/{{ "{{" }}.path.path{{ "}}" }}/{{ "{{" }}.envName{{ "}}" }}.release.yaml
         # Source 1: $ref-only into the SAME app repo the generator above already
         # reads from - this tier has no separate gitops repo at all (§10's whole
         # point). directory.exclude: "*" - without it, ArgoCD's directory-source
