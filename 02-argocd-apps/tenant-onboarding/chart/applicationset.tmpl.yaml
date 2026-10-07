@@ -1,6 +1,8 @@
 # Rendered by chart/templates/render.yaml (ADR-0023 slice 1): this file is read raw with .Files.Get, so ArgoCD's
 # own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ placeholders are substituted,
-# from the cluster's one default chart in cluster-defaults.yaml at the repo root.
+# from the cluster's one default chart in cluster-defaults.yaml at the repo root. An environment's identity.yaml may
+# carry its own `chart` ({repoURL, path | chart, targetRevision}, written fully resolved by Glidepath from cicd.yaml's
+# deploy.chart / environments[].chart, ADR-0023 slice 4); each field it does not set falls back to the default.
 # Not named applicationset.yaml: the root Application applies every **/applicationset.yaml raw.
 # The real §5 two-source Application, one per (app, env) - generated from
 # gitops-cluster-dev-tenants/tenants/<app>/<env>/identity.yaml. Direct descendant of
@@ -98,9 +100,11 @@ spec:
     spec:
       project: "{{.appName}}"
       sources:
-        - repoURL: __DEFAULT_CHART_REPO_URL__
-          targetRevision: __DEFAULT_CHART_TARGET_REVISION__
-          path: __DEFAULT_CHART_PATH__
+        - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
+          targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
+          # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
+          path: '{{ if dig "chart" "chart" "" . }}{{ else }}{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}{{ end }}'
+          chart: '{{ dig "chart" "chart" "" . }}'
           helm:
             valuesObject:
               appName: "{{.appName}}"
@@ -161,9 +165,11 @@ spec:
     {{- if .configMapGenerator }}
     spec:
       sources:
-        - repoURL: __DEFAULT_CHART_REPO_URL__
-          targetRevision: __DEFAULT_CHART_TARGET_REVISION__
-          path: __DEFAULT_CHART_PATH__
+        - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
+          targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
+          # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
+          path: '{{ if dig "chart" "chart" "" . }}{{ else }}{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}{{ end }}'
+          chart: '{{ dig "chart" "chart" "" . }}'
           helm:
             valuesObject:
               appName: "{{.appName}}"
