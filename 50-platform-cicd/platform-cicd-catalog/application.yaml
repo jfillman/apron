@@ -17,14 +17,22 @@ metadata:
     hangar.io/subcomponent: platform-cicd
 spec:
   project: default
-  source:
-    repoURL: https://github.com/jfillman/glidepath.git
-    targetRevision: main
-    path: charts/glidepath-catalog
-    helm:
-      releaseName: platform-cicd-catalog
-      valuesObject:
-        tektonChainsNamespace: tekton-pipelines
+  sources:
+    - repoURL: https://github.com/jfillman/glidepath.git
+      targetRevision: main
+      path: charts/glidepath-catalog
+      helm:
+        releaseName: platform-cicd-catalog
+        valuesObject:
+          tektonChainsNamespace: tekton-pipelines
+        valueFiles:
+          # defaultChart: the values gate runs airframe-validate at this cluster's default chart tag (ADR-0023 slice 1).
+          - $clustercfg/cluster-defaults.yaml
+    - repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
   destination:
     server: https://kubernetes.default.svc
     namespace: platform-catalog

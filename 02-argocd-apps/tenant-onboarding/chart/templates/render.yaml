@@ -1,0 +1,5 @@
+{{- $c := required "defaultChart must be set (cluster-defaults.yaml)" .Values.defaultChart -}}
+{{- .Files.Get "applicationset.tmpl.yaml"
+  | replace "__DEFAULT_CHART_REPO_URL__" (required "defaultChart.repoURL" $c.repoURL)
+  | replace "__DEFAULT_CHART_PATH__" (required "defaultChart.path" $c.path)
+  | replace "__DEFAULT_CHART_TARGET_REVISION__" (required "defaultChart.targetRevision" $c.targetRevision) }}

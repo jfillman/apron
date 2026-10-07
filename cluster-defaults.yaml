@@ -1,0 +1,13 @@
+# This cluster's defaults, in one place (ADR-0023 slice 1).
+#
+# defaultChart: the chart every environment on this cluster renders unless the app pins its own (deploy.chart, a
+# later ADR-0023 slice). Read by: the Flight tenant-onboarding ApplicationSet (02-argocd-apps/tenant-onboarding/application.yaml),
+# the Glidepath control plane (forwarded to every app's glidepath-app: PR previews, and Ground environments once
+# ADR-0023 slice 3 lands) and the Glidepath catalog (the values gate runs airframe-validate at this same tag).
+#
+# Upgrading it: glidepath docs/admin/adr/0023-per-app-chart-deploy-chart.md "Upgrading the cluster default" - render every
+# live env file on the old and new chart and diff first; one PR bumps this file; rollback = revert it.
+defaultChart:
+  repoURL: https://github.com/jfillman/airframe.git
+  path: charts/airframe-application
+  targetRevision: v0.3.118
