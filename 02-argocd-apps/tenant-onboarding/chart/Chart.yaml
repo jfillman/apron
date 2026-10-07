@@ -1,0 +1,4 @@
+apiVersion: v2
+name: tenant-onboarding
+description: The Flight tenant-onboarding ApplicationSet, with the cluster's default environment chart from cluster-defaults.yaml.
+version: 0.1.0

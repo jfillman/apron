@@ -33,6 +33,8 @@ spec:
         valueFiles:
           # $-ref resolves relative to that source's checkout ROOT.
           - $clustercfg/50-platform-cicd/platform-cicd-control-plane/values-kind-dev.yaml
+          # defaultChart: forwarded to every app's glidepath-app (ADR-0023 slice 1).
+          - $clustercfg/cluster-defaults.yaml
     - repoURL: https://github.com/jfillman/gitops-cluster-dev.git
       targetRevision: main
       ref: clustercfg

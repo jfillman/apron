@@ -126,7 +126,8 @@ spec:
         # registered git credentials for private app repos like checkout-api - see
         # argocd-repo-creds-jfillman, this namespace).
         - repoURL: {{ .Values.idpServiceCatalogRepoUrl }}
-          targetRevision: v0.3.97
+          # Matches cluster-defaults.yaml until ADR-0023 slice 3 moves this ApplicationSet into glidepath-app.
+          targetRevision: v0.3.118
           path: charts/airframe-application
           helm:
             valuesObject:

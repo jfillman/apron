@@ -1,3 +1,7 @@
+# Rendered by chart/templates/render.yaml (ADR-0023 slice 1): this file is read raw with .Files.Get, so ArgoCD's
+# own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ placeholders are substituted,
+# from the cluster's one default chart in cluster-defaults.yaml at the repo root.
+# Not named applicationset.yaml: the root Application applies every **/applicationset.yaml raw.
 # The real §5 two-source Application, one per (app, env) - generated from
 # gitops-cluster-dev-tenants/tenants/<app>/<env>/identity.yaml. Direct descendant of
 # platform-cicd's own tenant-onboarding-applicationset.yaml (CICD onboarding), same
@@ -69,6 +73,9 @@ metadata:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: tenant-onboarding
 spec:
+  # Deleting or replacing this ApplicationSet must not delete the Flight workloads (ADR-0023 consequences).
+  syncPolicy:
+    preserveResourcesOnDeletion: true
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
   generators:
@@ -91,9 +98,9 @@ spec:
     spec:
       project: "{{.appName}}"
       sources:
-        - repoURL: https://github.com/jfillman/airframe.git
-          targetRevision: v0.3.118
-          path: charts/airframe-application
+        - repoURL: __DEFAULT_CHART_REPO_URL__
+          targetRevision: __DEFAULT_CHART_TARGET_REVISION__
+          path: __DEFAULT_CHART_PATH__
           helm:
             valuesObject:
               appName: "{{.appName}}"
@@ -154,9 +161,9 @@ spec:
     {{- if .configMapGenerator }}
     spec:
       sources:
-        - repoURL: https://github.com/jfillman/airframe.git
-          targetRevision: v0.3.118
-          path: charts/airframe-application
+        - repoURL: __DEFAULT_CHART_REPO_URL__
+          targetRevision: __DEFAULT_CHART_TARGET_REVISION__
+          path: __DEFAULT_CHART_PATH__
           helm:
             valuesObject:
               appName: "{{.appName}}"
