@@ -10,9 +10,9 @@
 # to N different app repos possible at all - a single git generator can only ever
 # have one static repoURL, so watching every app's own repo from one global
 # ApplicationSet isn't achievable; one ApplicationSet PER app, generated here as part
-# of that app's own onboarding, is the real shape) for platform/envs/*.yaml,
+# of that app's own onboarding, is the real shape) for glidepath/envs/*.yaml,
 # live-read, no gitops-<app-name> repo involved at all for this tier - a developer
-# commits straight to platform/envs/ in their own repo and pushes, no release
+# commits straight to glidepath/envs/ in their own repo and pushes, no release
 # pipeline, no gitops-cluster-dev-tenants commit, matching platform-cicd's own
 # tracked-copy -> live-read precedent for cicd.yaml.
 #
@@ -37,11 +37,11 @@
 # valueFiles below, where `env:` is already a reserved key (the chart's Embedded-
 # tier container env-var list - its own values.yaml explicitly documents choosing
 # `envName` over `env` for exactly this collision risk, which a first pass here
-# still walked into: `env: dev` in a real platform/envs/dev.yaml produced a real
+# still walked into: `env: dev` in a real glidepath/envs/dev.yaml produced a real
 # "range can't iterate over dev" Helm error inside idp-application's own
 # workloadEnv helper). valueFiles below still needs the LITERAL matched path
 # though (a developer's file isn't required to be named <env-value>.yaml, e.g.
-# `envName: my-sandbox` could live in platform/envs/scratch.yaml) - the
+# `envName: my-sandbox` could live in glidepath/envs/scratch.yaml) - the
 # generator's own path metadata gives that (see valueFiles' own comment for the
 # exact fields - confirmed live, not just assumed from ArgoCD's docs).
 {{- if .Values.appRepoUrl }}
@@ -63,22 +63,15 @@ spec:
         repoURL: {{ .Values.appRepoUrl }}
         revision: main
         files:
-          # D9/AF-5 release-file split: platform/envs/*.yaml's own glob also matches
+          # D9/AF-5 release-file split: glidepath/envs/*.yaml's own glob also matches
           # *.release.yaml (a bare `*` matches the dot too), so the release file has
           # to be explicitly excluded here or it would generate a second, bogus
           # Application per env (envName would come from a machine-owned file with no
           # envName: field of its own). Proven live on a scratch copy of this exact
           # generator shape 2026-09-27 - see release-file-split.md's "Proven live".
           #
-          # ADR-0018 dual-path window: an app repo keeps its environments in platform/ or, once
-          # moved, glidepath/. Both are watched; everything below derives its paths from the
-          # matched file's own folder, so a repo on either side renders the same Applications.
-          # An env file in both folders would be two Applications with one name - the
-          # ApplicationSet then refuses to update this app's set (not other apps'), and
-          # deploy-manifests refuses to deploy it.
-          - path: "platform/envs/*.yaml"
-          - path: "platform/envs/*.release.yaml"
-            exclude: true
+          # ADR-0018: environments live in glidepath/ (every app moved off platform/ by
+          # 2026-10-07; platform/ is no longer watched).
           - path: "glidepath/envs/*.yaml"
           - path: "glidepath/envs/*.release.yaml"
             exclude: true
@@ -153,8 +146,7 @@ spec:
             # deploy.releaseFile yet) - ignoreMissingValueFiles covers both.
             ignoreMissingValueFiles: true
             valueFiles:
-              # The folder the matched env file lives in (platform or glidepath, ADR-0018).
-              - $appsrc/{{ "{{" }}index .path.segments 0{{ "}}" }}/base.yaml
+              - $appsrc/glidepath/base.yaml
               # Confirmed live (two real failures getting here, both left as history
               # in this comment since the exact shape of ArgoCD's git-files-generator
               # `path` param isn't documented anywhere in this project otherwise):
@@ -177,7 +169,7 @@ spec:
               # it never becomes .path.* here) - built by convention from .envName
               # instead, matching exactly where deploy-manifests.yaml (glidepath)
               # writes it once an app's cicd.yaml sets
-              # deploy.releaseFile: platform/envs/{env}.release.yaml.
+              # deploy.releaseFile: glidepath/envs/{env}.release.yaml.
               - $appsrc/{{ "{{" }}.path.path{{ "}}" }}/{{ "{{" }}.envName{{ "}}" }}.release.yaml
         # Source 1: $ref-only into the SAME app repo the generator above already
         # reads from - this tier has no separate gitops repo at all (§10's whole
