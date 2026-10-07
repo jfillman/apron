@@ -31,6 +31,9 @@ spec:
   sourceRepos:
     - {{ .Values.idpServiceCatalogRepoUrl }}
     - {{ .Values.appRepoUrl }}
+    # Glidepath's glidepath-env chart: each Ground environment's Application renders the pipeline runner's deploy
+    # RBAC beside its namespace (ADR-0023 slice 3).
+    - https://github.com/jfillman/glidepath.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "app-{{ .Values.appName }}-*"
