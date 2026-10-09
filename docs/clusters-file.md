@@ -41,6 +41,18 @@ clusters:
 - **`aliases`**: other names the cluster answers to. Each gets its own registry ConfigMap (annotated
   `hangar.io/alias-of`).
 
+## Fleet services
+
+Facts about a service the whole fleet shares go at the top level of the file, next to `clusters:`, stated once.
+
+- **`infisical:`** the fleet's one Infisical server: `orgId` (the organization every app's project lives in), `url`
+  (how a cluster that does not host it reaches its API) and `inClusterUrl` (how the cluster with
+  `airframe.infisicalHost` reaches it). Airframe's cluster-registry chart renders them into every record as
+  `infisicalUrl` (`inClusterUrl` on the host, `url` elsewhere) and `infisicalOrgId`, and the SecretStore Composition
+  reads those instead of hard-coding them (airframe review C9). All three are required once the block is present.
+  Moving Infisical, or putting it behind TLS, is an edit here; every cluster that composes SecretStores runs the
+  cluster-registry chart from this file so its own record is there to read.
+
 ## Product sections
 
 - **`airframe:`** readiness flags, attested by a person after verifying the cluster live (not probed):
@@ -54,6 +66,10 @@ clusters:
 
 `hack/customize-cluster.sh` prints the record for a new cluster. Add it to the hub's `clusters.yaml` in a PR, then
 sync the hub's `cluster-registry` Application (manual by design) and let the control plane sync.
+
+A cluster that composes SecretStores (any cluster with Crossplane and the catalog) also needs its own
+`00-bootstrap/cluster-registry` Application reading the hub's `clusters.yaml` (kind-prod's is the example): Crossplane
+looks the record up on the local cluster only.
 
 Move values between files in two steps when an Argo CD Application's own spec changes in the same change: add the new
 value file first, remove the old values after it is live. Done in one commit (2026-10-08), the child Application
