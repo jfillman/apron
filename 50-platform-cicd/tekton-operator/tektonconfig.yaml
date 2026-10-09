@@ -116,6 +116,15 @@ spec:
                         value: when_required
                       - name: AWS_RESPONSE_CHECKSUM_VALIDATION
                         value: when_required
+  # pipeline.coschedule: disabled (2026-10-09, glidepath pipeline-performance report item 6). The operator default
+  # `workspaces` runs Tekton's Affinity Assistant: every PipelineRun with a PVC workspace (build, test) first creates
+  # a StatefulSet and a placeholder pod, and the first TaskRun waits for it (10-25 s per run measured on
+  # gitops-cluster-dev). Its only job is to put every TaskRun sharing a PVC on one node, which a single-node cluster does
+  # anyway. On a multi-node cluster with node-pinned storage (local-path), the PV's own node affinity still pulls
+  # every consumer to one node; with network-attached ReadWriteOnce storage switch to `pipelineruns`, which pins a
+  # whole PipelineRun to one node (and also allows more than one PVC workspace per TaskRun).
+  pipeline:
+    coschedule: disabled
   platforms:
     kubernetes:
       pipelinesAsCode:
