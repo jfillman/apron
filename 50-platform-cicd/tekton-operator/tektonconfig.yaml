@@ -136,6 +136,9 @@ spec:
     options:
       configMaps:
         config-defaults:
+          # metadata: {} is what the operator's webhook defaults it to; without it Argo CD
+          # reports the TektonConfig OutOfSync forever (seen live 2026-10-09).
+          metadata: {}
           data:
             default-container-resource-requirements: |
               default:
