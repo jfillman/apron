@@ -35,6 +35,8 @@ spec:
           - $clustercfg/50-platform-cicd/platform-cicd-control-plane/values-kind-dev.yaml
           # defaultChart: forwarded to every app's glidepath-app (ADR-0023 slice 1).
           - $clustercfg/cluster-defaults.yaml
+          # clusters: the fleet's cluster records, shared with Airframe's cluster-registry chart (ADR-0024).
+          - $clustercfg/clusters.yaml
     - repoURL: https://github.com/jfillman/gitops-cluster-dev.git
       targetRevision: main
       ref: clustercfg

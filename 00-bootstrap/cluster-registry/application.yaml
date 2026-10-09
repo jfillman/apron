@@ -1,0 +1,39 @@
+# Directory-source Application applying this folder's own ConfigMaps as plain
+# manifests - same pattern as 10-crds-operators/crossplane/packages-application.yaml
+# (excludes itself, everything else in the directory gets applied as-is).
+#
+# The cluster registry idp/docs/service-catalog-design.md §0 ("Where Crossplane runs
+# across a multi-cluster fleet") designs: one labeled ConfigMap per cluster in this
+# fleet, cluster-admin-authored/PR-reviewed, manually attested (not an automated health
+# probe - same "human review carries the real weight" convention gitops-strategy.md §8
+# already applies to cluster config generally). This is what ApplicationEnvironment's
+# spec.cluster gates against via a real Crossplane extra-resources lookup (the first
+# actual use of that mechanism in this catalog - confirmed via function-go-templating's
+# own docs, not a new custom function).
+#
+# Lives in crossplane-system because that's the one cluster (kind-dev) Bootstrap-tier
+# Crossplane is centralized on - extra-resources lookups only ever read the local
+# cluster, so the registry has to live wherever the thing gating on it runs, not
+# per-cluster itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-registry
+  namespace: argocd
+  labels:
+    platform.io/component: cluster-config
+    platform.io/subcomponent: cluster-registry
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+    targetRevision: main
+    path: 00-bootstrap/cluster-registry
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
