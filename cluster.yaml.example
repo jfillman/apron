@@ -25,15 +25,16 @@ clusterName: kind-staging
 # right. Pick whatever you'll actually name the new GitHub repo.
 clusterRepoName: gitops-cluster-kind-staging
 
-# dev | upper — required, no default. Matches the cluster-registry ConfigMap's own
-# `type` field (idp/docs/gitops-strategy.md's "Forward-looking" section /
-# service-catalog-design.md §0). Gates the hard invariants below: a type: upper
-# cluster can never enable components.crossplane.providerGithub or
-# components.platformCicd, because Bootstrap-tier XRDs and platform-cicd's own control
-# plane are permanently centralized on the fleet's one dev cluster regardless of fleet
-# size. hack/customize-cluster.sh refuses to proceed rather than silently correcting a
-# violation of this.
-type: upper
+# This cluster's record in the fleet's clusters.yaml (docs/clusters-file.md; glidepath ADR-0024). Required.
+#   zone: lower | upper. upper = nothing below it holds a write credential to it; changes reach it only through
+#         reviewed merges its own Argo CD syncs. The control-plane cluster is always lower.
+#   roles: any of control-plane (the fleet's one CI/CD control plane and Bootstrap-tier Crossplane), workloads,
+#         platform-services. Only a control-plane cluster may enable components.crossplane.providerGithub or
+#         components.platformCicd - those are centralized on the fleet's one control plane regardless of fleet size
+#         (service-catalog-design.md §0). hack/customize-cluster.sh refuses a violation rather than correcting it.
+# (Replaces `type: dev|upper`; the script still reads an old `type` and maps dev -> lower + control-plane.)
+zone: upper
+roles: [workloads]
 
 # Defaults to <clusterRepoName>-tenants (this repo's own name, minus "gitops-cluster-",
 # with "-tenants" appended) via the same substitution the script applies to every

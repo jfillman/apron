@@ -1,0 +1,13 @@
+# The fleet's clusters: one record per cluster (docs/clusters-file.md; glidepath ADR-0024). Only the fleet's hub - the
+# cluster with the control-plane role - carries this file: Glidepath's control plane reads it as a value file
+# (50-platform-cicd/platform-cicd-control-plane/application.yaml) and Airframe's cluster-registry chart renders the
+# crossplane-system ConfigMaps from it (00-bootstrap/cluster-registry). Add every other cluster's record here when it
+# joins (hack/customize-cluster.sh prints it).
+clusters:
+  - name: kind-dev
+    zone: lower
+    roles: [control-plane, workloads]
+    tenantsRepo: gitops-cluster-dev-tenants
+    # Flip to true after verifying live (service-catalog-design.md §0): the CI/CD control plane runs here, and
+    # (infisicalHost) this cluster runs the fleet's Infisical server.
+    airframe: { cicdReady: false, infisicalHost: true }

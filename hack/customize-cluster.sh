@@ -42,15 +42,37 @@ require git
 
 CLUSTER_NAME="$(yq -r '.clusterName' "${CONFIG}")"
 CLUSTER_REPO_NAME="$(yq -r '.clusterRepoName' "${CONFIG}")"
-TYPE="$(yq -r '.type' "${CONFIG}")"
+ZONE="$(yq -r '.zone' "${CONFIG}")"
+ROLES="$(yq -r '(.roles // []) | join(",")' "${CONFIG}")"
+LEGACY_TYPE="$(yq -r '.type' "${CONFIG}")"
 TENANTS_REPO="$(yq -r '.tenantsRepo' "${CONFIG}")"
 
 [ "${CLUSTER_NAME}" != "null" ] && [ -n "${CLUSTER_NAME}" ] || die "clusterName is required in ${CONFIG}."
 [ "${CLUSTER_REPO_NAME}" != "null" ] && [ -n "${CLUSTER_REPO_NAME}" ] || die "clusterRepoName is required in ${CONFIG}."
-case "${TYPE}" in
-  dev|upper) ;;
-  *) die "type must be 'dev' or 'upper' in ${CONFIG} (got '${TYPE}')." ;;
+# zone/roles (docs/clusters-file.md) replaced `type: dev|upper`; an old config still works.
+if [ "${ZONE}" = "null" ] || [ -z "${ZONE}" ]; then
+  case "${LEGACY_TYPE}" in
+    dev)   ZONE=lower; ROLES="control-plane,workloads" ;;
+    upper) ZONE=upper; ROLES="workloads" ;;
+    *) die "zone (lower|upper) and roles are required in ${CONFIG} - see cluster.yaml.example." ;;
+  esac
+  echo "  note: ${CONFIG} uses the old 'type: ${LEGACY_TYPE}'; read as zone: ${ZONE}, roles: [${ROLES}]" >&2
+fi
+case "${ZONE}" in
+  lower|upper) ;;
+  *) die "zone must be 'lower' or 'upper' in ${CONFIG} (got '${ZONE}')." ;;
 esac
+[ -n "${ROLES}" ] || die "roles is required in ${CONFIG} (control-plane, workloads, platform-services)."
+for r in ${ROLES//,/ }; do
+  case "${r}" in control-plane|workloads|platform-services) ;; *) die "unknown role '${r}' in ${CONFIG}." ;; esac
+done
+# The Composition gates (Airframe) still say dev/upper: the control-plane role is what makes a cluster "dev".
+if [[ ",${ROLES}," == *",control-plane,"* ]]; then
+  TYPE=dev
+  [ "${ZONE}" = "lower" ] || die "a control-plane cluster must be zone: lower (its pipelines deploy to it directly)."
+else
+  TYPE=upper
+fi
 [ "${TENANTS_REPO}" != "null" ] && [ -n "${TENANTS_REPO}" ] || die "tenantsRepo is required in ${CONFIG}."
 
 SCM_HOST="$(yq -r '.scm.host' "${CONFIG}")"
@@ -78,7 +100,7 @@ OBSERVABILITY="$(yq_bool '.components.observability')"
 POLICY="$(yq_bool '.components.policy')"
 BACKSTAGE="$(yq_bool '.components.backstage')"
 
-log "0/5 - target cluster: ${CLUSTER_NAME} (type: ${TYPE})"
+log "0/5 - target cluster: ${CLUSTER_NAME} (zone: ${ZONE}, roles: ${ROLES})"
 
 # --- 2. Hard invariants — refuse, don't silently correct ----------------------
 #
@@ -90,13 +112,13 @@ log "0/5 - target cluster: ${CLUSTER_NAME} (type: ${TYPE})"
 # assumes holds everywhere.
 
 if [ "${TYPE}" = "upper" ] && [ "${PROVIDER_GITHUB}" = "true" ]; then
-  die "type: upper cannot set components.crossplane.providerGithub: true — Bootstrap-tier XRDs (NodeJSApplication/ApplicationEnvironment) stay dev-cluster-only permanently. See idp/docs/service-catalog-design.md §0."
+  die "a cluster without the control-plane role cannot set components.crossplane.providerGithub: true — Bootstrap-tier XRDs (NodeJSApplication/ApplicationEnvironment) stay dev-cluster-only permanently. See idp/docs/service-catalog-design.md §0."
 fi
 if [ "${TYPE}" = "upper" ] && [ "${PLATFORM_CICD}" = "true" ]; then
-  die "type: upper cannot set components.platformCicd: true — platform-cicd's control plane runs on the fleet's one dev cluster only."
+  die "a cluster without the control-plane role cannot set components.platformCicd: true — platform-cicd's control plane runs on the fleet's one dev cluster only."
 fi
 if [ "${TYPE}" = "upper" ] && [ "${SERVICE_CATALOG_SCOPE}" = "full" ]; then
-  die "type: upper should not set components.serviceCatalog.scope: full — that includes Bootstrap-tier XRDs, which require providerGithub (refused above). Use scope: attached-tier-only."
+  die "a cluster without the control-plane role should not set components.serviceCatalog.scope: full — that includes Bootstrap-tier XRDs, which require providerGithub (refused above). Use scope: attached-tier-only."
 fi
 
 # A remote-consumer cluster (external-secrets without the Infisical server) provisions its
@@ -133,6 +155,10 @@ prune() {
 [ "${BACKSTAGE}" = "true" ]        || prune "60-backstage"
 
 if [ "${TYPE}" = "upper" ]; then
+  # The fleet's cluster records live only on the hub (the control-plane cluster): this cluster's record goes into
+  # the hub's clusters.yaml instead (step 2 below).
+  prune "clusters.yaml"
+  prune "00-bootstrap/cluster-registry"
   # Lower/ephemeral environments are a dev-cluster-only self-service tier by design —
   # a real security boundary, not just an unused feature (idp/docs/gitops-strategy.md
   # §10: the whole point is that a staging/prod namespace can never be mistaken for
@@ -285,27 +311,20 @@ cat <<EOF
 1. Review the diff, then commit + push this repo as a new GitHub repo named
    ${CLUSTER_REPO_NAME}.
 
-2. Open a PR against gitops-cluster-dev adding
-   00-bootstrap/cluster-registry/${CLUSTER_NAME}.yaml:
+$( [ "${TYPE}" = "dev" ] && echo "2. This cluster is the fleet's hub: its repo-root clusters.yaml already holds its own record (flip airframe.cicdReady once verified); add every other cluster's record there as it joins. For reference, the record shape:" )
+$( [ "${TYPE}" = "upper" ] && printf '%s\n%s\n%s' "2. Open a PR against the fleet's hub cluster repo (gitops-cluster-dev) adding this" "   cluster's record to its repo-root clusters.yaml (docs/clusters-file.md) - the one" "   place both Glidepath's control plane and Airframe's cluster-registry chart read:" )
 
-     apiVersion: v1
-     kind: ConfigMap
-     metadata:
-       name: ${CLUSTER_NAME}
-       namespace: crossplane-system
-       labels:
-         hangar.io/cluster-registry: "true"
-     data:
-       type: ${TYPE}
-       cicdReady: "false"
-       crossplaneReady: "false"
+     - name: ${CLUSTER_NAME}
+       zone: ${ZONE}
+       roles: [${ROLES//,/, }]
        tenantsRepo: ${TENANTS_REPO}
+       airframe: { $( [ "${TYPE}" = "dev" ] && echo "cicdReady: false" || echo "crossplaneReady: false" ) }
+$( [ "${TYPE}" = "upper" ] && echo "       glidepath: { relaySecretName: cluster-${CLUSTER_NAME}-relay-token }   # and a relay-token-${CLUSTER_NAME} key in the control plane's Infisical project" )
 
-   Flip cicdReady/crossplaneReady to "true" only after live-verifying each
-   (idp/docs/service-catalog-design.md §0) — this registry entry is what every
-   NodeJSApplication.spec.devCluster / ApplicationEnvironment.spec.cluster gate reads.
-   The registry is centralized on kind-dev by design (the only place it's read from);
-   this script does not push to that repo itself.
+   Set the airframe readiness flag to true only after live-verifying it
+   (service-catalog-design.md §0) - it is what every NodeJSApplication.spec.devCluster /
+   ApplicationEnvironment.spec.cluster gate reads. Then sync the hub's cluster-registry
+   Application (manual by design). This script does not push to that repo itself.
 
 $( [ "${INFISICAL_HOST}" = "true" ] && echo "3. Create infisical-secrets / infisical-bootstrap-credentials by hand before 10-crds-operators/infisical/application.yaml's first sync — see that file's own header for the exact kubectl create secret commands. Never paste these into chat." )
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && echo "3b. Create the provider-infisical credential by hand BEFORE the first sync of 10-crds-operators/crossplane/: a universal-auth machine identity for THIS cluster in Infisical, then kubectl -n crossplane-system create secret generic provider-infisical-creds --from-file=credentials=<file> - WITH the credentials= prefix, or the provider reads nothing. See provider-infisical-config.yaml's header for the JSON shape and why this is NOT an ExternalSecret (bootstrap cycle with the platform project it provisions). Never paste it into chat or commit it." )
