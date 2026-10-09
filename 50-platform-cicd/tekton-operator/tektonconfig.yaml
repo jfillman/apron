@@ -125,6 +125,23 @@ spec:
   # whole PipelineRun to one node (and also allows more than one PVC workspace per TaskRun).
   pipeline:
     coschedule: disabled
+    # Default requests for every Tekton container that sets none (2026-10-09, glidepath
+    # docs/admin/pipeline-performance.md "Step resources"). Without any request a step pod is BestEffort: the
+    # kubelet puts every BestEffort pod in one cgroup with the minimum CPU weight, so under load all pipeline
+    # steps together got less CPU than any single pod with a request (the Semgrep scan step ranged 5-239 s on
+    # a few files). A small request moves each pod into the Burstable class with a weight that tracks its
+    # request. Requests only - no limits, nothing gets throttled or OOM-killed by this. Kept small because
+    # requests add up per container and a pod's steps run one at a time: an 8-step debrief reserves 200m.
+    # The CPU-heavy steps (builds, tests, scans) set larger requests in their own Task definitions.
+    options:
+      configMaps:
+        config-defaults:
+          data:
+            default-container-resource-requirements: |
+              default:
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
   platforms:
     kubernetes:
       pipelinesAsCode:
