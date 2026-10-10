@@ -142,6 +142,11 @@ spec:
         namespace: "app-{{.appName}}-{{.env}}"
       syncPolicy:
         automated:
+          # prune (2026-10-10): a resource the chart stops rendering is deleted, so git is the whole truth. Without it,
+          # turning an environment's workload off (rollout.enabled: false) left its Rollout/Service running and the app
+          # OutOfSync for good (sky-marshall dev). allowEmpty stays false: Argo CD refuses a sync that would prune
+          # everything, and a chart render failure (the release-tracking guard) blocks the sync before any prune.
+          prune: true
           selfHeal: true
         # retry: selfHeal does NOT retry a failed sync operation (it reacts to drift in live resources).
         # Without a retry policy a failed sync (a first sync that loses a race, a rejected manifest)
