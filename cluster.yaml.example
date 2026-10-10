@@ -124,3 +124,7 @@ components:
   # would corrupt shared state the way those two would, but still a real fleet-wide
   # convention, not a per-cluster style choice.
   backstage: false
+  # Autopilot (AI agent workloads, hangar docs/autopilot/design.md): its namespaces today, Clearance and the AgentRun
+  # catalog later (55-autopilot/README.md). Dev only: refused on a cluster without the control-plane role, and needs
+  # serviceCatalog scope full. Runs still wait for airframe.autopilotReady, set after the network-policy canary passes.
+  autopilot: false

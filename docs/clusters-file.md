@@ -57,7 +57,9 @@ Facts about a service the whole fleet shares go at the top level of the file, ne
 
 - **`airframe:`** readiness flags, attested by a person after verifying the cluster live (not probed):
   `cicdReady` (the control plane runs here), `crossplaneReady` (Crossplane can compose onto it), `infisicalHost`
-  (it runs the fleet's Infisical server). The Composition gates read them with `type`, which the chart derives
+  (it runs the fleet's Infisical server), `autopilotReady` (Autopilot agent runs may go here; set only after
+  autopilot's `tools/netpol_canary.py` passes on the cluster, and refused by the chart on a cluster without the
+  control-plane role). The Composition gates read them with `type`, which the chart derives
   from `roles` (`control-plane` -> `dev`, else `upper`).
 - **`glidepath:`** `relaySecretName`, required on every record except the control plane's own: the Secret holding
   the token that cluster's notifications present to the release relay.

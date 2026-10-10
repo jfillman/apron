@@ -18,7 +18,7 @@ spec:
   project: default
   sources:
     - repoURL: https://github.com/jfillman/airframe.git
-      targetRevision: v0.3.136
+      targetRevision: v0.3.138
       path: charts/cluster-registry
       helm:
         releaseName: cluster-registry

@@ -99,6 +99,7 @@ SERVICE_CATALOG_SCOPE="$(yq -r '.components.serviceCatalog.scope' "${CONFIG}")"
 OBSERVABILITY="$(yq_bool '.components.observability')"
 POLICY="$(yq_bool '.components.policy')"
 BACKSTAGE="$(yq_bool '.components.backstage')"
+AUTOPILOT="$(yq_bool '.components.autopilot')"
 
 log "0/5 - target cluster: ${CLUSTER_NAME} (zone: ${ZONE}, roles: ${ROLES})"
 
@@ -116,6 +117,14 @@ if [ "${TYPE}" = "upper" ] && [ "${PROVIDER_GITHUB}" = "true" ]; then
 fi
 if [ "${TYPE}" = "upper" ] && [ "${PLATFORM_CICD}" = "true" ]; then
   die "a cluster without the control-plane role cannot set components.platformCicd: true — platform-cicd's control plane runs on the fleet's one dev cluster only."
+fi
+# Autopilot runs (AI agent workloads) are dev-only: the write path and every run live on the control-plane cluster,
+# never on a cluster that serves production (hangar docs/autopilot/design.md).
+if [ "${TYPE}" = "upper" ] && [ "${AUTOPILOT}" = "true" ]; then
+  die "a cluster without the control-plane role cannot set components.autopilot: true - Autopilot runs exist on the fleet's dev cluster only. See hangar docs/autopilot/design.md."
+fi
+if [ "${AUTOPILOT}" = "true" ] && { [ "${SERVICE_CATALOG_ENABLED}" != "true" ] || [ "${SERVICE_CATALOG_SCOPE}" != "full" ]; }; then
+  die "components.autopilot: true needs components.serviceCatalog.enabled: true with scope: full - the AgentRun XRD is part of the full service catalog."
 fi
 if [ "${TYPE}" = "upper" ] && [ "${SERVICE_CATALOG_SCOPE}" = "full" ]; then
   die "a cluster without the control-plane role should not set components.serviceCatalog.scope: full — that includes Bootstrap-tier XRDs, which require providerGithub (refused above). Use scope: attached-tier-only."
@@ -155,6 +164,7 @@ prune() {
 [ "${OBSERVABILITY}" = "true" ]    || prune "40-observability"
 [ "${PLATFORM_CICD}" = "true" ]    || prune "50-platform-cicd"
 [ "${BACKSTAGE}" = "true" ]        || prune "60-backstage"
+[ "${AUTOPILOT}" = "true" ]        || prune "55-autopilot"
 
 if [ "${TYPE}" = "upper" ]; then
   # The fleet's cluster records live only on the hub (the control-plane cluster): this cluster's record goes into
@@ -333,6 +343,8 @@ $( [ "${INFISICAL_HOST}" = "true" ] && [ "${TYPE}" = "dev" ] && echo "3a. After 
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && echo "3b. Create the provider-infisical credential by hand BEFORE the first sync of 10-crds-operators/crossplane/: a universal-auth machine identity for THIS cluster in Infisical, then kubectl -n crossplane-system create secret generic provider-infisical-creds --from-file=credentials=<file> - WITH the credentials= prefix, or the provider reads nothing. See provider-infisical-config.yaml's header for the JSON shape and why this is NOT an ExternalSecret (bootstrap cycle with the platform project it provisions). Never paste it into chat or commit it." )
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && echo "3c. Set the dev.kiac.local hostAliases IP to the address your fleet's Infisical NodePort is reachable on, in BOTH 10-crds-operators/external-secrets/application.yaml and 10-crds-operators/crossplane/provider-infisical-runtime.yaml (template defaults - they drift), and confirm the provider credential's host is http://dev.kiac.local:31800 (no /api). The platform project (external-secrets/secretstore-xr.yaml) is created on first sync by the SecretStore Composition; if a project with that slug already exists in Infisical from an earlier cluster, adopt it instead - see that file's header." )
 $( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Nothing to run by hand for Fulcio/Rekor - hooks/fulcio-bootstrap-job.yaml generates this cluster's own Fulcio root live on first sync (values-${CLUSTER_NAME}.yaml deliberately carries no Fulcio material, ADR-0006), and 50-platform-cicd/rekor/ deploys Rekor/Trillian/MySQL from the real upstream chart with the credentials already generated into values-secrets.yaml above. Only ever run platform-cicd/hack/generate-cluster-values.sh FORCE=1 by hand later, and only to deliberately rotate the Fulcio root." )
+
+$( [ "${AUTOPILOT}" = "true" ] && echo "4b. Autopilot: before any agent run, run autopilot's tools/netpol_canary.py --context <this cluster>. Only on a pass, set airframe.autopilotReady: true on this cluster's record in clusters.yaml (cite the result) and sync cluster-registry. See 55-autopilot/README.md." )
 
 5. Run the real cluster bootstrap sequence (kind create cluster / Calico / apply
    01-argocd-platform/install.yaml --server-side / restore argocd-repo-creds-* /

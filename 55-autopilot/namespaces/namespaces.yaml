@@ -1,0 +1,22 @@
+# autopilot-system: Clearance and the model proxy (AP-A2). Run pods reach them by this namespace's name
+# (function-agentrun's egress rules select kubernetes.io/metadata.name), so the name is part of the contract.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: autopilot-system
+  labels:
+    hangar.io/component: autopilot
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# autopilot-runs: where AgentRun XRs live (AP-A3). Clearance's one Kubernetes permission is a namespaced Role on
+# agentruns here. Each run's pods go in their own agent-<run> namespace, created by the composition, never here.
+# Never label either namespace hangar.io/ephemeral-env: the PR-namespace sweep deletes namespaces carrying it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: autopilot-runs
+  labels:
+    hangar.io/component: autopilot
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
