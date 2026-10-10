@@ -147,6 +147,8 @@ prune() {
 }
 [ "${CERT_MANAGER}" = "true" ]     || prune "10-crds-operators/cert-manager"
 [ "${ARGO_ROLLOUTS}" = "true" ]    || prune "10-crds-operators/argo-rollouts"
+# The ClusterAnalysisTemplates are Argo Rollouts objects: no Rollouts CRDs, no analysis catalog.
+[ "${ARGO_ROLLOUTS}" = "true" ]    || prune "20-service-catalog/analysis-catalog"
 [ "${CONTOUR}" = "true" ]          || prune "10-crds-operators/contour"
 [ "${SLOTH}" = "true" ]            || prune "10-crds-operators/sloth"
 [ "${POLICY}" = "true" ]           || prune "30-policy"
@@ -327,6 +329,7 @@ $( [ "${TYPE}" = "upper" ] && echo "       glidepath: { relaySecretName: cluster
    Application (manual by design). This script does not push to that repo itself.
 
 $( [ "${INFISICAL_HOST}" = "true" ] && echo "3. Create infisical-secrets / infisical-bootstrap-credentials by hand before 10-crds-operators/infisical/application.yaml's first sync — see that file's own header for the exact kubectl create secret commands. Never paste these into chat." )
+$( [ "${INFISICAL_HOST}" = "true" ] && [ "${TYPE}" = "dev" ] && echo "3a. After Infisical's first-run setup creates the organization, uncomment the infisical: block at the top of clusters.yaml with its org ID, then sync cluster-registry. Until then every SecretStore XR fails its registry gate (Airframe v0.3.137 reads Infisical's URL and org only from the registry)." )
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && echo "3b. Create the provider-infisical credential by hand BEFORE the first sync of 10-crds-operators/crossplane/: a universal-auth machine identity for THIS cluster in Infisical, then kubectl -n crossplane-system create secret generic provider-infisical-creds --from-file=credentials=<file> - WITH the credentials= prefix, or the provider reads nothing. See provider-infisical-config.yaml's header for the JSON shape and why this is NOT an ExternalSecret (bootstrap cycle with the platform project it provisions). Never paste it into chat or commit it." )
 $( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && echo "3c. Set the dev.kiac.local hostAliases IP to the address your fleet's Infisical NodePort is reachable on, in BOTH 10-crds-operators/external-secrets/application.yaml and 10-crds-operators/crossplane/provider-infisical-runtime.yaml (template defaults - they drift), and confirm the provider credential's host is http://dev.kiac.local:31800 (no /api). The platform project (external-secrets/secretstore-xr.yaml) is created on first sync by the SecretStore Composition; if a project with that slug already exists in Infisical from an earlier cluster, adopt it instead - see that file's header." )
 $( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Nothing to run by hand for Fulcio/Rekor - hooks/fulcio-bootstrap-job.yaml generates this cluster's own Fulcio root live on first sync (values-${CLUSTER_NAME}.yaml deliberately carries no Fulcio material, ADR-0006), and 50-platform-cicd/rekor/ deploys Rekor/Trillian/MySQL from the real upstream chart with the credentials already generated into values-secrets.yaml above. Only ever run platform-cicd/hack/generate-cluster-values.sh FORCE=1 by hand later, and only to deliberately rotate the Fulcio root." )

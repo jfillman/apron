@@ -10,4 +10,4 @@
 defaultChart:
   repoURL: https://github.com/jfillman/airframe.git
   path: charts/airframe-application
-  targetRevision: v0.3.118
+  targetRevision: v0.3.135

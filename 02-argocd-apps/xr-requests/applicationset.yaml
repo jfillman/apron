@@ -74,6 +74,16 @@ spec:
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
+          # Server-side apply (airframe review A2, 2026-10-09): with client-side apply Argo CD never
+          # sends a fieldValidation directive (gitops-engine builds its ApplyOptions without one), so
+          # the API server's default is Warn and a misspelled XR field is pruned silently - the request
+          # looks Synced and the composition never sees the value. SSA has to type the object against
+          # the XRD schema, so the same typo fails the sync with ".spec.<field>: field not declared in
+          # schema" (confirmed with a dry-run on kiac-dev). Field ownership moves to argocd-controller on
+          # the first SSA apply (ClientSideApplyMigration, on by default); Crossplane keeps its own
+          # managers on spec.crossplane.resourceRefs and status, which git never declares, so there is
+          # nothing to conflict with. Pre-merge, the same check is `airframe-validate --xr`.
+          - ServerSideApply=true
           # SUSPECTED RESOLVED, not proven (downgraded 2026-08-15 - full writeup in
           # idp/docs/service-catalog-design.md's own status note): deleting an
           # ApplicationEnvironment xr-request through this Application was confirmed

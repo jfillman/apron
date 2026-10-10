@@ -23,7 +23,10 @@ metadata:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: crds-operators
 spec:
-  package: ghcr.io/jfillman/provider-infisical:v0.0.0-7.gb220ec2
+  # v0.0.0-9 (airframe review C2): the Kubernetes-auth reviewer token is a secret reference
+  # (tokenReviewerJwtSecretRef) instead of a spec literal. Airframe's SecretStore Composition renders that field
+  # from v0.3.129, so the catalog pin (20-service-catalog) and this package move together.
+  package: ghcr.io/jfillman/provider-infisical:v0.0.0-9.g38cb0bd
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig

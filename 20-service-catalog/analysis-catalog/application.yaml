@@ -1,0 +1,27 @@
+# The ClusterAnalysisTemplates every app's canary analysis can use (pod-health-check, no-restarts-check, no-oom-check,
+# probe-success-check, error-rate-check, success-rate-check, latency-check), from airframe's analysis/ directory at a tag.
+# A separate Application from idp-service-catalog on purpose: that one pins the XRDs and Compositions and moves on its own
+# schedule, and bumping it to pick up these files would also roll every Composition change between its pin and this tag.
+# Bump targetRevision here when the catalog gains a template.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: analysis-catalog
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: service-catalog
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jfillman/airframe.git
+    targetRevision: v0.3.135
+    path: analysis
+    directory:
+      include: "*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
