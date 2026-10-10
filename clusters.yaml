@@ -19,5 +19,6 @@ clusters:
     roles: [control-plane, workloads]
     tenantsRepo: gitops-cluster-dev-tenants
     # Flip to true after verifying live (service-catalog-design.md §0): the CI/CD control plane runs here, and
-    # (infisicalHost) this cluster runs the fleet's Infisical server.
+    # (infisicalHost) this cluster runs the fleet's Infisical server. With components.autopilot, add autopilotReady: true
+    # only after autopilot's tools/netpol_canary.py passes here (55-autopilot/README.md).
     airframe: { cicdReady: false, infisicalHost: true }

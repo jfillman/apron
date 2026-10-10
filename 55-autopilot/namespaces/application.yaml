@@ -1,0 +1,23 @@
+# Autopilot's two namespaces (55-autopilot/README.md). A directory source of this folder, like
+# 10-crds-operators/crossplane/packages-application.yaml: everything here but this file is applied as-is.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autopilot-namespaces
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: namespaces
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+    targetRevision: main
+    path: 55-autopilot/namespaces
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      selfHeal: true
