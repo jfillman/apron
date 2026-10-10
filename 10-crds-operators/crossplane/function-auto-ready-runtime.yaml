@@ -1,0 +1,33 @@
+# Runtime config for function-auto-ready and nothing else (a runtime config shared across
+# Functions broke every Function at once on 2026-09-30 - see feedback in the platform notes; one
+# per Function that needs flags). Its only job: turn on the function's alpha feature gate for
+# CEL readiness rules, so compositions can declare in one place how operator CRDs without a Ready
+# condition (MongoDBCommunity, RabbitmqCluster, Sloth's PrometheusServiceLevel) and condition-less
+# kinds (Role, RoleBinding, NetworkPolicy) count as ready, instead of each template hand-setting
+# gotemplating.fn.crossplane.io/ready (airframe review C7). With the gate off the function ignores
+# the rules, so this lands before the catalog release that relies on it.
+#
+# spec.deploymentTemplate.spec.selector is required by the schema (learned live, gitops#36); the
+# template labels must match it, and Crossplane adds its own pkg.crossplane.io labels on top.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: function-auto-ready
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          hangar.io/function: auto-ready
+      template:
+        metadata:
+          labels:
+            hangar.io/function: auto-ready
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --feature-gates=CELHealthcheckCustomizations=true

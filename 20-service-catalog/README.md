@@ -12,3 +12,7 @@ Pins `idp-service-catalog`'s XRDs/Compositions to a version, per `gitops-strateg
 `idp-application` itself is NOT installed from here — it's a chart future
 Compositions render per app-release into `gitops-<app-name>` repos, not a
 cluster-wide install (see `idp-service-catalog/charts/idp-application/README.md`).
+
+`analysis-catalog/` installs the ClusterAnalysisTemplates every app's canary analysis can use, from
+airframe's `analysis/` directory at its own tag (separate from `idp-service-catalog`'s pin on purpose; see
+that file's header). `hack/customize-cluster.sh` drops it when Argo Rollouts is off.

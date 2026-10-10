@@ -1,20 +1,11 @@
-# Directory-source Application applying this folder's own ConfigMaps as plain
-# manifests - same pattern as 10-crds-operators/crossplane/packages-application.yaml
-# (excludes itself, everything else in the directory gets applied as-is).
+# Airframe's cluster registry: one labeled ConfigMap per cluster (and per alias) in crossplane-system, which every
+# Composition's cluster gate reads through a Crossplane extra-resources lookup (airframe service-catalog design §0).
+# Rendered by Airframe's charts/cluster-registry from the repo-root clusters.yaml - the same records Glidepath's control
+# plane reads (glidepath ADR-0024) - instead of hand-written ConfigMaps, so a cluster is declared once.
 #
-# The cluster registry idp/docs/service-catalog-design.md §0 ("Where Crossplane runs
-# across a multi-cluster fleet") designs: one labeled ConfigMap per cluster in this
-# fleet, cluster-admin-authored/PR-reviewed, manually attested (not an automated health
-# probe - same "human review carries the real weight" convention gitops-strategy.md §8
-# already applies to cluster config generally). This is what ApplicationEnvironment's
-# spec.cluster gates against via a real Crossplane extra-resources lookup (the first
-# actual use of that mechanism in this catalog - confirmed via function-go-templating's
-# own docs, not a new custom function).
-#
-# Lives in crossplane-system because that's the one cluster (kind-dev) Bootstrap-tier
-# Crossplane is centralized on - extra-resources lookups only ever read the local
-# cluster, so the registry has to live wherever the thing gating on it runs, not
-# per-cluster itself.
+# Lives in crossplane-system on kind-dev because that is where Bootstrap-tier Crossplane runs: extra-resources lookups
+# only read the local cluster. Manual sync on purpose (no automated policy), as before: a registry change is attested
+# by a person.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -25,12 +16,19 @@ metadata:
     platform.io/subcomponent: cluster-registry
 spec:
   project: default
-  source:
-    repoURL: https://github.com/jfillman/gitops-cluster-dev.git
-    targetRevision: main
-    path: 00-bootstrap/cluster-registry
-    directory:
-      exclude: "application.yaml"
+  sources:
+    - repoURL: https://github.com/jfillman/airframe.git
+      targetRevision: v0.3.136
+      path: charts/cluster-registry
+      helm:
+        releaseName: cluster-registry
+        valueFiles:
+          - $clustercfg/clusters.yaml
+    - repoURL: https://github.com/jfillman/gitops-cluster-dev.git
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
   destination:
     server: https://kubernetes.default.svc
     namespace: crossplane-system

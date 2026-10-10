@@ -64,11 +64,17 @@ spec:
     # every .meta.yaml file as an invalid manifest the moment it synced past v0.3.94. Listed every
     # real XRD file as of this tag (14); a future XRD needs adding here too, same as
     # compositions/*/composition.yaml already requires per-composition entries there.
-    targetRevision: v0.3.96
+    # 2026-10-09: v0.3.96 -> v0.3.137, include list = gitops-cluster-dev's live one (20 XRDs + their 20
+    # Compositions, every one explicit: compositions/_shared/ holds template partials, not manifests). New since
+    # v0.3.96: the catalog.hangar.io group (Phase C), Dex (needs function-dex), the cloud targets and function XRDs
+    # (need the AWS/Azure providers, which this template does not ship - their XRs fail until a cluster adds them),
+    # CEL readiness (needs function-auto-ready-runtime.yaml), SecretStore's reviewer-token reference (needs
+    # provider-infisical v0.0.0-9) and the registry-only Infisical URL/org (needs clusters.yaml's infisical: block).
+    targetRevision: v0.3.137
     path: .
     directory:
       recurse: true
-      include: "{xrds/applicationenvironment.yaml,xrds/goapplication.yaml,xrds/infraservice.yaml,xrds/mongodb.yaml,xrds/nodejsapplication.yaml,xrds/postgresql.yaml,xrds/pythonapplication.yaml,xrds/rabbitmq.yaml,xrds/redis.yaml,xrds/rolloutwatch.yaml,xrds/secretstore.yaml,xrds/slo.yaml,xrds/springbootapplication.yaml,xrds/tektoncicd.yaml,compositions/*/composition.yaml}"
+      include: "{xrds/applicationenvironment.yaml,xrds/awsecstarget.yaml,xrds/awslambdatarget.yaml,xrds/azurecontainerapptarget.yaml,xrds/azurefunction.yaml,xrds/dex.yaml,xrds/goapplication.yaml,xrds/infraservice.yaml,xrds/lambdafunction.yaml,xrds/mongodb.yaml,xrds/nodejsapplication.yaml,xrds/postgresql.yaml,xrds/pythonapplication.yaml,xrds/rabbitmq.yaml,xrds/redis.yaml,xrds/rolloutwatch.yaml,xrds/secretstore.yaml,xrds/slo.yaml,xrds/springbootapplication.yaml,xrds/tektoncicd.yaml,compositions/applicationenvironment/composition.yaml,compositions/awsecstarget/composition.yaml,compositions/awslambdatarget/composition.yaml,compositions/azurecontainerapptarget/composition.yaml,compositions/azurefunction/composition.yaml,compositions/dex/composition.yaml,compositions/goapplication/composition.yaml,compositions/infraservice/composition.yaml,compositions/lambdafunction/composition.yaml,compositions/mongodb/composition.yaml,compositions/nodejsapplication/composition.yaml,compositions/postgresql/composition.yaml,compositions/pythonapplication/composition.yaml,compositions/rabbitmq/composition.yaml,compositions/redis/composition.yaml,compositions/rolloutwatch/composition.yaml,compositions/secretstore/composition.yaml,compositions/slo/composition.yaml,compositions/springbootapplication/composition.yaml,compositions/tektoncicd/composition.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: crossplane-system

@@ -3,6 +3,16 @@
 # (50-platform-cicd/platform-cicd-control-plane/application.yaml) and Airframe's cluster-registry chart renders the
 # crossplane-system ConfigMaps from it (00-bootstrap/cluster-registry). Add every other cluster's record here when it
 # joins (hack/customize-cluster.sh prints it).
+#
+# infisical: the fleet's one Infisical server (docs/clusters-file.md). Airframe's SecretStore Composition reads its URL
+# and organization only from here (no fallback since Airframe v0.3.137), so every SecretStore XR fails its registry gate
+# until this block is set. orgId exists only after Infisical's first-run setup creates the organization: uncomment the
+# block then. Leave it commented until all three values are real - the chart refuses a block with an empty field,
+# which would take the whole registry (every Composition's cluster gate) down with it.
+# infisical:
+#   orgId: <organization id from Infisical's first-run setup>
+#   url: http://dev.kiac.local:31800/api      # Infisical's NodePort, as other clusters reach it
+#   inClusterUrl: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/api
 clusters:
   - name: kind-dev
     zone: lower

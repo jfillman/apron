@@ -13,6 +13,9 @@ metadata:
     hangar.io/subcomponent: crds-operators
 spec:
   package: xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0
+  # CEL readiness rules (airframe review C7, catalog v0.3.128+): see function-auto-ready-runtime.yaml.
+  runtimeConfigRef:
+    name: function-auto-ready
 ---
 apiVersion: pkg.crossplane.io/v1
 kind: Function
@@ -54,4 +57,17 @@ spec:
   # "exec format error" on arm64 nodes - hit and fixed live on kiac-dev/kiac-prod
   # 2026-09-02. v0.2.5 is a genuine multi-platform OCI index (linux/amd64 +
   # linux/arm64), confirmed live against the GHCR manifest API.
-  package: ghcr.io/jfillman/function-rollout-watcher:v0.2.5
+  # 2026-10-09: v0.2.5 -> v0.2.8 (matches the live clusters; v0.2.8 emits events on phase changes only).
+  package: ghcr.io/jfillman/function-rollout-watcher:v0.2.8
+---
+# Renders the Dex XRD (airframe compositions/dex): server mode is a self-contained Dex, attach mode registers an
+# OAuth client through Dex's gRPC admin API. Multi-arch (amd64 + arm64). v0.1.7 runs Dex v2.46.0.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-dex
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: ghcr.io/jfillman/function-dex:v0.1.7

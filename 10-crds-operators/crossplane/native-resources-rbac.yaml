@@ -51,3 +51,10 @@ rules:
   - apiGroups: ["sloth.slok.dev"]
     resources: ["prometheusservicelevels", "prometheusservicelevels/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Dex server mode (SP-4, catalog after v0.3.96) composes a NetworkPolicy and a PersistentVolumeClaim directly.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumeclaims/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
