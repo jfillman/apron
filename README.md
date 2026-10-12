@@ -62,6 +62,13 @@ cluster-registry/`, the one place `NodeJSApplication.spec.devCluster` /
 `ApplicationEnvironment.spec.cluster` actually read it from — it's not something a new
 cluster's own repo carries a copy of.
 
+## Cluster identity
+
+`components.clusterIdentity` gives the cluster its own ServiceAccount token issuer and lets it trust other clusters'
+issuers. Cross-cluster callers then use short-lived projected tokens instead of long-lived token Secrets. It is set at
+`kind create` time through `hack/kind-config.yaml`, or applied to a running cluster with `hack/cluster-identity.sh`. See
+[docs/cluster-identity.md](docs/cluster-identity.md).
+
 ## Bootstrap sequence
 
 Same shape as both existing clusters' own (`gitops-cluster-prod/README.md`'s

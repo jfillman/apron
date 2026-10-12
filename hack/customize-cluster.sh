@@ -100,6 +100,9 @@ OBSERVABILITY="$(yq_bool '.components.observability')"
 POLICY="$(yq_bool '.components.policy')"
 BACKSTAGE="$(yq_bool '.components.backstage')"
 AUTOPILOT="$(yq_bool '.components.autopilot')"
+CLUSTER_IDENTITY="$(yq_bool '.components.clusterIdentity.enabled')"
+CLUSTER_ISSUER="$(yq -r '.components.clusterIdentity.issuer' "${CONFIG}")"
+CLUSTER_TRUST_COUNT="$(yq -r '.components.clusterIdentity.trust // [] | length' "${CONFIG}")"
 
 log "0/5 - target cluster: ${CLUSTER_NAME} (zone: ${ZONE}, roles: ${ROLES})"
 
@@ -122,6 +125,15 @@ fi
 # never on a cluster that serves production (hangar docs/autopilot/design.md).
 if [ "${TYPE}" = "upper" ] && [ "${AUTOPILOT}" = "true" ]; then
   die "a cluster without the control-plane role cannot set components.autopilot: true - Autopilot runs exist on the fleet's dev cluster only. See hangar docs/autopilot/design.md."
+fi
+if [ "${CLUSTER_IDENTITY}" = "true" ]; then
+  case "${CLUSTER_ISSUER}" in https://*) ;; *) die "components.clusterIdentity.issuer must be an https URL (got '${CLUSTER_ISSUER}')." ;; esac
+  [ "${CLUSTER_ISSUER}" != "https://kubernetes.default.svc.cluster.local" ] \
+    || die "components.clusterIdentity.issuer must be unique to this cluster, not the Kubernetes default - two clusters with the same issuer cannot trust each other (docs/cluster-identity.md)."
+  if [ "${CLUSTER_TRUST_COUNT}" -gt 0 ]; then
+    require python3
+    python3 -c 'import yaml' 2>/dev/null || die "components.clusterIdentity.trust needs python3 with PyYAML (hack/cluster-identity.sh render)."
+  fi
 fi
 if [ "${AUTOPILOT}" = "true" ] && { [ "${SERVICE_CATALOG_ENABLED}" != "true" ] || [ "${SERVICE_CATALOG_SCOPE}" != "full" ]; }; then
   die "components.autopilot: true needs components.serviceCatalog.enabled: true with scope: full - the AgentRun XRD is part of the full service catalog."
@@ -305,6 +317,35 @@ if [ -f "hack/kind-config.yaml" ]; then
   esac
 fi
 
+# Cluster identity (docs/cluster-identity.md): node-level, so rendered after the substitution sweep (its peer cluster
+# names must stay as written) and kept out of Argo CD (00-bootstrap/cluster-identity/ has no application.yaml).
+if [ "${CLUSTER_IDENTITY}" = "true" ]; then
+  mkdir -p 00-bootstrap/cluster-identity
+  if [ "${CLUSTER_TRUST_COUNT}" -gt 0 ]; then
+    hack/cluster-identity.sh render --config "${CONFIG}" --out 00-bootstrap/cluster-identity
+  fi
+  {
+    echo "# Cluster identity: ${CLUSTER_NAME}"
+    echo
+    echo "Node-level API-server configuration, not synced by Argo CD (apron docs/cluster-identity.md)."
+    echo
+    echo "- ServiceAccount issuer: \`${CLUSTER_ISSUER}\` (first \`--service-account-issuer\`; the default stays accepted,"
+    echo "  and \`--api-audiences\` lists both). Its discovery document and keys must be published at that URL:"
+    echo "  \`hack/cluster-identity.sh publish --context ${CLUSTER_NAME} --issuer ${CLUSTER_ISSUER} --out <site dir>\`."
+    if [ "${CLUSTER_TRUST_COUNT}" -gt 0 ]; then
+      echo "- Trusted issuers: \`authentication-config.yaml\` here, installed as \`/etc/kubernetes/authn/config.yaml\` on the"
+      echo "  control-plane node. Accepted tokens are the users \`hangar:<cluster>:<serviceAccount>\`; bind RBAC to those."
+      yq -r '.components.clusterIdentity.trust[] | "  - " + .cluster + " (" + .issuer + "), audience " + .audience + ", " + .namespace + "/" + (.serviceAccounts | join(", "))' "${CONFIG}"
+    fi
+    echo
+    echo "A new kind cluster gets both from \`hack/kind-config.yaml\` at create time. On a running cluster use"
+    echo "\`hack/cluster-identity.sh issuer\` and \`trust\` (apron), which back up the API server manifest and roll back on failure."
+  } > 00-bootstrap/cluster-identity/README.md
+  if [ -f "hack/kind-config.yaml" ]; then
+    hack/cluster-identity.sh kind-patch --config "${CONFIG}" --kind-config hack/kind-config.yaml --authn-dir 00-bootstrap/cluster-identity
+  fi
+fi
+
 # values-kind-dev.yaml's own CONTENT already got "kind-dev" -> "${CLUSTER_NAME}"
 # rewritten by the substitute() pass above (its own clusterName: field included) - only
 # the FILENAME itself (and application.yaml's $ref to it, also content-rewritten
@@ -345,6 +386,8 @@ $( [ "${EXTERNAL_SECRETS}" = "true" ] && [ "${INFISICAL_HOST}" = "false" ] && ec
 $( [ "${PLATFORM_CICD}" = "true" ] && echo "4. Nothing to run by hand for Fulcio/Rekor - hooks/fulcio-bootstrap-job.yaml generates this cluster's own Fulcio root live on first sync (values-${CLUSTER_NAME}.yaml deliberately carries no Fulcio material, ADR-0006), and 50-platform-cicd/rekor/ deploys Rekor/Trillian/MySQL from the real upstream chart with the credentials already generated into values-secrets.yaml above. Only ever run platform-cicd/hack/generate-cluster-values.sh FORCE=1 by hand later, and only to deliberately rotate the Fulcio root." )
 
 $( [ "${AUTOPILOT}" = "true" ] && echo "4b. Autopilot: before any agent run, run autopilot's tools/netpol_canary.py --context <this cluster>. Only on a pass, set airframe.autopilotReady: true on this cluster's record in clusters.yaml (cite the result) and sync cluster-registry. See 55-autopilot/README.md." )
+
+$( [ "${CLUSTER_IDENTITY}" = "true" ] && printf '%s\n%s\n%s' "4c. Cluster identity: after the cluster exists, publish its keys at ${CLUSTER_ISSUER} (hack/cluster-identity.sh publish --context ${CLUSTER_NAME} --issuer ${CLUSTER_ISSUER} --out <site dir>)." "    Every trusted peer must have published its own before this API server can accept its tokens; check with hack/cluster-identity.sh verify." "    Bind RBAC to hangar:<peer>:<serviceAccount> users only (00-bootstrap/cluster-identity/README.md)." )
 
 5. Run the real cluster bootstrap sequence (kind create cluster / Calico / apply
    01-argocd-platform/install.yaml --server-side / restore argocd-repo-creds-* /
