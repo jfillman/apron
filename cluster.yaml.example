@@ -128,3 +128,22 @@ components:
   # catalog later (55-autopilot/README.md). Dev only: refused on a cluster without the control-plane role, and needs
   # serviceCatalog scope full. Runs still wait for airframe.autopilotReady, set after the network-policy canary passes.
   autopilot: false
+  # Cluster identity (docs/cluster-identity.md): this cluster's own ServiceAccount token issuer, and the other clusters
+  # whose ServiceAccounts may call this cluster's API server with short-lived tokens instead of long-lived token
+  # Secrets. API-server flags and a node file, not Argo CD: hack/customize-cluster.sh renders
+  # 00-bootstrap/cluster-identity/ and patches hack/kind-config.yaml; hack/cluster-identity.sh applies the same to a
+  # running cluster.
+  clusterIdentity:
+    enabled: false
+    # https, unique in the fleet, never the default https://kubernetes.default.svc.cluster.local. The discovery document
+    # and keys are published at this URL (hack/cluster-identity.sh publish), e.g. on the fleet's static site.
+    issuer: https://hangarplatform.dev/oidc/kind-staging
+    # Each entry becomes one JWT authenticator in 00-bootstrap/cluster-identity/authentication-config.yaml. Tokens map
+    # to the user hangar:<cluster>:<serviceAccount> (group hangar:<cluster>); bind RBAC to that, nothing else.
+    trust: []
+    #  - cluster: kind-prod                         # the peer's clusterName
+    #    issuer: https://hangarplatform.dev/oidc/kind-prod
+    #    audience: kind-staging                     # the audience the peer's tokens are minted for
+    #    namespace: backstage
+    #    serviceAccounts: [backstage-ingestor, tower-actor]
+    #    maxLifetimeSeconds: 600                    # longer tokens are refused (default 600)
