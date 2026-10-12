@@ -87,9 +87,12 @@ TMP="$(mktemp -d)"
 trap 'rm -r "${TMP}"' EXIT
 
 # --- node helpers ---------------------------------------------------------------------------------------------------
-node() { local -a pre; read -r -a pre <<<"${NODE_EXEC}"; "${pre[@]}" "$@"; }
+# stdin is /dev/null except for node_write: ssh (and podman/docker exec -i) put the descriptors they inherit into
+# non-blocking mode, and a terminal stdin left that way breaks the next `read` in a calling script (EAGAIN).
+node_exec() { local -a pre; read -r -a pre <<<"${NODE_EXEC}"; "${pre[@]}" "$@"; }
+node() { node_exec "$@" </dev/null; }
 node_read() { node cat "$1"; }
-node_write() { node tee "$2" <"$1" >/dev/null; }   # node_write LOCALFILE NODEPATH
+node_write() { node_exec tee "$2" <"$1" >/dev/null; }   # node_write LOCALFILE NODEPATH
 
 apiserver_ready() { kubectl --context "${CONTEXT}" get --raw /readyz >/dev/null 2>&1; }
 apiserver_command() {
