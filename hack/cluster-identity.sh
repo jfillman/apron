@@ -288,11 +288,13 @@ PY
   got="$(kubectl --context "${CONTEXT}" get --raw /.well-known/openid-configuration | jq -r .issuer)"
   [ "${got}" = "${ISSUER}" ] || die "discovery reports issuer ${got}, expected ${ISSUER}"
   ok "discovery issuer is ${got}"
+  # --validate=false: right after a restart the API server can be too slow serving /openapi/v2 for kubectl's
+  # client-side validation (hit live on kind-prod), and a TokenReview needs no schema check.
   local tok aud
   for aud in "${ISSUER}" "${DEFAULT_ISSUER}"; do
     tok="$(kubectl --context "${CONTEXT}" -n default create token default --audience "${aud}" --duration 10m)"
     jq -n --arg t "${tok}" --arg a "${aud}" '{apiVersion:"authentication.k8s.io/v1",kind:"TokenReview",spec:{token:$t,audiences:[$a]}}' \
-      | kubectl --context "${CONTEXT}" create -f - -o json | jq -e '.status.authenticated == true' >/dev/null \
+      | kubectl --context "${CONTEXT}" create --validate=false -f - -o json | jq -e '.status.authenticated == true' >/dev/null \
       || die "a fresh token for audience ${aud} does not authenticate on ${CONTEXT}"
     ok "a fresh token for audience ${aud} authenticates"
   done
