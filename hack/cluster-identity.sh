@@ -23,7 +23,7 @@
 #              Checks first that the node can fetch every trusted issuer's discovery document.
 #   verify     --from-context CTX --namespace NS --service-account SA --audience AUD --to-context CTX2
 #              Mint a 10-minute token on CTX and present it to CTX2 with no other credential: expect
-#              hangar:<cluster>:<SA>. Then the refusals: wrong audience, a 20-minute token.
+#              hangar:<cluster>:<SA>. Then the refusals: wrong audience, a 20-minute token, the namespace's default SA.
 #
 # --node-exec is the command prefix that runs one command inside the control-plane node, with stdin, e.g.
 #   "container exec -i kiac-dev-control-plane"
@@ -379,15 +379,22 @@ EOF
   }
   local tok out
   tok="$(kubectl --context "${FROM_CONTEXT}" -n "${NAMESPACE}" create token "${SA}" --audience "${AUDIENCE}" --duration 10m)"
-  out="$(whoami "${tok}")"
+  out="$(whoami "${tok}" || true)"
   echo "${out}" | jq -e --arg u "hangar:" '.status.userInfo.username | startswith($u)' >/dev/null \
     || die "a 10-minute ${SA} token was not accepted: ${out}"
   ok "accepted as $(echo "${out}" | jq -r '.status.userInfo.username') groups=$(echo "${out}" | jq -c '.status.userInfo.groups')"
 
   tok="$(kubectl --context "${FROM_CONTEXT}" -n "${NAMESPACE}" create token "${SA}" --audience "not-${AUDIENCE}" --duration 10m)"
-  whoami "${tok}" | grep -q "Unauthorized\|must be logged in" && ok "wrong audience refused" || die "a wrong-audience token was accepted"
+  # Capture first: under pipefail, `whoami | grep` fails on kubectl's own exit 1 even when grep matches, which
+  # read as "accepted" (2026-10-12).
+  out="$(whoami "${tok}" || true)"
+  grep -q "Unauthorized" <<<"${out}" && ok "wrong audience refused" || die "a wrong-audience token was not refused: ${out}"
   tok="$(kubectl --context "${FROM_CONTEXT}" -n "${NAMESPACE}" create token "${SA}" --audience "${AUDIENCE}" --duration 20m)"
-  whoami "${tok}" | grep -q "Unauthorized\|must be logged in" && ok "20-minute token refused" || die "a 20-minute token was accepted"
+  out="$(whoami "${tok}" || true)"
+  grep -q "Unauthorized" <<<"${out}" && ok "20-minute token refused" || die "a 20-minute token was not refused: ${out}"
+  tok="$(kubectl --context "${FROM_CONTEXT}" -n "${NAMESPACE}" create token default --audience "${AUDIENCE}" --duration 10m)"
+  out="$(whoami "${tok}" || true)"
+  grep -q "Unauthorized" <<<"${out}" && ok "another ServiceAccount (${NAMESPACE}/default) refused" || die "${NAMESPACE}/default was not refused: ${out}"
   echo "  RBAC for the accepted user is separate: until a binding names it, every request it makes is forbidden."
 }
 
