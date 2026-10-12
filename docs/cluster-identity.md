@@ -76,6 +76,34 @@ to the trusting cluster. It then checks that a wrong audience and a 20-minute to
 The node's filesystem survives restarts. A recreated cluster gets the configuration from its kind config instead
 (new clusters, above).
 
+## In use: Tower on kind-prod → kiac-dev
+
+The first consumer, live since 2026-10-12.
+
+- **kind-prod** signs as `https://hangarplatform.dev/oidc/kind-prod`. The keys are on hangar's site, under
+  `web/public/oidc/`.
+- **kiac-dev** trusts it for two kind-prod ServiceAccounts in `backstage`, both with audience `kiac-dev`:
+  - `backstage-ingestor`, the Backstage pod's projected token, for reads;
+  - `tower-actor`, a token minted per write action.
+- **The records:**
+  - gitops-cluster-dev `00-bootstrap/cluster-identity/` (the trust file);
+  - gitops-cluster-kind-prod `00-bootstrap/cluster-identity/` (the issuer flags);
+  - Tower `docs/credentials/index.md` (identities, diagrams, operations, troubleshooting).
+
+Lessons from that rollout that apply to any consumer:
+
+- **Make the issuer unique first.** Every kind and kubeadm cluster defaults to the same issuer, and an API server
+  refuses to trust its own.
+- **Set `--api-audiences` explicitly** when changing the issuer. It defaults to the *first* issuer, so changing only the
+  issuer breaks every in-cluster token minted with the old audience.
+- **Mint tokens no longer than the trust's `maxLifetimeSeconds`.** A 30-minute test token was refused (401) by the
+  600 s rule.
+- **Backstage's Kubernetes plugin** (`@backstage/plugin-kubernetes-backend` 0.21.10) rewrites a `serviceAccount`
+  cluster with no `serviceAccountToken` to its *own* in-cluster API server when Backstage runs in a cluster. A
+  federated entry must keep a non-empty placeholder token. Tower's token-file strategy never sends it.
+- **Pod-bound tokens** carry the pod's name. The trust maps it to `extra["hangar.io/pod"]` so the audit log names the
+  pod. Tokens that aren't pod-bound (`kubectl create token`) are accepted too; the mapping is `has()`-guarded.
+
 ## Managed clusters
 
 EKS, GKE and AKS don't let you set API server flags. The same trust model goes through the cloud's identity
