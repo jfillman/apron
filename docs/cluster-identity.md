@@ -104,6 +104,30 @@ Lessons from that rollout that apply to any consumer:
 - **Pod-bound tokens** carry the pod's name. The trust maps it to `extra["hangar.io/pod"]` so the audit log names the
   pod. Tokens that aren't pod-bound (`kubectl create token`) are accepted too; the mapping is `has()`-guarded.
 
+## In use: AWS trusts kiac-dev
+
+The second consumer, live since 2026-10-16: AWS, so Crossplane and Glidepath reach it with no stored key.
+
+- **kiac-dev** signs as `https://hangarplatform.dev/oidc/kiac-dev` (keys on hangar's site, `web/public/oidc/kiac-dev`).
+  `hack/kiac-dev-cluster-identity.sh` in gitops-cluster-dev puts the flags back after a rebuild, because kiac can't
+  set API server flags for the kubeadm distro.
+- **AWS** has an IAM identity provider for that issuer. Roles trust it for one audience, `sts.amazonaws.com`, and an
+  exact ServiceAccount:
+  - `hangar-crossplane-kiac-dev`: `system:serviceaccount:crossplane-system:provider-aws-*`;
+  - `glidepath-deploy-<function>`, one per Lambda function: `system:serviceaccount:app-<app>-cicd:glidepath-cloud-deployer`.
+- **The fleet file** carries both facts: `serviceAccountIssuer` per cluster and the `aws:` block
+  ([clusters-file.md](clusters-file.md)).
+- **The records:** Airframe `docs/admin/cloud-credentials.md` (roles, trust, guardrails, diagrams) and Glidepath
+  `docs/admin/cloud-deploy-identity.md` (the deploy side).
+
+Two more lessons for any consumer:
+
+- **Publish before you switch, and keep publishing.** AWS fetches `/.well-known/openid-configuration` from the issuer
+  URL itself. A site deploy that dropped dotfiles (hangar#55) would have broken every token; the site's deploy job now
+  fails if any issuer stops serving its discovery document.
+- **Kubernetes tokens carry one audience,** so `StringEquals` on `aud` in an IAM trust policy is right, even though
+  Access Analyzer suggests checking for multi-valued audiences.
+
 ## Managed clusters
 
 EKS, GKE and AKS don't let you set API server flags. The same trust model goes through the cloud's identity
