@@ -40,6 +40,10 @@ clusters:
 - **`tenantsRepo`**: the cluster's tenants repo, when it is not `gitops-cluster-<name>-tenants`.
 - **`aliases`**: other names the cluster answers to. Each gets its own registry ConfigMap (annotated
   `hangar.io/alias-of`).
+- **`serviceAccountIssuer`**: the cluster's public ServiceAccount token issuer, set with `components.clusterIdentity`
+  ([cluster-identity.md](cluster-identity.md)), for example `https://hangarplatform.dev/oidc/kiac-dev`. It must be
+  an https URL. Rendered into the record as `serviceAccountIssuer`; cloud deploy roles that trust the cluster's
+  tokens are built from it. Leave it out for a cluster still on the Kubernetes default issuer.
 
 ## Fleet services
 
@@ -52,6 +56,11 @@ Facts about a service the whole fleet shares go at the top level of the file, ne
   reads those instead of hard-coding them (airframe review C9). All three are required once the block is present.
   Moving Infisical, or putting it behind TLS, is an edit here; every cluster that composes SecretStores runs the
   cluster-registry chart from this file so its own record is there to read.
+- **`aws:`** the AWS account cloud targets live in: `accountId` (quoted; a bare 12-digit number renders as a float
+  and the chart refuses it) and `permissionsBoundaryPolicy` (a customer managed policy's name in that account).
+  Rendered into every record as `awsAccountId` and `awsPermissionsBoundaryArn`. Airframe's AwsLambdaTarget and
+  AwsEcsTarget put that boundary on every IAM role they create, and the Crossplane identity's policy refuses any
+  other (Airframe `docs/admin/cloud-credentials.md`). Both fields are required once the block is present.
 
 ## Product sections
 
