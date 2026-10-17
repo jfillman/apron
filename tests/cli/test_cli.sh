@@ -26,12 +26,21 @@ OWNER="example-org"   # a test fixture, not a default
 
 reset() { export FAKE_STATE="${WORK}/state-$1" FAKE_LOG="${WORK}/log-$1"; rm -rf "${FAKE_STATE}"; mkdir -p "${FAKE_STATE}"; : >"${FAKE_LOG}"; }
 apron() { "${ROOT}/apron" "$@"; }
-# init_cluster ID PROFILE RUNTIME NAME
-init_cluster() {
-  OUTPUT="$(apron init "$2" --name "$4" --runtime "$3" --out "${WORK}/$1" \
-    --repo-url "https://example.test/${OWNER}/gitops-$4.git" --scm-owner "${OWNER}" 2>&1)" \
-    || { fail "init $1"; return 1; }
+# fleet_args PROFILE: the inputs check.py requires (prod clusters join the fleet of a dev hub; Tower runs on "tw").
+fleet_args() {
+  FLEET=(--tower-cluster tw)
+  [ "$1" = dev ] || FLEET+=(--fleet-hub hub --fleet-repo-url "https://example.test/${OWNER}/gitops-hub.git")
 }
+# init_cluster ID PROFILE RUNTIME NAME [EXTRA...]
+init_cluster() {
+  local id="$1" profile="$2" runtime="$3" name="$4"; shift 4; fleet_args "${profile}"
+  # Workaround (apron-up dc14b00): render.py needs Traefik NodePorts on runtime existing too, though it uses LoadBalancer.
+  [ "${runtime}" != existing ] || FLEET+=(--set traefik.httpNodePort=30080 --set traefik.httpsNodePort=30443)
+  OUTPUT="$(apron init "${profile}" --name "${name}" --runtime "${runtime}" --out "${WORK}/${id}" \
+    --repo-url "https://example.test/${OWNER}/gitops-${name}.git" --scm-owner "${OWNER}" "${FLEET[@]}" "$@" 2>&1)" \
+    || { fail "init ${id}"; return 1; }
+}
+apron_values() { python3 "${ROOT}/hack/render.py" --cluster "${WORK}/$1/cluster.yaml" --print-values | jq -r "$2"; }
 has()    { grep -qF -- "$2" <<<"$1"; }
 logged() { grep -qxF -- "$1" "${FAKE_LOG}"; }
 
@@ -42,7 +51,8 @@ dry_case() {   # ID PROFILE RUNTIME NAME EXPECTED-LINE...
   : >"${FAKE_LOG}"
   OUTPUT="$(apron up --out "${WORK}/${id}" --dry-run 2>&1)" || { fail "up --dry-run ${id} exited non-zero"; return 0; }
   local want missing=""
-  for want in "$@"; do has "${OUTPUT}" "${want}" || missing+=" [${want}]"; done
+  local cni; cni="$(apron_values "${id}" '.cni.manifest // ""')"
+  for want in "$@"; do want="${want//@CNI@/${cni}}"; has "${OUTPUT}" "${want}" || missing+=" [${want}]"; done
   has "${OUTPUT}" "--gateway" && missing+=" [no --gateway]"
   if grep -vE '^kubectl config get-contexts|^(kiac|kind) get clusters' "${FAKE_LOG}" | grep -q .; then missing+=" [touched: $(tr '\n' ';' <"${FAKE_LOG}")]"; fi
   [ -z "${missing}" ] && pass "up --dry-run ${id}" || fail "up --dry-run ${id}: missing${missing}"
@@ -55,7 +65,7 @@ dry_case existingprod prod existing ep \
   "+ kubectl --context ep -n crossplane-system get secret provider-infisical-creds" \
   "+ kubectl --context ep apply -f ${D}/existingprod/root-app-of-apps.yaml"
 dry_case kiacdev dev kiac kd \
-  "+ kiac create cluster --name kd --workers 0 --cni cilium --kernel full --cpus 4 --cp-memory 16G" \
+  "+ kiac create cluster --name kd --workers 0 --cni cilium --kernel full --cpus 10 --cp-memory 32G" \
   "+ kubectl config rename-context kiac-kd kd" \
   "CNI: provided by the runtime" \
   "+ kubectl --context kd -n infisical get secret infisical-secrets" \
@@ -64,13 +74,13 @@ dry_case kiacdev dev kiac kd \
 dry_case kindprod prod kind kp \
   "+ kind create cluster --name kp --config ${D}/kindprod/hack/kind-config.yaml" \
   "+ kubectl config rename-context kind-kp kp" \
-  "+ kubectl --context kp apply --server-side -f https://cni.example.test/calico.yaml" \
+  "+ kubectl --context kp apply --server-side -f @CNI@" \
   "+ kubectl --context kp apply --server-side -n argocd -f ${D}/kindprod/01-argocd-platform/install.yaml"
 
 # --- real run (fakes): kiac+dev creates, renames the context, stops on missing secrets, then completes -------------
 reset kiac-run; init_cluster kiac-run dev kiac kr && {
   OUTPUT="$(apron up --out "${WORK}/kiac-run" --yes 2>&1)"; rc=$?
-  if [ ${rc} -eq 0 ] && logged "kiac create cluster --name kr --workers 0 --cni cilium --kernel full --cpus 4 --cp-memory 16G" \
+  if [ ${rc} -eq 0 ] && logged "kiac create cluster --name kr --workers 0 --cni cilium --kernel full --cpus 10 --cp-memory 32G" \
      && logged "kubectl config rename-context kiac-kr kr" && grep -qx kr "${FAKE_STATE}/contexts" \
      && has "${OUTPUT}" "re-run apron up to continue" && has "${OUTPUT}" "create secret generic infisical-secrets" \
      && ! grep -q "apply -f .*root-app-of-apps" "${FAKE_LOG}"; then
@@ -93,6 +103,11 @@ reset ex; init_cluster ex dev existing exc && {
   OUTPUT="$(apron up --out "${WORK}/ex" --yes --rename-context some-admin@corp 2>&1)" \
     && logged "kubectl config rename-context some-admin@corp exc" && pass "existing: --rename-context renames" || fail "existing rename"
 }
+reset ex2; init_cluster ex2 prod existing exp --context corp-admin && {
+  echo corp-admin >"${FAKE_STATE}/contexts"
+  OUTPUT="$(apron up --out "${WORK}/ex2" --yes 2>&1)" && logged "kubectl config rename-context corp-admin exp" \
+    && has "${OUTPUT}" "re-run apron up to continue" && pass "existing: init --context is adopted and renamed by up" || fail "existing init --context"
+}
 
 # --- validation ----------------------------------------------------------------------------------------------------
 reset val
@@ -109,8 +124,9 @@ OUTPUT="$(apron init dev --name ok --runtime kiac --out "${WORK}/v4" --repo-url 
 reset repos; echo "${OWNER}/gitops-pr-tenants" >"${FAKE_STATE}/repos"
 git init -q --bare "${WORK}/remote/${OWNER}/gitops-pr.git"
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.${WORK}/remote/.insteadOf" GIT_CONFIG_VALUE_0="https://example.test/"
+fleet_args prod
 OUTPUT="$(apron init prod --name pr --runtime kind --out "${WORK}/pr" --repo-url "https://example.test/${OWNER}/gitops-pr.git" \
-  --scm-owner "${OWNER}" --create-repos --push 2>&1)" \
+  --scm-owner "${OWNER}" "${FLEET[@]}" --create-repos --push 2>&1)" \
   && logged "gh repo create ${OWNER}/gitops-pr --private" && ! grep -q "repo create ${OWNER}/gitops-pr-tenants" "${FAKE_LOG}" \
   && has "${OUTPUT}" "skipped ${OWNER}/gitops-pr-tenants" \
   && git -C "${WORK}/remote/${OWNER}/gitops-pr.git" rev-parse -q --verify main >/dev/null \
@@ -125,7 +141,7 @@ OUTPUT="$(apron fleet add --from "${WORK}/kiac-run" --fleet "${WORK}/clusters.ya
   && apron fleet set-infisical --fleet "${WORK}/clusters.yaml" --org-id ORG --url http://i.example/api --in-cluster-url http://i.svc/api 2>&1)" \
   && [ "$(yq -r '.clusters | length' "${WORK}/clusters.yaml")" = 2 ] && [ "$(yq -r .scm.owner "${WORK}/clusters.yaml")" = "${OWNER}" ] \
   && [ "$(yq -r '.clusters[0].airframe.cicdReady' "${WORK}/clusters.yaml")" = false ] \
-  && [ "$(yq -r '.clusters[1].serviceAccountIssuer' "${WORK}/clusters.yaml")" = "https://issuer.example.test/oidc/pr" ] \
+  && [ "$(yq -r '.clusters[1].serviceAccountIssuer' "${WORK}/clusters.yaml")" = "$(apron_values pr .issuer)" ] \
   && [ "$(yq -r .infisical.orgId "${WORK}/clusters.yaml")" = ORG ] \
   && pass "fleet add / set-infisical" || fail "fleet"
 

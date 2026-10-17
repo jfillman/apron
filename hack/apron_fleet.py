@@ -50,9 +50,10 @@ def record_for(v):
         tenants = tenants[:-4]
     if tenants:
         rec["tenantsRepo"] = tenants
-    issuer = v.get("serviceAccountIssuer")
-    if not issuer and v.get("issuerBase") and v.get("runtime") != "existing":
-        issuer = "https://" + v["issuerBase"].removeprefix("https://").rstrip("/") + "/oidc/" + name
+    rt = v.get("runtime")
+    rt = rt.get("type") if isinstance(rt, dict) else rt
+    # A managed (existing) cluster publishes its own issuer; Apron's issuer applies to kiac/kind only.
+    issuer = v.get("serviceAccountIssuer") or (v.get("issuer") if rt != "existing" else None)
     if issuer:
         rec["serviceAccountIssuer"] = issuer
     flags = {"cicdReady": False, "crossplaneReady": False}

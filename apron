@@ -67,7 +67,7 @@ load_values() {
     --apron-root "${APRON_ROOT}")" || die "hack/render.py --print-values failed"
   NAME="$(val '.name')"; check_name "${NAME}"
   PROFILE="$(val '.profile')"
-  RUNTIME="$(val 'if (.runtime|type) == "object" then (.runtime.type // .runtime.name) else .runtime end')"
+  RUNTIME="$(val '.runtime.type')"
   CONTEXT="$(val '.context // .name')"
   [ "${CONTEXT}" = "${NAME}" ] || die "context '${CONTEXT}' differs from name '${NAME}': one name for cluster, context, registry entry"
   case "${RUNTIME}" in existing|kiac|kind) ;; *) die "unknown runtime '${RUNTIME}' (existing|kiac|kind)" ;; esac
@@ -75,23 +75,27 @@ load_values() {
 # val JQ: one field of the resolved values, empty string for null.
 val() { jq -r "($1) // empty | if type == \"array\" then join(\",\") else . end" <<<"${VALUES}"; }
 # rt KEY: a runtime setting, wherever render.py puts it (runtime.<rt>.KEY or <rt>.KEY).
-rt() { val "(if (.runtime|type) == \"object\" then .runtime.${RUNTIME} else null end // .${RUNTIME} // {}).$1"; }
+rt() { val ".runtime.${RUNTIME}.$1"; }
 
 # --- subcommand: init -----------------------------------------------------------------------------------------------
 usage_init() { cat <<'EOF'
 apron init <dev|prod> --name N --runtime existing|kiac|kind --out DIR --repo-url URL --scm-owner OWNER
-           [--tenants-repo URL] [--registry-owner OWNER] [--context CTX] [--domain D] [--set k=v]...
-           [--create-repos] [--push]
+           [--tenants-repo URL] [--registry-owner OWNER] [--domain D] [--context CTX]
+           [--fleet-hub NAME --fleet-repo-url URL] [--tower-cluster NAME] [--set k=v]... [--create-repos] [--push]
 Writes DIR/cluster.yaml (hack/new_cluster.py), validates it (hack/check.py), renders the cluster repo into DIR
 (hack/render.py) and makes DIR a git repo whose origin is --repo-url.
   --tenants-repo     default: the cluster repo's name + "-tenants", same owner
-  --context          must equal --name (one-name rule); accepted only to state it explicitly
+  --context          runtime existing: the kubeconfig context to adopt; when it is not --name, apron up renames it
+  --fleet-hub        the control-plane cluster's name (every cluster but the hub)
+  --fleet-repo-url   the hub's cluster repo, whose clusters.yaml the registry reads (with --fleet-hub)
+  --tower-cluster    the cluster Tower runs on (when the profile turns Tower access on)
   --create-repos     gh repo create OWNER/NAME --private for the cluster and tenants repos, only when missing
   --push             commit the rendered tree and push it to main of the cluster repo
 EOF
 }
 cmd_init() {
   local profile="" name="" runtime="" out="" repo_url="" tenants="" scm_owner="" reg_owner="" ctx="" domain=""
+  local fleet_hub="" fleet_repo="" tower=""
   local create=false push=false; local -a sets=()
   [ $# -gt 0 ] && [[ "$1" != -* ]] && { profile="$1"; shift; }
   while [ $# -gt 0 ]; do
@@ -101,6 +105,8 @@ cmd_init() {
       --tenants-repo) tenants="$2"; shift 2 ;; --scm-owner) scm_owner="$2"; shift 2 ;;
       --registry-owner) reg_owner="$2"; shift 2 ;; --context) ctx="$2"; shift 2 ;;
       --domain) domain="$2"; shift 2 ;;        --set) sets+=("$2"); shift 2 ;;
+      --fleet-hub) fleet_hub="$2"; shift 2 ;;  --fleet-repo-url) fleet_repo="$2"; shift 2 ;;
+      --tower-cluster) tower="$2"; shift 2 ;;
       --create-repos) create=true; shift ;;    --push) push=true; shift ;;
       -h|--help) usage_init; return 0 ;;       *) die "init: unknown argument $1 (apron init --help)" ;;
     esac
@@ -112,14 +118,21 @@ cmd_init() {
   [ -n "${repo_url}" ] || die "init: --repo-url is required"
   [ -n "${scm_owner}" ] || die "init: --scm-owner is required (there is no default owner)"
   check_owner "${scm_owner}"; [ -z "${reg_owner}" ] || check_owner "${reg_owner}"
-  [ -z "${ctx}" ] || [ "${ctx}" = "${name}" ] || die "init: --context must equal --name (one-name rule); rename the context instead (apron up --rename-context)"
+  [ -z "${ctx}" ] || [ "${runtime}" = existing ] || [ "${ctx}" = "${name}" ] \
+    || die "init: --context is for runtime existing; ${runtime} creates context ${runtime}-${name} and apron up renames it to ${name}"
+  [ -z "${fleet_hub}" ] || check_name "${fleet_hub}"; [ -z "${tower}" ] || check_name "${tower}"
+  [ -z "${fleet_repo}" ] || parse_repo_url "${fleet_repo}"
   parse_repo_url "${repo_url}"; local host="${REPO_HOST}" owner="${REPO_OWNER}" repo="${REPO_NAME}"
-  [ -n "${tenants}" ] || tenants="https://${host}/${owner}/${repo}-tenants.git"
-  parse_repo_url "${tenants}"; local t_owner="${REPO_OWNER}" t_repo="${REPO_NAME}"
+  local t_owner="${owner}" t_repo="${repo}-tenants"
+  if [ -n "${tenants}" ]; then parse_repo_url "${tenants}"; t_owner="${REPO_OWNER}"; t_repo="${REPO_NAME}"; fi
 
-  local -a set_args=(--set "repoURL=${repo_url}" --set "tenantsRepo=${tenants}" --set "scm.host=${host}"
-    --set "scm.owner=${scm_owner}" --set "registry.owner=${reg_owner:-${scm_owner}}")
-  [ -z "${domain}" ] || set_args+=(--set "domain=${domain}")
+  local -a set_args=(--repo-url "${repo_url}" --scm-host "${host}" --scm-owner "${scm_owner}")
+  local f v
+  for f in tenants-repo:tenants registry-owner:reg_owner domain:domain fleet-hub:fleet_hub \
+           fleet-repo-url:fleet_repo tower-cluster:tower context:ctx; do
+    v="${f#*:}"; v="${!v}"; [ -z "${v}" ] || set_args+=("--${f%%:*}" "${v}")
+  done
+  [ -z "${ctx}" ] || [ "${ctx}" = "${name}" ] || set_args+=(--set "runtime.existing.renameContext=true")
   local s; for s in ${sets[@]+"${sets[@]}"}; do [[ "$s" == *=* ]] || die "--set expects k=v, got '$s'"; set_args+=(--set "$s"); done
 
   mkdir -p "${out}"
@@ -129,7 +142,7 @@ cmd_init() {
     ok "${cf} exists; keeping it (edit it, then apron render)"
   else
     "${PYTHON}" "${APRON_ROOT}/hack/new_cluster.py" --profile "${profile}" --name "${name}" --runtime "${runtime}" \
-      "${set_args[@]}" >"${cf}.tmp" || { rm -f "${cf}.tmp"; die "hack/new_cluster.py failed"; }
+      --apron-root "${APRON_ROOT}" "${set_args[@]}" >"${cf}.tmp" || { rm -f "${cf}.tmp"; die "hack/new_cluster.py failed"; }
     mv "${cf}.tmp" "${cf}"; ok "wrote ${cf}"
   fi
   check_and_render "${out}"
@@ -142,7 +155,7 @@ cmd_init() {
 check_and_render() {
   local dir="$1" cf; cf="$(cluster_file "$1")"
   step "check"
-  "${PYTHON}" "${APRON_ROOT}/hack/check.py" --cluster "${cf}" || die "hack/check.py found violations (above); fix ${cf}"
+  "${PYTHON}" "${APRON_ROOT}/hack/check.py" --cluster "${cf}" --apron-root "${APRON_ROOT}" || die "hack/check.py found violations (above); fix ${cf}"
   ok "cluster.yaml is valid"
   step "render into ${dir}"
   "${PYTHON}" "${APRON_ROOT}/hack/render.py" --cluster "${cf}" --out "${dir}" --apron-root "${APRON_ROOT}" \
@@ -217,6 +230,9 @@ cmd_up() {
   done
   need_cluster_dir "${out}"; load_values "${out}"
   require kubectl
+  if [ -z "${rename_from}" ] && [ "${RUNTIME}" = existing ]; then
+    rename_from="$(rt context)"; [ "${rename_from}" != "${NAME}" ] || rename_from=""
+  fi
   echo "cluster ${NAME}: profile ${PROFILE}, runtime ${RUNTIME}$( [ "${DRY_RUN}" = true ] && echo ' (dry run)')"
   confirm "${yes}" "create/onboard cluster ${NAME} (context ${NAME})"
 
@@ -258,17 +274,10 @@ runtime_kiac() {
 
 runtime_kind() {
   require kind
-  local dir="$1" cfg inline
-  cfg="$(rt config)"; inline="$(val "(if (.runtime|type) == \"object\" then .runtime.kind else null end // .kind // {}).inline | if . == null then null else tojson end")"
-  if [ -n "${cfg}" ]; then
-    [[ "${cfg}" = /* ]] || cfg="${dir}/${cfg}"
-    [ -f "${cfg}" ] || [ "${DRY_RUN}" = true ] || die "kind config ${cfg} (from resolved values) is missing: apron render --out ${dir}"
-  elif [ -n "${inline}" ]; then
-    cfg="${dir}/.apron/kind-config.yaml"; mkdir -p "${dir}/.apron"
-    "${PYTHON}" -c 'import json,sys,yaml; yaml.safe_dump(json.loads(sys.argv[1]), open(sys.argv[2],"w"), sort_keys=False)' "${inline}" "${cfg}"
-  else
-    die "resolved values give no runtime.kind config (path or inline)"
-  fi
+  local dir="$1" cfg
+  cfg="$(rt config)"; [ -n "${cfg}" ] || die "resolved values give no runtime.kind.config"
+  [[ "${cfg}" = /* ]] || cfg="${dir}/${cfg}"
+  [ -f "${cfg}" ] || [ "${DRY_RUN}" = true ] || die "kind config ${cfg} (from resolved values) is missing: apron render --out ${dir}"
   if [ "${DRY_RUN}" = false ] && kind_exists; then ok "kind cluster ${NAME} exists; not creating"; return; fi
   [ "${DRY_RUN}" = false ] || echo "  (skipped if kind get clusters lists ${NAME})"
   run kind create cluster --name "${NAME}" --config "${cfg}"
@@ -314,17 +323,19 @@ ensure_context() {
 kc() { run kubectl --context "${NAME}" "$@"; }
 
 install_cni() {
-  local manifest; manifest="$(val '.cni.manifest // (if (.runtime|type) == "object" then .runtime[.runtime.type // ""].cniManifest else null end)')"
-  if [ -z "${manifest}" ] || [ "$(val '.cni.install')" = "false" ]; then ok "CNI: provided by the runtime"; return; fi
+  local manifest; manifest="$(val '.cni.manifest')"
+  if [ -z "${manifest}" ]; then ok "CNI: provided by the runtime"; return; fi
   if [ "${DRY_RUN}" = false ] && kubectl --context "${NAME}" -n kube-system get daemonset calico-node >/dev/null 2>&1; then
     ok "CNI already installed"; return
   fi
+  echo "  CNI: $(val '.cni.name') $(val '.cni.version')"
   kc apply --server-side -f "${manifest}"
 }
 
 # find_rendered DIR JQ DEFAULT: a path in the rendered tree, from resolved values when given.
 find_rendered() {
   local dir="$1" p; p="$(val "$2")"; [ -n "$p" ] || p="$3"
+  [ -n "$p" ] || die "resolved values give no $2"
   [[ "$p" = /* ]] || p="${dir}/${p}"
   [ -f "$p" ] || [ "${DRY_RUN}" = true ] || die "$p is missing from the rendered tree (apron render --out ${dir})"
   echo "$p"
@@ -332,44 +343,29 @@ find_rendered() {
 
 install_argocd() {
   local dir="$1" install
-  install="$(find_rendered "${dir}" '.argocd.platform.install // .argocd.installPath' "01-argocd-platform/install.yaml")"
+  install="$(find_rendered "${dir}" '.argocd.platform.install' "")"
   if [ "${DRY_RUN}" = false ] && kubectl --context "${NAME}" get namespace argocd >/dev/null 2>&1; then ok "namespace argocd exists"
   else kc create namespace argocd; fi
   kc apply --server-side -n argocd -f "${install}"
 }
 
-# required_secrets: lines "namespace<TAB>name<TAB>command template". From resolved values (.bootstrapSecrets) when
-# given; otherwise derived from the profile's facts.
+# required_secrets: lines "namespace<TAB>name<TAB>command template", from the resolved values' bootstrapSecrets.
 required_secrets() {
-  if [ "$(val '.bootstrapSecrets | length')" != "" ] && [ "$(val '.bootstrapSecrets | length')" != "0" ]; then
-    jq -r '.bootstrapSecrets[] | [.namespace, .name, (.create // "kubectl -n \(.namespace) create secret generic \(.name) --from-literal=<key>=<value>")] | @tsv' <<<"${VALUES}"
-    return
-  fi
-  local repo_creds scm_url
-  repo_creds="$(val '.argocd.repoCredsSecret')"; [ -n "${repo_creds}" ] || repo_creds="argocd-repo-creds-$(val '.scm.owner')"
-  scm_url="https://$(val '.scm.host // "github.com"')/$(val '.scm.owner')"
-  printf 'argocd\t%s\t%s\n' "${repo_creds}" "kubectl -n argocd create secret generic ${repo_creds} --from-literal=type=git --from-literal=url=${scm_url} --from-literal=githubAppID=<value> --from-literal=githubAppInstallationID=<value> --from-file=githubAppPrivateKey=<path-to-key.pem> && kubectl -n argocd label secret ${repo_creds} argocd.argoproj.io/secret-type=repo-creds"
-  if [ "$(val '.infisical.host')" = "true" ]; then
-    printf 'infisical\tinfisical-secrets\t%s\n' "kubectl -n infisical create secret generic infisical-secrets --from-literal=ENCRYPTION_KEY=<value: openssl rand -hex 16> --from-literal=AUTH_SECRET=<value: openssl rand -base64 32> --from-literal=SITE_URL=<value>"
-    printf 'infisical\tinfisical-bootstrap-credentials\t%s\n' "kubectl -n infisical create secret generic infisical-bootstrap-credentials --from-literal=INFISICAL_ADMIN_EMAIL=<value> --from-literal=INFISICAL_ADMIN_PASSWORD=<value> --from-literal=INFISICAL_ADMIN_ORGANIZATION=<value>"
-  else
-    printf 'crossplane-system\tprovider-infisical-creds\t%s\n' "kubectl -n crossplane-system create secret generic provider-infisical-creds --from-file=credentials=<path to {\"host\":\"$(val '.infisical.url // "<value>"')\",\"client_id\":\"<value>\",\"client_secret\":\"<value>\"}>"
-  fi
+  jq -r '(.bootstrapSecrets // [])[] | [.namespace, .name, (.create // ""), (.why // "")] | @tsv' <<<"${VALUES}"
 }
 
 # check_secrets: existence only (never reads data). Returns 1 after printing what to create when any is missing.
 check_secrets() {
   step "hand-planted Secrets"
-  local ns name cmd missing=0
-  while IFS=$'\t' read -r ns name cmd; do
+  local ns name cmd why missing=0
+  while IFS=$'\t' read -r ns name cmd why; do
     [ -n "${name}" ] || continue
     if [ "${DRY_RUN}" = true ]; then echo "  + kubectl --context ${NAME} -n ${ns} get secret ${name}   (existence only)"; continue; fi
     if kubectl --context "${NAME}" -n "${ns}" get secret "${name}" -o name >/dev/null 2>&1; then ok "${ns}/${name}"
     else
       missing=$((missing + 1))
-      echo "  missing ${ns}/${name}. Create it yourself (never paste values into chat or commit them):"
-      echo "    kubectl --context ${NAME} create namespace ${ns} --dry-run=client -o yaml | kubectl --context ${NAME} apply -f -"
-      echo "    ${cmd//kubectl /kubectl --context ${NAME} }"
+      echo "  missing ${ns}/${name}${why:+ (${why})}. Create it yourself; never paste the values into chat or commit them:"
+      echo "    ${cmd:-kubectl --context ${NAME} -n ${ns} create secret generic ${name} --from-literal=<key>=<value>}"
     fi
   done < <(required_secrets)
   if [ "${missing}" -gt 0 ]; then
@@ -380,7 +376,7 @@ check_secrets() {
 }
 
 apply_root() {
-  local root; root="$(find_rendered "$1" '.rootApp' "root-app-of-apps.yaml")"
+  local root; root="$(find_rendered "$1" '.rootApp' "")"
   kc apply -f "${root}"
 }
 
@@ -441,15 +437,14 @@ cmd_identity() {
   done
   need_cluster_dir "${out}"; load_values "${out}"
   [ "${RUNTIME}" != existing ] || die "runtime existing: a managed cluster publishes its own issuer and its API server flags are not ours to change (docs/cluster-identity.md, Managed clusters)"
-  local base issuer node
-  base="$(val '.issuerBase // .clusterIdentity.issuerBase')"
-  [ -n "${base}" ] || die "resolved values have no issuerBase"
-  base="${base#https://}"; base="${base%/}"
-  issuer="https://${base}/oidc/${NAME}"
+  local issuer node prefix
+  issuer="$(val '.issuer')"; [ -n "${issuer}" ] || die "resolved values have no issuer"
+  [ "${issuer}" = "https://$(val '.issuerBase')/oidc/${NAME}" ] || warn "issuer ${issuer} is not https://<issuerBase>/oidc/${NAME}"
   if [ -z "${node_exec}" ]; then
     node="$(kubectl --context "${NAME}" get nodes -l node-role.kubernetes.io/control-plane -o name | head -n1)"
     node="${node#node/}"; [ -n "${node}" ] || die "no control-plane node found on ${NAME}"
-    case "${RUNTIME}" in kiac) node_exec="container exec -i ${node}" ;; kind) node_exec="docker exec -i ${node}" ;; esac
+    prefix="$(val '.runtime.nodeExec')"; [ -n "${prefix}" ] || die "resolved values have no runtime.nodeExec: pass --node-exec"
+    node_exec="${prefix} ${node}"
   fi
   step "identity: ${NAME} -> ${issuer} (node exec: ${node_exec})"
   bash "${APRON_ROOT}/hack/cluster-identity.sh" issuer --context "${NAME}" --node-exec "${node_exec}" --issuer "${issuer}" ${extra[@]+"${extra[@]}"}
@@ -495,7 +490,7 @@ cmd_resume() {
   if [ "${RUNTIME}" = kind ]; then ip=127.0.0.1
   else ip="$(kubectl --context "${NAME}" get nodes -l node-role.kubernetes.io/control-plane \
       -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')"; fi
-  hosts="$(val '.hostnames // ["argocd","argocd-apps"] | map(. + "." + "'"${domain}"'") | join(" ")')"
+  hosts="$(jq -r '(.hostnames // []) | join(" ")' <<<"${VALUES}")"; [ -n "${hosts}" ] || hosts="argocd.${domain}"
   step "/etc/hosts (not edited; add or replace these yourself)"
   echo "${ip} ${hosts}"
 }

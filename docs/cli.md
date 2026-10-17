@@ -15,14 +15,18 @@
 
 ```
 apron init <dev|prod> --name N --runtime existing|kiac|kind --out DIR --repo-url URL --scm-owner OWNER
-           [--tenants-repo URL] [--registry-owner OWNER] [--context N] [--domain D] [--set k=v]...
-           [--create-repos] [--push]
+           [--tenants-repo URL] [--registry-owner OWNER] [--domain D] [--context CTX]
+           [--fleet-hub NAME --fleet-repo-url URL] [--tower-cluster NAME] [--set k=v]... [--create-repos] [--push]
 ```
+
+`--fleet-hub`/`--fleet-repo-url` (the control-plane cluster and its repo) are required on every cluster but the hub;
+`--tower-cluster` whenever the profile turns Tower access on (`hack/check.py` says which). `--context` (existing only)
+records the kubeconfig context to adopt; when it differs from the name, `apron up` renames it.
 
 Validates the name (DNS-1123 label) and owners, writes `DIR/cluster.yaml` (`hack/new_cluster.py`; an existing one is
 kept), validates it (`hack/check.py`), renders the cluster repo into DIR (`hack/render.py`) and makes DIR a git repo
 with `origin` = `--repo-url` (an existing different origin is refused). `--tenants-repo` defaults to the cluster
-repo's name plus `-tenants`, same owner. `--registry-owner` defaults to `--scm-owner`.
+repo's name plus `-tenants`, same owner.
 
 - `--create-repos`: `gh repo create OWNER/NAME --private` for the cluster and tenants repos, only those missing.
   Existing repos are left untouched and listed as skipped.
@@ -42,14 +46,14 @@ repo's name plus `-tenants`, same owner. `--registry-owner` defaults to `--scm-o
    - kind: `kind create cluster --name N --config <rendered kind config>`. Skipped when `kind get clusters` lists N.
    - existing: `kubectl --context N get --raw /readyz`.
 2. **Context.** kiac/kind: when context N is missing, the one the runtime created (`kiac-N` / `kind-N`, looked up in
-   `kubectl config get-contexts`) is renamed to N. existing: the context must already be N, or pass
-   `--rename-context FROM`. Then N must answer `/readyz`.
+   `kubectl config get-contexts`) is renamed to N. existing: the context must already be N; otherwise
+   `runtime.existing.context` (from `init --context`) or `--rename-context FROM` is renamed to N. Then N must answer `/readyz`.
 3. **Onboard** (every runtime): the CNI manifest when the resolved values name one (kind: Calico); namespace
    `argocd`; `kubectl apply --server-side -n argocd -f <rendered 01-argocd-platform/install.yaml>`.
 4. **Hand-planted Secrets.** Each one is checked with `kubectl get secret` (existence only): the Argo CD repo-creds
    Secret; on the Infisical host `infisical/infisical-secrets` and `infisical/infisical-bootstrap-credentials`;
-   elsewhere `crossplane-system/provider-infisical-creds`. The list comes from `bootstrapSecrets` in the resolved
-   values when present. When any is missing, `up` prints a `kubectl create secret ...` template with `<value>`
+   elsewhere `crossplane-system/provider-infisical-creds`. The list and the commands come from `bootstrapSecrets` in
+   the resolved values. When any is missing, `up` prints a `kubectl create secret ...` template with `<value>`
    placeholders for each, then exits 0 with "re-run apron up to continue". You run those commands yourself.
 5. **Root.** `kubectl apply -f DIR/root-app-of-apps.yaml`, then the manual steps from
    [after-up.md](after-up.md) (manual-sync order, cluster identity, readiness flags, provider SA re-pins).
@@ -71,8 +75,9 @@ installed; with PyYAML only they are dropped, and the helper says so.
 ## identity
 
 `apron identity --out DIR [--node-exec CMD] [--dry-run]` wraps `hack/cluster-identity.sh issuer` with issuer
-`https://<issuerBase>/oidc/<name>`, context N and the control-plane node found by label. `--node-exec` defaults to
-`container exec -i <node>` (kiac) or `docker exec -i <node>` (kind); override it for podman or a cluster on another
+`issuer` from the resolved values (`https://<issuerBase>/oidc/<name>`), context N and the control-plane node found by
+label. `--node-exec` defaults to the resolved `runtime.nodeExec` plus the node (kiac `container exec -i`, kind
+`docker exec -i`); override it for podman or a cluster on another
 machine (`ssh HOST podman exec -i <node>`). Refused on `existing`: a managed cluster publishes its own issuer.
 Publish the keys afterwards with `hack/cluster-identity.sh publish` ([cluster-identity.md](cluster-identity.md)).
 
