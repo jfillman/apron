@@ -1,0 +1,36 @@
+# DeploymentRuntimeConfig for provider-helm, referenced by provider-helm's
+# runtimeConfigRef in providers.yaml (this directory).
+#
+# Own dedicated runtime config, never the shared "default" one - a
+# DeploymentRuntimeConfig named "default" is the fallback for every package that
+# doesn't specify its own runtimeConfigRef, Providers and Composition Functions
+# alike; editing a shared one has previously crash-looped every Function
+# cluster-wide from a single flag meant for one provider (a real incident, see
+# feedback_crossplane_provider_live_ops.md). No custom --poll/--max-reconcile-rate
+# args here - this provider renders Helm charts into the same cluster it runs on,
+# no comparable external rate limit to provider-github's; the binary's own defaults
+# apply. Revisit if a real reconcile-load problem shows up once Component XRDs are
+# rendering real chart releases at scale (Sequencing step 3+).
+#
+# containers[0].name is required even with no arg overrides - confirmed live
+# (same gap provider-infisical-runtime.yaml already documents) that
+# DeploymentRuntimeConfig's deploymentTemplate.spec.template.spec.containers is a
+# required field, not an optional strategic-merge overlay the way an empty
+# template.spec: {} would suggest.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-helm-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/provider: provider-helm
+      template:
+        spec:
+          containers:
+            - name: package-runtime

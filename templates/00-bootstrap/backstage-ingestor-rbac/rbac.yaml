@@ -1,0 +1,486 @@
+# Same minimum scope as the former management cluster's own backstage-ingestor RBAC (view + CRD read +
+# crossplane-browse, no crossplane-view/managed-resource or secrets access) - see that
+# file's own header for the full rationale (TeraSky-OSS/backstage-plugins
+# kubernetes-ingestor/K8S_RBAC.md). The one real difference: this ServiceAccount's
+# token is minted as a long-lived Secret (below), not a kubelet-projected in-cluster
+# mount, because the consumer (Backstage) runs on a different cluster (the former management cluster) and
+# has no pod here to project a token into. The token value itself is never read or
+# handled by an assistant - see this directory's README for how it's planted into
+# Infisical and delivered to the former management cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backstage-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-crd-viewer
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-crd-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-crd-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-crossplane-browse
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-browse
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Argo Rollouts visualization (2026-09-04, redhat-argocd plugin's Rollouts
+# feature - app-config.yaml's kubernetes.customResources in the backstage repo).
+# Explicit grant, not assumed covered by the `view` ClusterRole above -
+# argoproj.io's Rollout/AnalysisRun CRDs aren't part of Kubernetes' own
+# aggregation labels `view` matches by default, same reasoning as the dedicated
+# CRD-viewer and crossplane-browse grants above rather than assuming `view`
+# is broader than it is.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-argo-rollouts-viewer
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "analysisruns"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-argo-rollouts-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-argo-rollouts-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Gateway API (2026-09-06, Glidepath's Config-tab route URL - app-config.yaml's
+# kubernetes.customResources in the backstage repo). Same reasoning as the Argo
+# Rollouts grant above: gateway.networking.k8s.io's HTTPRoute/Gateway CRDs
+# aren't part of `view`'s aggregation either. Gateway is included alongside
+# HTTPRoute because HTTPRoute carries no TLS info of its own - the actual
+# http-vs-https scheme is only knowable from the Gateway listener a route's
+# parentRefs point at.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-gateway-api-viewer
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "gateways"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-gateway-api-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-gateway-api-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Crossplane GitHub managed resources (Tower's Provisioning tab). A new
+# application XR composes Repository and RepositoryFile objects; the XR itself
+# only turns Ready once every one of them has, so without this grant Tower can
+# only say "repositories and starter files: not ready yet". With it, the tab
+# shows how many are done. Read-only (no create/update/delete), and only these
+# two kinds: not the wider `crossplane-view` role, which would also expose every
+# other managed resource. Neither kind holds secret values - file contents are
+# starter code and pipeline config, and credentials live in the ProviderConfig
+# Secret, which this does not touch.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-github-mr-viewer
+rules:
+  - apiGroups: ["repo.github.m.upbound.io"]
+    resources: ["repositories", "repositoryfiles"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-github-mr-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-github-mr-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Infisical project read (2026-10-03, Tower's Provisioning tab). The "Infisical secrets
+# resources" step links the app's Infisical project, whose id is the Project managed
+# resource's external-name annotation. Read-only on that one kind: it holds the project's
+# name, slug and id, not secret values (those live in Infisical, reached only through
+# the ESO-backed stores). Separate from backstage-github-mr-viewer because it is a
+# different provider group.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-infisical-project-viewer
+rules:
+  - apiGroups: ["project.infisical.m.hangar.io"]
+    resources: ["projects"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-infisical-project-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-infisical-project-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Rekor public-key read (2026-09-06, Glidepath's Supply Chain panel - real SET/
+# transparency-log verification now that Rekor is deployed for real, see
+# platform-cicd's provenance-policy.md). Deliberately namespaced Role/RoleBinding,
+# not a ClusterRole like every other grant in this file - rekor-server is itself a
+# namespaced Service, and there's exactly one instance of it, so a cluster-wide grant
+# would be broader than what's actually being reached. `services/proxy` (not plain
+# `services`, which `view` already covers) is what lets a caller with no direct
+# network route to the Service reach its HTTP API through the API server itself - the
+# same mechanism the ConfigMap-based Fulcio root-cert fetch uses for a different
+# resource kind. No ConfigMap equivalent exists for Rekor's public key on purpose
+# (platform-cicd deliberately deleted rekor-pubkey-sync-job.yaml after it went stale -
+# see that repo's own history - every real consumer fetches it live at verify-time
+# instead, and Glidepath now does the same).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-ingestor-rekor-proxy
+  namespace: rekor-system
+rules:
+  # resourceNames must match the exact "name" or "name:port" string used in
+  # the proxy URL path - confirmed live (2026-09-06) that a request to
+  # .../services/rekor-server:80/proxy/... is checked against the literal
+  # resourceName "rekor-server:80", not "rekor-server" alone. Both forms
+  # listed since either could reasonably be used by a caller.
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["rekor-server", "rekor-server:80"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-rekor-proxy
+  namespace: rekor-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-ingestor-rekor-proxy
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Prometheus query proxy (2026-09-24 bug: "the workload performance metrics/graphs
+# are not working for ground and preview envs"). Tower's Topology-tab
+# Performance panel, the canary AnalysisRun charts and the SLO views all query
+# kube-prometheus-stack through the kubernetes-plugin's `services/proxy` route on
+# the env's own cluster. Confirmed live: from Backstage's pod (the prod cluster) this
+# cluster answered /version but 403'd the Prometheus proxy - "services
+# kube-prometheus-stack-prometheus:9090 is forbidden" - while the prod cluster's own copy
+# of this exact grant (the prod cluster's repo/60-backstage/backstage/rbac.yaml)
+# already existed, which is why only Flight-tier envs worked. Same shape as the
+# Rekor grant above: a namespaced Role on the single Service, not a cluster-wide
+# proxy grant. Both `name` and `name:port` forms, since the checked resourceName is
+# the literal string in the proxy URL path.
+# thanos-query-frontend (2026-10-07): Tower's Ops Wall reads DORA (dora-exporter's
+# series, 7-90 day windows) through the long-term query layer, not the local
+# Prometheus, whose retention is hours. Configured in Backstage as tower.dora.metrics.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-ingestor-prometheus-proxy
+  namespace: observability
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames:
+      - kube-prometheus-stack-prometheus
+      - kube-prometheus-stack-prometheus:9090
+      - thanos-query-frontend
+      - thanos-query-frontend:9090
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-prometheus-proxy
+  namespace: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-ingestor-prometheus-proxy
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Tower's Tekton "Re-run" + "Cancel" actions (2026-09-14/15,
+# HANDOFF-tower-write-actions.md Tier 1 - the write-action security
+# framework that handoff establishes: a "delegated action" whose blast
+# radius is scoped by RESOURCE KIND, not a broad standing grant). This is
+# the one deliberate exception to this file's otherwise read-only posture
+# (README.md) - `create` + `patch` on PipelineRuns only, nothing else: no
+# get/list/watch here because Tower already reads PipelineRuns/TaskRuns
+# through the ordinary Kubernetes proxy's ClusterRole `view` binding above,
+# and no delete because neither action needs it - re-running submits a
+# brand-new PipelineRun (a clone of the failed one, fresh generateName)
+# rather than mutating the original, and cancelling is itself a `patch`
+# (spec.status -> CancelledRunFinally), never a removal.
+#
+# Note on `patch`'s real scope: Kubernetes RBAC has no field-level
+# granularity - this verb technically lets the identity PATCH any field of
+# any PipelineRun, not just spec.status, the same way `create` above
+# technically allows any PipelineRun spec, not just a faithful re-run clone.
+# What's actually sent is constrained by this repo's own frontend/backend
+# code (useCancelPipelineRun.ts sends only a spec.status merge-patch), not
+# by RBAC itself - narrowing further would need a validating webhook, which
+# doesn't exist here. Same honest-scope posture as every other grant in
+# this file.
+#
+# Cluster-scoped (not namespaced to one app's app-<name>-cicd) for the same
+# reason backstage-argo-rollouts-viewer above is cluster-scoped: onboarded
+# apps each get their own -cicd namespace and this identity has no way to
+# know the full set up front, same as every other resource-kind grant here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  # Name predates Cancel (2026-09-14, re-run only) - kept as-is rather than
+  # renamed to `...-actions` so this stays the same object ArgoCD already
+  # manages instead of orphaning it (this Application's syncPolicy has no
+  # `prune: true`, so a rename here wouldn't clean up the old name on its
+  # own). The rules below are what actually govern scope, not the name.
+  name: backstage-tekton-rerun
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns"]
+    verbs: ["create", "patch"]
+---
+# Tower's Topology tab "all resources" gallery (2026-09-17) - RBAC objects
+# (Roles/RoleBindings/ClusterRoles/ClusterRoleBindings) are deliberately
+# excluded from the `view` ClusterRole's own aggregation (Kubernetes never
+# lets `view`/`edit` see who-can-do-what by default, for the same reason it
+# excludes Secret data), so a dedicated grant is the only way to surface
+# them, same reasoning as every other CRD-shaped exception in this file.
+# ClusterRole/ClusterRoleBinding added alongside the namespaced pair
+# (2026-09-17, same day) once the gallery's RBAC view started resolving a
+# RoleBinding's roleRef to its actual rules - that reference is very
+# commonly a ClusterRole (bound just within one namespace via a
+# RoleBinding), so resolving it needs read access to ClusterRoles too, not
+# just Roles. Read-only, no different in spirit from the `view` binding
+# this identity already has for every other resource kind - this only adds
+# visibility into RBAC *configuration* (which subjects a binding names,
+# which rules a Role/ClusterRole grants), never lets this identity exercise
+# those grants itself.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-rbac-viewer
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-rbac-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-rbac-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Same Topology-tab resource gallery, the two CRD kinds it also wants:
+# ExternalSecret (external-secrets.io - this platform's Infisical-backed
+# secret sync, see infisical-secretstore-operator) and ServiceMonitor
+# (monitoring.coreos.com - what wires an app's metrics into
+# kube-prometheus-stack). Neither group is covered by `view` or any
+# existing grant here, same reasoning as backstage-argo-rollouts-viewer/
+# backstage-gateway-api-viewer above - grouped into one ClusterRole since
+# both were added for the same feature, rather than two more separate
+# ClusterRole/ClusterRoleBinding pairs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-topology-resource-viewer
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-topology-resource-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-topology-resource-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# Tekton Results read (2026-09-17, Tower's Release Record - "pull as much
+# build/pipeline data as it can into the record"). Originally shaped like
+# backstage-ingestor-rekor-proxy above (proxying straight to
+# tekton-results-api-service), but that path was verified live and does NOT
+# work: the generic services/proxy subresource never forwards this
+# identity's Authorization header to the proxied backend pod, and Results'
+# own API server does its own TokenReview/SubjectAccessReview check that
+# needs to actually see a bearer token - confirmed by hitting Results'
+# ClusterIP directly from an in-cluster debug pod with the same token and
+# getting a clean 200, versus `{"code":16,"message":"unable to find
+# token"}` through services/proxy. Full isolating test in
+# HANDOFF-tower-tekton-results.md.
+#
+# Fix: this grant now targets `tekton-results-relay` (plain HTTP,
+# platform-system - see glidepath's
+# charts/glidepath-control-plane/templates/tekton/tekton-results-relay.yaml
+# and platform/tekton-results-relay/cmd/tekton-results-relay/main.go), a
+# small relay that re-issues the request to the real Results API using ITS
+# OWN ServiceAccount token instead of trying to forward this identity's.
+# This grant still fully controls who may reach the relay at all; Results'
+# own RBAC (granted to the relay's own identity, not this one) decides what
+# can actually be read once there. Plain HTTP on the relay's own incoming
+# side (unlike Results' TLS-only port) means no `https:` scheme-prefix
+# variant is needed here, unlike the original grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-ingestor-tekton-results-proxy
+  namespace: platform-system
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames:
+      - tekton-results-relay
+      - tekton-results-relay:8080
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-tekton-results-proxy
+  namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-ingestor-tekton-results-proxy
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+---
+# ArgoCD Applications in the platform instance (2026-10-04, Tower's Provisioning tab). The
+# "CI/CD onboarded" step is only true once the <app>-cicd Application is Synced and Healthy:
+# the XR's CicdOnboarded condition just means the identity file was committed. That app lives
+# in the `argocd` namespace (the platform instance); Backstage's ArgoCD plugin only reads the
+# argocd-apps instances, so it cannot see it, and the step never went green (air-traffic-api).
+# Read-only, one namespace, one kind. An Application holds repo URLs, Helm values and sync
+# status, not secret values (repository credentials are Secrets, which this does not touch).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-argocd-application-viewer
+  namespace: argocd
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-argocd-application-viewer
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-argocd-application-viewer
+subjects:
+  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
+  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor

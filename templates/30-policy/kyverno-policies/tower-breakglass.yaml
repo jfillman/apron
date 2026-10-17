@@ -1,0 +1,296 @@
+# Tower break-glass guardrails on Ground (2026-10-10; spec SPEC-tower-break-glass-debug.md section 5).
+# Backstage's own checks are the first lock; these are the second, in the cluster, and they fail closed.
+#
+# - tower-breakglass-rolebinding: the only RoleBindings Backstage may create are tower-breakglass-* in an app
+#   namespace, binding one debug role to Backstage itself, expiring in 15 to 75 minutes (Kyverno's cleanup TTL
+#   deletes them even if Backstage never does).
+# - tower-breakglass-debug-container: a debug container (ephemeral, or in a copy-mode pod) runs the pinned debug
+#   image, non-root with a non-zero group, no privilege escalation, every capability dropped, a read-only root, and
+#   any volume it mounts (break-glass volume access) mounted read-only.
+#   Copy-mode pods also carry a TTL, so a forgotten copy disappears.
+# - tower-breakglass-pod-delete: Backstage may delete only a pod it debugged or copied.
+#
+# ValidatingPolicy with autogen.validatingAdmissionPolicy (2026-10-11, was ClusterPolicy, deprecated in Kyverno 1.19):
+# Kyverno compiles each one into a native ValidatingAdmissionPolicy (vpol-<name>) and registers no webhook for it, so
+# the API server enforces these itself. Kyverno being down (it restarts whenever the dev cluster's etcd stalls) no longer
+# makes break-glass unavailable, and cannot affect any other request. Only the cleanup TTL backstop needs Kyverno, and
+# its cleanup controller deletes anything that expired while it was down once it is back.
+#
+# CEL rules for these (all evaluated by the API server under failurePolicy Fail, where an evaluation error refuses
+# the request): matchConditions keep each policy to the requests it guards, and every optional field is read behind
+# has() (request.subResource, for one, is absent rather than "" on a plain create).
+#
+# Phase 3 (Flight, on the prod cluster once Kyverno runs there) adds image signature verification and a pods/exec deny.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-breakglass-rolebinding
+  annotations:
+    policies.kyverno.io/title: Tower break-glass RoleBindings
+    policies.kyverno.io/description: Backstage may only bind the two debug roles to itself, in an app namespace, for at most 75 minutes.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rolebindings"]
+  # Only tower-breakglass-* bindings and bindings Backstage writes; every other RoleBinding write skips the policy.
+  matchConditions:
+    - name: breakglass-or-backstage
+      expression: >-
+        (has(object.metadata.name) && object.metadata.name.startsWith('tower-breakglass-')) ||
+        (has(request.userInfo.username) && request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor'])
+  variables:
+    - name: isBackstage
+      expression: >-
+        has(request.userInfo.username) &&
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+    - name: isBreakglass
+      expression: has(object.metadata.name) && object.metadata.name.startsWith('tower-breakglass-')
+  validations:
+    - expression: "!variables.isBackstage || variables.isBreakglass"
+      message: Backstage may only create RoleBindings named tower-breakglass-*.
+    - expression: >-
+        !variables.isBreakglass || (
+          object.roleRef.kind == 'ClusterRole' &&
+          object.roleRef.name in ['tower-breakglass-debug-live', 'tower-breakglass-debug-copy'] &&
+          has(object.subjects) && size(object.subjects) == 1 &&
+          object.subjects[0].kind == 'User' && object.subjects[0].name == 'hangar:@@TOWER_CLUSTER@@:tower-actor' &&
+          has(object.metadata.labels) && 'cleanup.kyverno.io/ttl' in object.metadata.labels &&
+          object.metadata.labels['cleanup.kyverno.io/ttl'] in ['15m', '30m', '45m', '60m', '75m']
+        )
+      message: >-
+        A tower-breakglass RoleBinding binds tower-breakglass-debug-live or -copy (a ClusterRole) to Tower's write
+        identity only (the federated user hangar:@@TOWER_CLUSTER@@:tower-actor), with cleanup.kyverno.io/ttl of 15m to 75m (a session plus its one
+        15-minute extension).
+    - expression: >-
+        !variables.isBreakglass || (
+          namespaceObject != null && has(namespaceObject.metadata.labels) &&
+          'hangar.io/app' in namespaceObject.metadata.labels
+        )
+      message: A tower-breakglass RoleBinding may only be created in an app namespace (labelled hangar.io/app).
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-breakglass-debug-container
+  annotations:
+    policies.kyverno.io/title: Tower break-glass debug containers
+    policies.kyverno.io/description: Debug containers run the pinned image, hardened; copy-mode pods expire.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  # Only ephemeral-container updates and copy-mode pods; every other pod create skips the policy.
+  matchConditions:
+    - name: ephemeral-container-or-copy-pod
+      expression: >-
+        (has(request.subResource) && request.subResource == 'ephemeralcontainers') ||
+        (has(object.metadata.labels) && 'hangar.io/breakglass-copy' in object.metadata.labels)
+  variables:
+    - name: debugImage
+      expression: "'@@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/tower-debug@sha256:5554edfd06b79c0bb295d4df063107016abc48334614c9e34440bc099b497b8c'"
+    - name: isEphemeral
+      expression: has(request.subResource) && request.subResource == 'ephemeralcontainers'
+    - name: isCopyPod
+      expression: >-
+        !variables.isEphemeral && has(object.metadata.labels) &&
+        'hangar.io/breakglass-copy' in object.metadata.labels &&
+        object.metadata.labels['hangar.io/breakglass-copy'] == 'true'
+    - name: isAdmin
+      expression: has(request.userInfo.groups) && 'system:masters' in request.userInfo.groups
+    - name: inAppNamespace
+      expression: >-
+        namespaceObject != null && has(namespaceObject.metadata.labels) &&
+        'hangar.io/app' in namespaceObject.metadata.labels
+  # The two hardening checks are the same predicate; CEL has no functions, and ephemeral containers and containers
+  # are different types, so it is written out for each.
+    # G14 (step c): the ephemeral containers this update adds (the ones already in the pod are not re-judged).
+    - name: addedEphemeral
+      expression: >-
+        !variables.isEphemeral || !has(object.spec.ephemeralContainers) ? [] :
+        object.spec.ephemeralContainers.filter(c,
+          !(has(oldObject.spec.ephemeralContainers) && oldObject.spec.ephemeralContainers.exists(o, o.name == c.name)))
+  validations:
+    # G14 (step c, 2026-10-11): process access (targetContainerName) only for a container named after the session the
+    # pod's annotation names, which Backstage writes under tower-breakglass-pod-annotate when the approved request had
+    # process access. A debug container the approver never saw with process access cannot get it. CEL tested in
+    # isolation on the dev cluster (celtest-g14): name matches the annotation -> admitted; no annotation or another name ->
+    # refused; a container without targetContainerName -> admitted.
+    - expression: >-
+        !variables.isEphemeral || variables.isAdmin || !variables.inAppNamespace ||
+        variables.addedEphemeral.all(c, !has(c.targetContainerName) ||
+          (has(object.metadata.annotations) && 'hangar.io/breakglass-process-access' in object.metadata.annotations &&
+           c.name == 'debug-' + object.metadata.annotations['hangar.io/breakglass-process-access']))
+      message: >-
+        A debug container with process access (targetContainerName) must be named after the session the pod's
+        hangar.io/breakglass-process-access annotation names (the approved request).
+    - expression: >-
+        !variables.isEphemeral || variables.isAdmin || !variables.inAppNamespace ||
+        !has(object.spec.ephemeralContainers) ||
+        object.spec.ephemeralContainers.all(c,
+          c.image == variables.debugImage &&
+          has(c.securityContext) &&
+          has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true &&
+          has(c.securityContext.runAsGroup) && c.securityContext.runAsGroup > 0 &&
+          has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false &&
+          has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true &&
+          (!has(c.securityContext.privileged) || c.securityContext.privileged == false) &&
+          has(c.securityContext.capabilities) &&
+          has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop &&
+          (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) &&
+          (!has(c.volumeMounts) || c.volumeMounts.all(m, has(m.readOnly) && m.readOnly == true))
+        )
+      message: >-
+        A debug container runs the Tower debug image (@@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/tower-debug@sha256:5554edfd06b79c0bb295d4df063107016abc48334614c9e34440bc099b497b8c),
+        non-root with a non-zero group, no privilege escalation, all capabilities dropped, a read-only root, and only
+        read-only volume mounts.
+    - expression: >-
+        !variables.isCopyPod || variables.isAdmin ||
+        object.spec.containers.all(c, !c.name.startsWith('debug-') || (
+          c.image == variables.debugImage &&
+          has(c.securityContext) &&
+          has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == true &&
+          has(c.securityContext.runAsGroup) && c.securityContext.runAsGroup > 0 &&
+          has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false &&
+          has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true &&
+          (!has(c.securityContext.privileged) || c.securityContext.privileged == false) &&
+          has(c.securityContext.capabilities) &&
+          has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop &&
+          (!has(c.securityContext.capabilities.add) || size(c.securityContext.capabilities.add) == 0) &&
+          (!has(c.volumeMounts) || c.volumeMounts.all(m, has(m.readOnly) && m.readOnly == true))
+        ))
+      message: >-
+        A copy-mode pod's debug-* container is hardened like an ephemeral debug container: the Tower debug image,
+        non-root with a non-zero group, no privilege escalation, all capabilities dropped, a read-only root, and only
+        read-only volume mounts.
+    # Applies to admins too: an admin's copy pod still expires.
+    - expression: >-
+        !variables.isCopyPod || (
+          'cleanup.kyverno.io/ttl' in object.metadata.labels &&
+          object.metadata.labels['cleanup.kyverno.io/ttl'] in ['15m', '30m', '45m', '60m', '75m']
+        )
+      message: A copy-mode pod carries cleanup.kyverno.io/ttl of 15m to 75m (a session plus its one 15-minute extension).
+---
+# Pods Backstage may delete (2026-10-11): only a pod it debugged (an ephemeral debug-* container) or a copy-mode pod.
+# Both debug roles grant `delete pods` for the length of a session (copy: delete the copy; live: restart a pod Argo CD
+# does not manage), and without this the grant would reach every pod in the namespace.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-breakglass-pod-delete
+  annotations:
+    policies.kyverno.io/title: Tower break-glass pod deletes
+    policies.kyverno.io/description: Backstage may delete only pods it debugged or copied.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+    # A policy on Pods alone also gets Deployment/Job/... variants by default, and Kyverno then serves it from its
+    # webhook instead of generating the ValidatingAdmissionPolicy. Backstage deletes pods only: no variants.
+    podControllers:
+      controllers: []
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: backstage-only
+      expression: >-
+        has(request.userInfo.username) &&
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+  validations:
+    # On a DELETE the pod is oldObject (object is null).
+    - expression: >-
+        (has(oldObject.metadata.labels) && 'hangar.io/breakglass-copy' in oldObject.metadata.labels &&
+         oldObject.metadata.labels['hangar.io/breakglass-copy'] == 'true') ||
+        (has(oldObject.spec.ephemeralContainers) &&
+         oldObject.spec.ephemeralContainers.exists(c, c.name.startsWith('debug-')))
+      message: >-
+        Backstage may delete only a pod carrying a break-glass debug container (debug-*) or a break-glass copy pod.
+---
+# Gaps phase C, G14 (2026-10-11): Backstage's `patch pods` (tower-breakglass-debug-live, during a live session) may change
+# nothing but the break-glass process-access annotation: the spec, the labels and every other annotation must stay as
+# they were. The CEL was tested in isolation on the dev cluster (celtest-g14): annotation add and remove admitted; a label, an
+# image or another annotation refused. Scoped to Backstage by username, with has() guards, so nothing else is touched.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-breakglass-pod-annotate
+  annotations:
+    policies.kyverno.io/title: Tower break-glass pod annotation
+    policies.kyverno.io/description: Backstage may change only the break-glass process-access annotation on a pod.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+    podControllers:
+      controllers: []
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: backstage-main-resource
+      expression: >-
+        has(request.userInfo.username) &&
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor'] &&
+        (!has(request.subResource) || request.subResource == '')
+  variables:
+    - name: key
+      expression: "'hangar.io/breakglass-process-access'"
+    - name: oldA
+      expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+    - name: newA
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+    - name: oldL
+      expression: "has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}"
+    - name: newL
+      expression: "has(object.metadata.labels) ? object.metadata.labels : {}"
+  validations:
+    - expression: "object.spec == oldObject.spec"
+      message: Backstage may not change a pod's spec; only the break-glass process-access annotation.
+    - expression: "variables.newL == variables.oldL"
+      message: Backstage may not change a pod's labels; only the break-glass process-access annotation.
+    - expression: >-
+        variables.newA.all(k, k == variables.key || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+        variables.oldA.all(k, k == variables.key || k in variables.newA)
+      message: Backstage may change only the break-glass process-access annotation (hangar.io/breakglass-process-access) on a pod.

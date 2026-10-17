@@ -1,0 +1,21 @@
+# runtimes/kind.yaml - a local single-node kind cluster. `apron up` runs
+#   kind create cluster --name <name> --config hack/kind-config.yaml   (rendered into the cluster repo)
+# then installs Calico before anything else: kind's kindnet ignores NetworkPolicy.
+runtime:
+  type: kind
+  nodeExec: docker exec -i      # + <node>; e.g. "podman exec -i" or "ssh <host> podman exec -i" for apron identity
+  kind:
+    config: hack/kind-config.yaml
+    podSubnet: 192.168.0.0/16
+    maxPods: 250
+    hostHttpPort: 80
+    hostHttpsPort: 443
+  cni:
+    name: calico
+    version: v3.29.1
+    manifest: https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml
+traefik:
+  serviceType: NodePort         # kind has no LoadBalancer; host 80/443 map to these NodePorts
+  fixedNodePorts: true
+  httpNodePort: 30080
+  httpsNodePort: 30443

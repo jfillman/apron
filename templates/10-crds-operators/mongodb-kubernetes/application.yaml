@@ -1,0 +1,94 @@
+# MongoDB Controllers for Kubernetes (MCK), Item 7's shared/dedicated MongoDB backend (SP-3,
+# service-catalog-design.md Round 2026-09-17). The original design named
+# `mongodb/mongodb-kubernetes-operator` ("MongoDB Community Kubernetes Operator") - verified against
+# the real GitHub repo at build time and found ARCHIVED/deprecated, redirecting to
+# `mongodb/mongodb-kubernetes` (MCK), the unified operator. MCK preserves the exact same
+# `mongodbcommunity.mongodb.com/v1 MongoDBCommunity` CRD the design named (confirmed against MCK's
+# own community-operator-migration.md), so only the operator to install changed, not the CRD
+# airframe's Composition wraps.
+#
+# Chart 1.12.0 = operator image quay.io/mongodb/mongodb-kubernetes:1.12.0, verified against the real
+# Quay registry: linux/amd64 + linux/arm64 (+ s390x/ppc64le, unused here) - runs on the dev cluster (arm64)
+# and the prod cluster (amd64). The mongod database image itself
+# (quay.io/mongodb/mongodb-community-server:8.0.32-ubi8, pinned in airframe's own Composition, not
+# here) is separately confirmed multi-arch (amd64 + arm64).
+#
+# watchedResources scoped to `mongodbcommunity` only - MCK's chart also installs CRDs and RBAC for
+# `mongodb`/`opsmanagers`/`mongodbusers`/`mongodbsearch`/`voyageais` (Enterprise/Ops Manager
+# features), none of which this catalog uses; narrowing the watch list keeps the operator's own RBAC
+# and reconcile surface to only the CRD it's actually installed for here.
+#
+# watchNamespace: "*" - every other Attached-tier component in this catalog is cluster-wide by its
+# own operator (CNPG, the RabbitMQ operators); MongoDBCommunity XRs render into whichever app
+# namespace airframe-application's components.yaml places them in, not this operator's own
+# namespace, so a namespace-scoped watch (the chart's default) would never see them - same real gap
+# found live on the dev cluster (a scratch XR that reconciled its Crossplane-side XR fine but never got a
+# StatefulSet, the operator's own logs showing WATCH_NAMESPACE=mongodb-kubernetes-system). The chart
+# itself switches its Role to a ClusterRole/ClusterRoleBinding automatically once this is set to "*"
+# (helm_chart/templates/operator-roles-base.yaml's own $roleScope logic) - a real permission-scope
+# change, confirmed with the user before applying it here too (matching CNPG/RabbitMQ's own
+# already-cluster-wide precedent on this cluster).
+#
+# 2026-09-28: installed here to bring the prod cluster in step with the dev cluster - baggage-api's real
+# migration onto the MongoDB component (Skyport phase 3) needs a working staging environment, not
+# just a dev one. Byte-identical to the dev cluster's own `10-crds-operators/mongodb-kubernetes/
+# application.yaml` (this file's own original header, before this note) - same operator, same
+# version, same scope, EXCEPT for the namespace/sync-wave fix below, found only once a real sync
+# was attempted against the prod cluster (the dev cluster's own copy hasn't hit this - flagged as a known gap
+# to backport there too, see this file's own note below).
+#
+# 2026-09-28 (same day, later): CreateNamespace=true alone reliably failed here, every real sync
+# attempt (3 retries, identical error each time): "namespaces mongodb-kubernetes-system not
+# found, error running kubectl auth reconcile: error getting namespace mongodb-kubernetes-system:
+# namespaces mongodb-kubernetes-system not found". NOT an RBAC bug - confirmed live that
+# argocd-application-controller's own ClusterRole on this cluster is a full apiGroups:["*"]/
+# resources:["*"]/verbs:["*"] wildcard, so a missing permission was never the blocker. Root cause:
+# MCK's chart renders namespace-scoped Role/RoleBinding objects, which ArgoCD applies via a
+# `kubectl auth reconcile` equivalent (its real strategy for RBAC kinds) instead of a plain apply
+# - that step GETs the target namespace first, and CreateNamespace=true's own namespace creation
+# is a special-cased step in ArgoCD's sync engine, not an ordinary tracked resource with a place
+# in the normal Namespace-kind-first resource ordering, so the GET raced ahead of it every time.
+# cnpg-system/crossplane-system (this same syncOptions pattern) never hit this because neither of
+# those charts ships a namespace-scoped Role/RoleBinding of its own; the RabbitMQ Cluster
+# Operator's own install (10-crds-operators/rabbitmq-operators/cluster-operator.yaml) never hit
+# it either, but for a different reason - that manifest is a vendored upstream file that ships
+# its OWN Namespace object as a plain tracked resource, so it already got ArgoCD's normal
+# ordering for free, without ever relying on CreateNamespace=true at all.
+#
+# Fixed the same way: `namespace/namespace.yaml` (this directory, new) is a real, plain,
+# ArgoCD-tracked Namespace object, synced via the second `sources:` entry below alongside the
+# chart - not a hook, not a wave annotation, just an ordinary resource that gets ArgoCD's default
+# Namespace-kind-first ordering. CreateNamespace=true is left in syncOptions as a harmless no-op
+# backstop (the namespace already existing by the time the chart's own resources sync means it
+# never actually triggers), not removed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mongodb-kubernetes
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  sources:
+    - repoURL: @@REPO_URL@@
+      targetRevision: main
+      path: 10-crds-operators/mongodb-kubernetes/namespace
+    - repoURL: https://mongodb.github.io/helm-charts
+      chart: mongodb-kubernetes
+      targetRevision: 1.12.0
+      helm:
+        releaseName: mongodb-kubernetes
+        valuesObject:
+          operator:
+            watchedResources:
+              - mongodbcommunity
+            watchNamespace: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mongodb-kubernetes-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

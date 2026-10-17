@@ -1,0 +1,83 @@
+# Query / Store Gateway / Compactor - the sidecar itself is NOT deployed by this chart,
+# it runs inside every Prometheus pod (kube-prometheus-stack/application.yaml's own
+# prometheusSpec.thanos block). Depends on minio/ (bucket + secret) and
+# kube-prometheus-stack/ (the sidecarsService DNS discovery Query relies on) both being
+# up first - sync those two before this one.
+#
+# image.registry/repository/tag override baked straight into valuesObject, rather than
+# the source README's two-step `helm install` + `helm upgrade --reuse-values --set
+# image...` dance - one ArgoCD Application can't express two sequential Helm operations,
+# and there's no reason to: setting the final desired image from the start produces the
+# same end state in one sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: thanos
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: thanos
+    targetRevision: 17.3.1
+    helm:
+      releaseName: thanos
+      valuesObject:
+        global:
+          security:
+            allowInsecureImages: true
+        image:
+          registry: quay.io
+          repository: thanos/thanos
+          tag: v0.39.2
+        existingObjstoreSecret: thanos-objstore-config
+        query:
+          enabled: true
+          dnsDiscovery:
+            enabled: true
+            sidecarsService: "kube-prometheus-stack-thanos-discovery"
+            sidecarsNamespace: "observability"
+          replicaLabel:
+            - replica
+            - prometheus_replica
+        storegateway:
+          enabled: true
+          persistence:
+            enabled: true
+            size: 5Gi
+        compactor:
+          enabled: true
+          retentionResolutionRaw: 7d
+          retentionResolution5m: 30d
+          retentionResolution1h: 90d
+          # The chart's default "nano" preset (192Mi / 150m) is far too small to
+          # compact multi-GB blocks: the compactor was OOM/CPU-starved and
+          # crash-looped (1300+ restarts), leaving partial/overlapping uploads, and
+          # retention (which only runs after a successful compaction pass) never
+          # applied - the thanos bucket grew to ~212GB. Explicit resources override
+          # the preset.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          persistence:
+            enabled: true
+            size: 5Gi
+        # Sidecar pattern, not remote-write/receive - matches the common
+        # "Prometheus Operator + Thanos" reference architecture.
+        receive:
+          enabled: false
+        ruler:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

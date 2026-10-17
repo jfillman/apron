@@ -1,0 +1,18 @@
+apiVersion: v2
+# Renders one app's onboarding objects - the ApplicationSet in ../applicationset.yaml
+# is what makes this one-per-app instead of a manual chart install; this chart itself
+# doesn't know or care about tenants, it just turns the values it's given into
+# objects. See ../applicationset.yaml's own header for why an ApplicationSet can't
+# generate an AppProject or ApplicationSet resource directly (it only generates
+# Application objects) - this tiny chart is the workaround.
+#
+# 0.2.0 (2026-08-16, gitops-strategy.md §10): now renders THREE objects, not one -
+# the original upper-env AppProject (appproject.yaml), a second narrower AppProject
+# for the dev-cluster-only self-service lower-env tier (appproject-lower.yaml), and a
+# per-app ApplicationSet (lower-envs-applicationset.yaml) that fans out to that app's
+# own platform/envs/*.yaml. Cosmetic-only bump - this Application source pins
+# targetRevision: main + path:, not a chart-version target, so this doesn't affect
+# ArgoCD's resolution; kept for consistency with this project's practice elsewhere.
+name: tenant-appproject
+description: Renders one app's per-app AppProjects (upper + lower-env) and lower-env ApplicationSet, values-driven, for the tenant-appprojects ApplicationSet
+version: 0.2.0

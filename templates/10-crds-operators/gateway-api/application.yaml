@@ -1,0 +1,31 @@
+# Vendored, pinned manifest (install.yaml in this directory,
+# https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.1/standard-install.yaml)
+# - Gateway API standard-channel CRDs plus the upstream safe-upgrades
+# ValidatingAdmissionPolicy. v1.5.x is required by Traefik v3.7, which watches v1
+# TLSRoute (standard channel only from v1.5). Needed by everything in
+# 50-gateway-routes/ (HTTPRoute) and 10-crds-operators/traefik/ (GatewayClass, Gateway).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/gateway-api
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      # Gateway API CRDs exceed the client-side apply annotation size limit.
+      - ServerSideApply=true

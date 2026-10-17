@@ -1,0 +1,97 @@
+# Testkube CE (standalone agent, no commercial Control Plane) - executes the `test`
+# Pipeline's TestWorkflows. Deliberately nested under 50-glidepath/, not
+# 10-crds-operators/: Testkube only has a reason to exist where platform-cicd's own
+# control plane runs (Tekton is what triggers a TestWorkflow execution in the first
+# place), so it rides the exact same PLATFORM_CICD gate as its sibling
+# platform-cicd-control-plane/ - see the old template repo/hack/customize-cluster.sh
+# line ~119 (`[ "${PLATFORM_CICD}" = "true" ] || prune "50-glidepath"`). No script
+# change was needed to wire that up; nesting here was enough.
+#
+# SINGLE shared `testkube` namespace, deliberately - not one per tenant. Cross-namespace
+# TestWorkflow execution (testkube-api.executionNamespaces/multinamespace) is gated in
+# Testkube's own source as a Pro/Enterprise-only feature: cmd/api-server/main.go's own
+# comment reads "// Pro edition only (tcl protected code)" immediately above the check
+# that hard-exits with "execution namespaces: feature is not supported in standalone
+# mode" whenever executionNamespaces is set and the process isn't connected to a
+# licensed Control Plane (mode == common.ModeAgent, which requires a real
+# TestkubeProAPIKey/TestkubeProAgentRegToken). Confirmed live on the dev cluster 2026-08-24 -
+# the first version of this file tried exactly that and the api-server crash-looped on
+# this precise check. CE genuinely cannot run workflows inside each app's own
+# app-<appName>-cicd namespace; don't reintroduce executionNamespaces/multinamespace
+# config here without first getting a real Testkube Cloud/Pro/Enterprise connection.
+#
+# So application secrets reach a TestWorkflow a different way: the `test` Pipeline's
+# Task (running as that tenant's own pipeline-runner, which already reads
+# app-<appName>-cicd's app-secrets Secret) materializes the relevant key/values into a
+# Secret inside THIS shared testkube namespace before triggering the run, and the
+# TestWorkflow's own spec references it via a standard env[].valueFrom.secretKeyRef
+# (plain Kubernetes pod-spec passthrough - confirmed as a genuinely open-source,
+# non-tcl-gated code path: pkg/testworkflows/testworkflowprocessor/secretmachine.go,
+# testworkflowresolver/secrets.go, testworkflowexecutor/secrethandler.go all live
+# outside any Pro-only package). Exactly how a given tenant's pipeline-runner is allowed
+# to write into this ONE shared namespace without being able to clobber another
+# tenant's secret-by-the-same-name is a real, not-yet-settled multi-tenant blast-radius
+# question - see platform-cicd's tracking of this (not yet a Task rewrite; the
+# Testkube install itself is what's live here).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: testkube
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: platform-cicd
+spec:
+  project: default
+  source:
+    repoURL: https://kubeshop.github.io/helm-charts
+    chart: testkube
+    targetRevision: "2.12.2"
+    helm:
+      releaseName: testkube
+      valuesObject:
+        # Postgres instead of the chart's default Mongo backend - live-verified 2026-
+        # 08-24 that testkube-mongodb (docker.io/kubeshop/bitnami-mongodb:8.3.4)
+        # hard-refuses to start on this host's kernel: "MongoDB cannot start: Linux
+        # kernel versions 6.19 and newer has a known incompatibility with this version
+        # of MongoDB" (jira.mongodb.org/browse/SERVER-121912). This host's kind nodes
+        # run 6.19.7 - not a values mistake, an upstream Mongo/kernel gate. Every kind
+        # cluster on this same host (the prod cluster included) hits the same wall.
+        # Postgres is the chart's own first-class alternative backend
+        # (postgresql.enabled), not a workaround bolted on from outside it.
+        mongodb:
+          enabled: false
+        postgresql:
+          enabled: true
+        testkube-api:
+          mongodb:
+            enabled: false
+          postgresql:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # Chart used to render a per-app tests-job-<appName> ServiceAccount; the current
+      # 2.12.2 render doesn't, but prune was never enabled so the two ServiceAccounts
+      # from the original install (app-checkout-api-cicd, app-nodejs-demo-app-cicd)
+      # were stuck live-forever, permanently OutOfSync/PruneSkipped - confirmed via
+      # `argocd app diff --core` (261 self-heal attempts recorded, StuckDriftLoop).
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # Required, not optional: live-verified 2026-08-24 that plain client-side apply
+      # fails outright on this chart's testworkflows.testworkflows.testkube.io CRD -
+      # "metadata.annotations: Too long: may not be more than 262144 bytes" from the
+      # kubectl.kubernetes.io/last-applied-configuration annotation client-side apply
+      # generates, which duplicates that CRD's large OpenAPI schema. Server-side apply
+      # doesn't use that annotation at all.
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      name: testkube-nats
+      jsonPointers:
+        - /spec/volumeClaimTemplates

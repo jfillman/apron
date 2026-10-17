@@ -1,0 +1,108 @@
+# ClusterProviderConfig + RBAC for provider-helm, matching
+# provider-kubernetes-config.yaml's own combined-file pattern exactly (same
+# provider-config-plus-RBAC shape, different provider).
+#
+# credentials.source: InjectedIdentity - every Attached-tier Component (Item 7)
+# deploys into the SAME cluster Crossplane's own controller runs on, never a
+# remote one, so no kubeconfig/Secret needed - the same "no live cluster
+# credential" instinct already used everywhere else in this catalog.
+#
+# name: default - matches helm.m.crossplane.io's own schema default for
+# spec.providerConfigRef (confirmed the same way provider-kubernetes-config.yaml's
+# own "default" name was - checking the CRD's actual default rather than guessing),
+# so Component Compositions rendering a Release don't need to set
+# providerConfigRef explicitly. The provider's own namespaced-example manifest
+# (examples/namespaced/provider-config/cluster-provider-config-incluster.yaml) sets
+# a stray metadata.namespace on this object despite ClusterProviderConfig being
+# cluster-scoped (`kubectl api-resources` confirms NAMESPACED=false) - a real doc
+# staleness in the provider's own repo, not reproduced here; live-verified this
+# object applies and is used cleanly with no namespace field at all.
+apiVersion: helm.m.crossplane.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  credentials:
+    source: InjectedIdentity
+---
+# provider-helm's own controller ServiceAccount needs RBAC on whatever a rendered
+# Helm chart's manifests actually contain - unlike provider-kubernetes (which only
+# ever applies ONE known object per Object resource, granted individually as each
+# Composition needs it) or Crossplane's own core controller (native-resources-rbac.yaml,
+# one grant per Composition-composed kind), this provider runs `helm
+# install`/`upgrade` under the hood against an arbitrary chart, so its RBAC needs to
+# cover the resource kinds Item 7's platform-curated wrapper charts render, as a
+# class, not one kind at a time.
+#
+# Two real gaps found live during the initial install smoke test (a throwaway
+# podinfo Release, full create->Ready:True->delete lifecycle, cleaned up after):
+# 1. No RBAC for `namespaces` at all - the package-manager-granted ClusterRole only
+#    covers this provider's OWN API types. Deliberately NOT granted here: Attached-tier
+#    Components only ever render into an already-provisioned namespace (Bootstrap-tier
+#    owns namespace creation - service-catalog-design.md's "Dependency ordering"
+#    section), so a Component Release should never need to create one itself. Every
+#    Release this catalog renders sets `skipCreateNamespace: true` instead (the
+#    generic Component Composition, not built yet - Sequencing step 3) - narrower and
+#    more correct than granting cluster-wide namespace-create rights to a Helm
+#    controller, matching this catalog's standing least-privilege posture (§6
+#    AppProject boundaries).
+# 2. No RBAC for the actual resource kinds a chart creates - granted below, scoped to
+#    what a typical curated component chart (Redis/Postgres/OAuth/RabbitMQ/Mongo/nginx
+#    wrapper charts, Item 7) plausibly renders, not a blanket admin grant. Extend this
+#    list if a specific wrapper chart needs a kind not covered here (discovered the
+#    same way this list was - a live ReconcileError naming the missing kind) rather
+#    than widening it preemptively.
+#
+# Binds directly to the current revision-suffixed ServiceAccount name
+# (provider-helm-2280e32fd4e4), not a stable aggregation label - same real, accepted
+# fragility provider-kubernetes-config.yaml already documents for its own binding:
+# needs updating if provider-helm is ever reinstalled/upgraded to a new
+# ProviderRevision (new random suffix).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provider-helm-managed-resources
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+rules:
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: provider-helm-managed-resources
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: provider-helm-managed-resources
+subjects:
+  - kind: ServiceAccount
+    name: provider-helm-2280e32fd4e4
+    namespace: crossplane-system

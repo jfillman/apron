@@ -1,0 +1,20 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: github-mcp-token
+  namespace: holmesgpt
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: ai-triage
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: github-mcp-token
+    creationPolicy: Owner
+  data:
+    - secretKey: token
+      remoteRef:
+        key: github-mcp-token

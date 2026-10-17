@@ -1,0 +1,31 @@
+# Tower access: the cluster-scoped pieces Tower (Backstage, deployed as an Airframe app in @@TOWER_NAMESPACE@@) needs on
+# the cluster it runs on, which an app chart cannot own: read access for its kubernetes-ingestor ServiceAccount, and the
+# tower-actor ServiceAccount it mints write tokens for (accepted by the hub cluster's trust file).
+#
+# Ordering: the app chart owns the namespace. This Application never creates it (no CreateNamespace) and syncs after the
+# app exists; until then it shows the namespaced objects as missing rather than creating an unowned namespace. Sync it
+# once Tower's own Application has created @@TOWER_NAMESPACE@@.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tower-access
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tower-access
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 66-tower-access
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: @@TOWER_NAMESPACE@@
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true

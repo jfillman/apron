@@ -1,0 +1,18 @@
+# runtimes/kiac.yaml - a local single-node kiac cluster (Apple `container` VMs). `apron up` runs
+#   kiac create cluster --name <name> --workers W --cni C --kernel K --cpus N --cp-memory M
+# Never with --gateway: Traefik (10-crds-operators/traefik) is Apron's one gateway on every runtime. kiac brings Cilium,
+# so no CNI step. Hosts reach Traefik on the node's IP and its NodePorts (see README "Local clusters").
+runtime:
+  type: kiac
+  nodeExec: container exec -i   # + <node>, for apron identity
+  kiac:
+    workers: 0
+    cni: cilium
+    kernel: full
+    cpus: 10
+    cpMemory: 32G               # --cp-memory, not --memory (worker-only, ignored with --workers 0)
+traefik:
+  serviceType: NodePort
+  fixedNodePorts: true
+  httpNodePort: 30080
+  httpsNodePort: 30443

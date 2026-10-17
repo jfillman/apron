@@ -1,0 +1,47 @@
+# DeploymentRuntimeConfig shared by the Azure cloud-target providers (providers.yaml, origin
+# cloud-targets). The AWS providers use provider-aws-runtime.yaml: these settings plus an STS token
+# (2026-10-16). The CRD's embedded Deployment schema REQUIRES a selector (seen live 2026-10-08:
+# "spec.deploymentTemplate.spec.selector: Required value" with none), so the selector below is a
+# label this config also stamps on the pod template - valid on its own for every provider that
+# references it, and Crossplane overrides the selector and labels with the provider's own
+# pkg.crossplane.io/provider identity anyway, which is what lets one config serve several packages
+# (the per-provider configs beside this one carry a provider-specific selector only because they
+# were written for exactly one provider).
+#
+# --poll=10m: cloud targets are stood up and torn down on request and then left alone; a Lambda
+# function, an ECS service or a Container App is changed by Glidepath, not by anyone drifting it,
+# and the deploy surfaces are composed without the Update policy anyway, so a slow poll costs
+# nothing and keeps eight providers' background observe traffic (and the cloud API bills) low.
+# --max-reconcile-rate=2 for the same reason, and because this dev cluster has been CPU-saturated
+# by a provider before (provider-infisical-runtime.yaml's own story). Memory is hard-limited:
+# provider-aws-ec2 alone loads 208 CRDs.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-cloud-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          hangar.io/origin: cloud-targets
+      template:
+        metadata:
+          labels:
+            hangar.io/origin: cloud-targets
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --max-reconcile-rate=2
+                - --poll=10m
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi

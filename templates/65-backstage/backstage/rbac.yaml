@@ -1,0 +1,128 @@
+# Read-only Kubernetes access for the kubernetes-ingestor plugin (idp/docs/
+# backstage-design.md "Catalog ingestion") - Backstage had zero K8s access before this
+# (Deployment ran as `default` with no RBAC bound anywhere). Scoped to exactly what
+# kubernetes-ingestor needs for catalog/template generation, per the plugin's own
+# documented minimum (TeraSky-OSS/backstage-plugins kubernetes-ingestor/K8S_RBAC.md):
+# native workloads (`view`) + CRDs (custom ClusterRole, view doesn't cover them) +
+# Crossplane XRDs/Compositions/XRs (`crossplane-browse`). Deliberately excludes
+# `crossplane-view` (adds managed-resource read) - that's for the separate Crossplane
+# visualization plugin, not in scope for catalog ingestion alone.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backstage-ingestor
+  namespace: backstage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-crd-viewer
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-crd-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-crd-viewer
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-crossplane-browse
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crossplane-browse
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage
+---
+# Argo Rollouts visualization (2026-09-04, redhat-argocd plugin's Rollouts
+# feature - app-config.yaml's kubernetes.customResources in the backstage repo).
+# Identical shape to the control-plane cluster's repo's own copy - see that file's header for
+# the full rationale.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-argo-rollouts-viewer
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "analysisruns"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-argo-rollouts-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-argo-rollouts-viewer
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage
+---
+# Prometheus proxy read (2026-09-13, Tower's SLOs tab - usePrometheusQuery.ts
+# queries Sloth's generated burn-rate recording rules directly). Same shape
+# as the control-plane cluster's repo/00-bootstrap/backstage-ingestor-rbac/rbac.yaml's own
+# Rekor grant: a namespaced Role/RoleBinding, not a ClusterRole, since
+# kube-prometheus-stack-prometheus is one specific namespaced Service, not a
+# cluster-wide concern. This grant was assumed to already be covered by the
+# `view` ClusterRoleBinding above during this platform's SLO XRD/composition
+# design work - confirmed live 2026-09-13 that assumption was wrong
+# (`view` does not include the services/proxy subresource at all, same gap
+# the Rekor grant already had to work around) - real 403 hit live in Tower's
+# SLOs tab: "services \"kube-prometheus-stack-prometheus:9090\" is
+# forbidden ... cannot get resource \"services/proxy\"". resourceNames
+# matches the exact "name:port" string the proxy URL path is checked
+# against (confirmed by the Rekor grant's own comment) - both forms listed
+# since either could reasonably be used by a caller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-ingestor-prometheus-proxy
+  namespace: observability
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["kube-prometheus-stack-prometheus", "kube-prometheus-stack-prometheus:9090"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-prometheus-proxy
+  namespace: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-ingestor-prometheus-proxy
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage

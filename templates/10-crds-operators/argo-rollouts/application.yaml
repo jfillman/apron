@@ -1,0 +1,33 @@
+# Vendored, pinned manifest (install.yaml in this directory,
+# https://github.com/argoproj/argo-rollouts/releases/download/v1.9.1/install.yaml) -
+# the fast-follow this repo's own README already flagged: the "latest" URL the
+# original ai-rollout install script used isn't reproducible/GitOps-safe. Directory
+# source, same as crossplane-packages/ (a raw-manifest install, not a Helm chart).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/argo-rollouts
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # Same annotation-size limit hit on ArgoCD's/external-secrets'/
+      # kube-prometheus-stack's own CRDs (01-argocd-platform/README.md) - Argo Rollouts'
+      # CRDs (Rollout, AnalysisTemplate, AnalysisRun, Experiment,
+      # ClusterAnalysisTemplate) are large enough to hit it too. Added
+      # proactively this time, given the pattern's repeated three times already.
+      - ServerSideApply=true

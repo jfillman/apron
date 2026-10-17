@@ -1,0 +1,56 @@
+# One-shot registration per node, re-run on every Pod (re)start via the initContainer -
+# binfmt_misc registrations live in kernel memory only and are wiped on any node/VM
+# restart (routine here: kiac VM resizes, crash recoveries, host reboots all reset
+# this), so a plain `container run --privileged tonistiigi/binfmt --install all` done
+# once by hand would silently stop working after the next restart. A DaemonSet's
+# initContainer re-runs the registration every time its Pod restarts, which
+# Kubernetes will do automatically whenever the node comes back - no manual re-run
+# step to remember.
+#
+# The main container is a trivial long-lived placeholder (not part of the actual
+# emulation mechanism) - Kubernetes DaemonSets expect a long-running Pod to report
+# Ready; a Pod whose only container is a one-shot initContainer that exits 0 would
+# otherwise sit in a completed/non-Ready state that doesn't reflect "emulation is
+# installed and working," and would make `kubectl get daemonset` misleading.
+#
+# privileged: true is required - binfmt_misc registration writes directly to
+# /proc/sys/fs/binfmt_misc/register on the host, which is not something Pod Security
+# "restricted" (the stance this platform's own catalog Tasks otherwise hold to, see
+# glidepath's build-image.yaml header) can grant. kube-system already runs kube-proxy
+# privileged on this cluster (confirmed live), and has no Pod Security admission
+# labels or Kyverno ClusterPolicy restricting it (checked live before adding this) -
+# this is the narrowest reasonable placement, not a workaround.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: binfmt
+  namespace: kube-system
+  labels:
+    app: binfmt
+spec:
+  selector:
+    matchLabels:
+      app: binfmt
+  template:
+    metadata:
+      labels:
+        app: binfmt
+    spec:
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: binfmt-install
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3-68
+          args: ["--install", "all"]
+          securityContext:
+            privileged: true
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

@@ -1,0 +1,31 @@
+# Gateway API HTTPRoutes for every UI-bearing Service on this cluster, attached to
+# the kiac-installed Gateway (`kiac`, ns <gateway namespace>, GatewayClass traefik) rather
+# than classic Ingress. Each HTTPRoute lives in the same namespace as its backend
+# Service (Gateway API requires same-namespace backendRefs without a ReferenceGrant),
+# so this Application is deliberately multi-namespace - every object below sets its
+# own metadata.namespace explicitly, this Application's own destination.namespace is
+# just the schema-required fallback.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-routes
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: gateway-routes
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 60-gateway-routes
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: @@GATEWAY_NAMESPACE@@
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

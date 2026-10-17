@@ -1,0 +1,200 @@
+# Rendered by chart/templates/render.yaml (ADR-0023 slice 1): this file is read raw with .Files.Get, so ArgoCD's
+# own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ placeholders are substituted,
+# from the cluster's one default chart in cluster-defaults.yaml at the repo root. An environment's identity.yaml may
+# carry its own `chart` ({repoURL, path | chart, targetRevision}, written fully resolved by Glidepath from cicd.yaml's
+# deploy.chart / environments[].chart, ADR-0023 slice 4); each field it does not set falls back to the default.
+# Not named applicationset.yaml: the root Application applies every **/applicationset.yaml raw.
+# The real §5 two-source Application, one per (app, env) - generated from
+# <this cluster's tenants repo>/tenants/<app>/<env>/identity.yaml. Direct descendant of
+# platform-cicd's own tenant-onboarding-applicationset.yaml (CICD onboarding), same
+# two-source shape, generalized here to app DEPLOYMENT per gitops-strategy.md §5: source
+# 0 renders idp-service-catalog's shared idp-application chart with an operator-owned
+# valuesObject (identity/placement only - appName/cluster/envName), source 1 is a
+# $ref-only pointer into the app's own gitopsRepoUrl supplying just the env's own
+# values.yaml as a developer-owned valueFiles overlay. helm.valuesObject beats
+# helm.valueFiles for any overlapping key - live-attack-tested in platform-cicd, not
+# just assumed here.
+#
+# identity.yaml duplicates app.yaml's gitopsRepoUrl/githubOwner (see
+# ../tenant-appprojects/applicationset.yaml's own header for why: this ApplicationSet's
+# git generator only sees the ONE matched file per entry, and a matrix generator to join
+# the coarser app.yaml with each per-env identity.yaml is real added complexity these
+# are automation-written files don't need - no hand-maintained-file drift risk).
+#
+# project: "{{.appName}}" (not default) is the actual enforcement boundary from §6 -
+# this Application can only ever sync from the sourceRepos the sibling
+# tenant-appprojects ApplicationSet scoped for this same app. No explicit ordering
+# between the two ApplicationSets: if the AppProject doesn't exist yet when this
+# Application is generated, ArgoCD just reports it can't reconcile and self-heals once
+# the AppProject lands - same eventually-consistent pattern relied on elsewhere in this
+# repo (root-app-of-apps.yaml's own children).
+#
+# templatePatch (added 2026-08-18): optional 3rd source, a Kustomize
+# configMapGenerator for apps with many config files - the concrete need
+# idp-application's own `configMaps: existingConfigMap:` field
+# (idp-service-catalog/charts/idp-application/values.yaml) was built for, but never had
+# an ApplicationSet source wired up until now. Path convention mirrors source 0's own
+# valueFiles path (the dev cluster/{{.env}}/configmap/, next to the dev cluster/{{.env}}/values.yaml)
+# - same repo (gitopsRepoUrl, already an AppProject sourceRepos entry, no boundary
+# change needed). Unlike source 1's `directory: {exclude: "*"}` guard, this source
+# deliberately wants ArgoCD's kustomization.yaml auto-detection to fire - that's the
+# whole point.
+#
+# This can NOT be a conditional `{{ if }}` block wrapping a 3rd item directly inside
+# spec.template.spec.sources above - confirmed against ArgoCD's own docs and source
+# (applicationset/utils/utils.go): goTemplate:true still renders each string FIELD of
+# the already-YAML-parsed template independently, it never text-templates the whole
+# document the way Helm does, so control flow can't span or add array elements there
+# (ArgoCD's own GoTemplate.md docs: "Using control keywords across fields" is listed
+# under "not possible"). `templatePatch` is the real mechanism for this - a separate
+# spec-level string that IS rendered as one whole Go-template document first, then
+# merged onto the generated Application via `strategicpatch.StrategicMergePatch`
+# (applicationset/controllers/template/patch.go on github.com/argoproj/argo-cd; the
+# templatePatch field itself is confirmed present in both this cluster's installed
+# v3.4.5 and the prod cluster's v3.5.0 (01-argocd-platform/install.yaml's own CRD schema, both
+# clusters)). Opt-in via an optional `configMapGenerator: true` field on the per-env
+# identity.yaml this ApplicationSet's git generator already parses
+# (tenants/<app>/<env>/identity.yaml) -
+# `hasKey` guards it (same idiom as the Sprig `hasKey` fix in idp-application's own
+# `jobs:` hook field, see service-catalog-design.md) so every existing/future tenant
+# that doesn't set the field is completely unaffected: no risk of a sync error from a
+# kustomization.yaml path that doesn't exist, since most apps won't ever create one.
+# When the field isn't set, the patch renders to a literal `{}` - confirmed against
+# StrategicMergePatch's own test suite as the safe, unambiguous no-op (unlike a bare
+# `spec:` with nothing under it, which YAML-parses to `spec: null` and risks being read
+# as "delete spec" - deliberately avoided). Deliberately repeats sources 0 and 1
+# verbatim inside the patch rather than trying to append just the 3rd - StrategicMerge-
+# Patch replaces `sources` wholesale (no patchMergeKey on that field), so a patch that
+# touches `sources` at all must carry the complete array every time.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-onboarding
+  namespace: argocd-apps
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+spec:
+  # Deleting or replacing this ApplicationSet must not delete the Flight workloads (ADR-0023 consequences).
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  goTemplate: true
+  goTemplateOptions: ["missingkey=invalid"]
+  generators:
+    - git:
+        repoURL: @@TENANTS_REPO_URL@@
+        revision: main
+        files:
+          - path: "tenants/*/*/identity.yaml"
+  template:
+    metadata:
+      name: "{{.appName}}-{{.env}}"
+      labels:
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: tenant-onboarding
+        hangar.io/app: "{{.appName}}"
+        hangar.io/env: "{{.env}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      namespace: argocd-apps
+    spec:
+      project: "{{.appName}}"
+      sources:
+        - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
+          targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
+          # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
+          path: '{{ if dig "chart" "chart" "" . }}{{ else }}{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}{{ end }}'
+          chart: '{{ dig "chart" "chart" "" . }}'
+          helm:
+            valuesObject:
+              appName: "{{.appName}}"
+              cluster: @@CLUSTER_NAME@@
+              envName: "{{.env}}"
+              # Moved here from managedNamespaceMetadata.labels (removed below) - an
+              # explicit Namespace manifest (idp-application v0.3.40+) overwrites
+              # managedNamespaceMetadata rather than merging with it, so it's a no-op
+              # once the chart renders its own Namespace object.
+              namespace:
+                labels:
+                  hangar.io/managed-secrets: "true"
+            # D9/AF-5 release-file split (hangar/docs/autopilot/release-file-split.md):
+            # base < values < release, last wins. Both base.yaml and release.yaml are
+            # optional until an app opts in (base: shared by every Flight env on this
+            # cluster; release.yaml: written once cicd.yaml sets deploy.releaseFile and
+            # a release PR lands) - ignoreMissingValueFiles covers both, neither exists
+            # for any live app yet.
+            ignoreMissingValueFiles: true
+            valueFiles:
+              # $-ref value files resolve relative to that source's checkout ROOT -
+              # confirmed live in platform-cicd's own version of this pattern.
+              - $appsrc/@@CLUSTER_NAME@@/base.yaml
+              - $appsrc/@@CLUSTER_NAME@@/{{.env}}/values.yaml
+              - $appsrc/@@CLUSTER_NAME@@/{{.env}}/release.yaml
+        - repoURL: "{{.gitopsRepoUrl}}"
+          targetRevision: main
+          ref: appsrc
+          # Without this, ArgoCD's directory-source auto-detection would try to apply
+          # every *.yaml in the app's own gitops repo as a raw manifest - this source
+          # exists only to be $ref'd for valueFiles above, confirmed real gotcha already
+          # hit and documented in platform-cicd's own version of this pattern.
+          directory:
+            exclude: "*"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "app-{{.appName}}-{{.env}}"
+      syncPolicy:
+        automated:
+          # prune (2026-10-10): a resource the chart stops rendering is deleted, so git is the whole truth. Without it,
+          # turning an environment's workload off (rollout.enabled: false) left its Rollout/Service running and the app
+          # OutOfSync for good (sky-marshall dev). allowEmpty stays false: Argo CD refuses a sync that would prune
+          # everything, and a chart render failure (the release-tracking guard) blocks the sync before any prune.
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 5
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 10m
+        syncOptions:
+          # Harmless to leave set - a no-op once idp-application's own Namespace
+          # manifest already declares the namespace (only fires when the destination
+          # namespace isn't in the source manifests at all).
+          - CreateNamespace=true
+  templatePatch: |
+    {{- if hasKey . "configMapGenerator" }}
+    {{- if .configMapGenerator }}
+    spec:
+      sources:
+        - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
+          targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
+          # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
+          path: '{{ if dig "chart" "chart" "" . }}{{ else }}{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}{{ end }}'
+          chart: '{{ dig "chart" "chart" "" . }}'
+          helm:
+            valuesObject:
+              appName: "{{.appName}}"
+              cluster: @@CLUSTER_NAME@@
+              envName: "{{.env}}"
+              namespace:
+                labels:
+                  hangar.io/managed-secrets: "true"
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - $appsrc/@@CLUSTER_NAME@@/base.yaml
+              - $appsrc/@@CLUSTER_NAME@@/{{.env}}/values.yaml
+              - $appsrc/@@CLUSTER_NAME@@/{{.env}}/release.yaml
+        - repoURL: "{{.gitopsRepoUrl}}"
+          targetRevision: main
+          ref: appsrc
+          directory:
+            exclude: "*"
+        - repoURL: "{{.gitopsRepoUrl}}"
+          targetRevision: main
+          path: @@CLUSTER_NAME@@/{{.env}}/configmap
+    {{- else }}
+    {}
+    {{- end }}
+    {{- else }}
+    {}
+    {{- end }}

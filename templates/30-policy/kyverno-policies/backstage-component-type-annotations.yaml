@@ -1,0 +1,130 @@
+# Stamps terasky.backstage.io/component-type onto idp-service-catalog's catalog.hangar.io
+# XRs at admission time, so kubernetes-ingestor's Backstage Component entities land in
+# a curated type taxonomy instead of the plugin's own hardcoded "crossplane-xr" fallback
+# (backstage/node_modules/@terasky/backstage-plugin-kubernetes-ingestor/dist/providers/
+# EntityProvider.cjs.js:3359 - `annotations[component-type] || xr.workloadType ||
+# "crossplane-xr"`, verified against the installed plugin's own source, not guessed).
+#
+# NOT done via a Composition patch: verified against function-go-templating's own
+# source (github.com/crossplane-contrib/function-go-templating fn.go, the mechanism
+# every Composition in this catalog already uses) that outputting a document matching
+# the XR's own apiVersion/kind only merges `status` - metadata/annotations are never
+# read from it. A Kyverno mutate rule is the actual mechanism that can touch XR
+# metadata, so this one small policy replaces what would otherwise have been an
+# annotation-setting step bolted onto 8 separate Compositions.
+#
+# RolloutWatch is NOT covered here - it's the one XRD in this catalog whose instances
+# come from idp-application's own Helm chart (charts/idp-application/templates/
+# attached/rolloutwatch.yaml), not a GitOps xr-requests commit, and it's the only one
+# of these 9 XRDs that also needs to exist on the prod cluster (which has no Kyverno
+# installed - confirmed live, `kubectl --context the prod cluster get ns kyverno` 404s). That
+# annotation is set directly in the chart template instead - same end result, simpler,
+# no cross-cluster Kyverno dependency for the one XRD that's actually cross-cluster.
+#
+# Taxonomy (idp/docs/backstage-design.md "Catalog ingestion"):
+#   service     - real deployable apps a developer onboards (NodeJSApplication/
+#                 PythonApplication/GoApplication/SpringBootApplication, and the
+#                 container-image functions LambdaFunction/AzureFunction)
+#   environment - ApplicationEnvironment: a deploy target, not a deployable service
+#   platform    - auto-derived XRDs a developer never creates directly (TektonCICD/
+#                 SecretStore/SLO) - composed by the service XRDs above, not
+#                 hand-authored, so distinct from both other buckets
+#
+# MutatingPolicy (2026-10-11, was ClusterPolicy, deprecated in Kyverno 1.19). The matchCondition sends a request to
+# Kyverno only when the annotation is missing or wrong: in practice an XR's CREATE. Before, every CREATE and UPDATE of
+# these ten kinds went through Kyverno's fail-closed webhook, so each Kyverno restart (they follow the dev cluster's etcd
+# stalls) also refused Argo CD's and Crossplane's writes to every XR. It still fails closed for a create, which Argo
+# CD retries, rather than letting an XR land without its type. Status writes never match (subresource).
+# Already-live XRs created before this policy existed were backfilled once by hand (kubectl annotate, live-verified,
+# not repeated here since Kyverno only fires on admission review, not retroactively on resources that already exist).
+# Tier 2 domain rename finished: only catalog.hangar.io exists. (Found live 2026-09-30: every migrated XR had
+# silently lost its component-type annotation to the plugin's "crossplane-xr" fallback while this policy
+# still only knew the old group.)
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: backstage-component-type-annotations
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  failurePolicy: Fail
+  evaluation:
+    mutateExisting:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["catalog.hangar.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources:
+          # service
+          - nodejsapplications
+          - pythonapplications
+          - goapplications
+          - springbootapplications
+          - lambdafunctions
+          - azurefunctions
+          # environment
+          - applicationenvironments
+          # platform
+          - tektoncicds
+          - secretstores
+          - slos
+  # matchConditions cannot read variables, so the kind-to-type map is written twice; keep the two in step.
+  matchConditions:
+    - name: annotation-missing-or-wrong
+      expression: >-
+        !has(object.metadata.annotations) ||
+        !('terasky.backstage.io/component-type' in object.metadata.annotations) ||
+        object.metadata.annotations['terasky.backstage.io/component-type'] != {
+          'NodeJSApplication': 'service', 'PythonApplication': 'service', 'GoApplication': 'service',
+          'SpringBootApplication': 'service', 'LambdaFunction': 'service', 'AzureFunction': 'service',
+          'ApplicationEnvironment': 'environment',
+          'TektonCICD': 'platform', 'SecretStore': 'platform', 'SLO': 'platform'
+        }[object.kind]
+  variables:
+    - name: componentType
+      expression: >-
+        {
+          'NodeJSApplication': 'service', 'PythonApplication': 'service', 'GoApplication': 'service',
+          'SpringBootApplication': 'service', 'LambdaFunction': 'service', 'AzureFunction': 'service',
+          'ApplicationEnvironment': 'environment',
+          'TektonCICD': 'platform', 'SecretStore': 'platform', 'SLO': 'platform'
+        }[object.kind]
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{metadata: Object.metadata{annotations: {'terasky.backstage.io/component-type': variables.componentType}}}
+---
+# Same supplemental RBAC gap this cluster already hit for testworkflows.testkube.io
+# (see testkube-rbac.yaml's own header) - Kyverno's own controllers ship RBAC for
+# built-in kinds only. catalog.hangar.io isn't covered, so without this the policy above
+# reports "not ready" (missing get/list/watch on the 8 kinds it matches). Read-only:
+# the actual mutation is applied inline in the admission-controller's webhook response,
+# not via a separate write call, so no patch/update verb is needed here (confirmed by
+# the exact same reasoning testkube-rbac.yaml already documents for its own
+# validate-only policy).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno-catalog-hangar-io-viewer
+  labels:
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+    rbac.kyverno.io/aggregate-to-background-controller: "true"
+    rbac.kyverno.io/aggregate-to-reports-controller: "true"
+rules:
+  - apiGroups: ["catalog.hangar.io"]
+    resources:
+      - nodejsapplications
+      - pythonapplications
+      - goapplications
+      - springbootapplications
+      - lambdafunctions
+      - azurefunctions
+      - applicationenvironments
+      - tektoncicds
+      - secretstores
+      - slos
+    verbs: ["get", "list", "watch"]

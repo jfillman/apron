@@ -1,0 +1,5 @@
+# Chart repositories a Flight environment on this cluster may render besides Airframe's (glidepath ADR-0023:
+# deploy.chart / environments[].chart in an app's cicd.yaml, written into the environment's identity.yaml through a
+# reviewed ApplicationEnvironment PR). An upper cluster renders only operator-approved sources, so a chart from a
+# repo not listed here fails its sync with "repository not permitted in project" instead of deploying.
+allowedChartRepos: []

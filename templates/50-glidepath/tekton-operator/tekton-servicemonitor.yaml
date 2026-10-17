@@ -1,0 +1,28 @@
+# ServiceMonitor for Tekton's own controller metrics
+# (tekton_pipelines_controller_pipelinerun_duration_seconds etc.) - feeds
+# pipelines-overview.json's "live + historical PipelineRun list" panels. Ported from
+# platform-cicd's kind-observe-specific file (observability/kind-observe/
+# tekton-servicemonitor.yaml), missed when this stack's base config was transcribed.
+#
+# Selector uses `app: tekton-pipelines-controller`, not `app.kubernetes.io/name`
+# (that label's value is just "controller", shared with tekton-triggers-controller's
+# Service - `app` is the one label actually specific to this Service). Confirmed live
+# against the dev cluster's own tektoncd/operator install: same label, same
+# `http-metrics` port name as kind-observe's raw-manifest install, and
+# kube-prometheus-stack-prometheus here has the same wide-open
+# serviceMonitorSelector/namespaceSelector, so no further wiring needed.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tekton-pipelines-controller
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: platform-cicd
+spec:
+  selector:
+    matchLabels: { app: tekton-pipelines-controller }
+  namespaceSelector:
+    matchNames: [tekton-pipelines]
+  endpoints:
+    - port: http-metrics
+      interval: 30s

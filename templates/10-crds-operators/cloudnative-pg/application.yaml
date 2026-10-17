@@ -1,0 +1,63 @@
+# CloudNativePG operator (Postgres on Kubernetes) - Item 7's shared-tenant Postgres
+# backend (service-catalog-design.md). Operator only: Cluster/Database objects are
+# per-use, not cluster config, and don't belong here.
+#
+# Chart 0.29.1 = operator 1.30.1 (released 2026-09-23). Both the operator image
+# (ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1) and the default Postgres image
+# (ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie) checked against the registry:
+# linux/amd64 + linux/arm64, so it runs on the dev cluster (arm64) and the prod cluster (amd64).
+#
+# ServerSideApply=true - the CRDs (clusters/poolers/backups...) are large enough to hit
+# the last-applied-configuration annotation limit, the same failure external-secrets
+# documents in its own application.yaml.
+#
+# Installed on the dev cluster only for now; not yet exercised with real data. See
+# hangar/docs/service-catalog-design.md Item 7 for the isolation requirements
+# (custom pg_hba with a samerole rule) this must satisfy before an XRD depends on it.
+# HA for the admission webhook (airframe review C8, 2026-10-09). Every PostgreSQL XR's compose applies a CNPG
+# Cluster, which calls this operator's webhooks (failurePolicy Fail). With one replica, every operator exit took the
+# webhook down until the pod restarted, and Crossplane fails the whole compose on a webhook call error: 105 failed
+# PostgreSQL reconciles on dev, 66 on the prod cluster in one event window. The exits were leader-election losses: the API
+# server answered a lease renewal too slowly (CNPG restarted 135 times on the dev cluster in two weeks, the RabbitMQ
+# operators at the same second). So: two replicas (controller-runtime serves webhooks from every replica, leader or
+# not, so a leader exit no longer drops admission), a PDB keeping one up through drains, a 60s lease / 40s renew
+# deadline instead of 15s/10s so a slow API server does not cost the lease, and requests so the operator is not
+# BestEffort (first evicted under memory pressure).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  sources:
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: cloudnative-pg
+      targetRevision: 0.29.1
+      helm:
+        releaseName: cnpg
+        valuesObject:
+          replicaCount: @@CNPG_REPLICAS@@
+          additionalArgs:
+            - --leader-lease-duration=60
+            - --leader-renew-deadline=40
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+#@if isControlPlane
+    # The chart has no PDB template; manifests/ holds it.
+    - repoURL: @@REPO_URL@@
+      targetRevision: main
+      path: 10-crds-operators/cloudnative-pg/manifests
+#@end
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

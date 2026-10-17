@@ -1,0 +1,65 @@
+# Live-diagnosed 2026-09-02 on the dev cluster (Apple `container`-runtime cluster, same
+# vendored tektoncd/operator v0.81.0 build as the dev cluster): a fresh install's TektonConfig
+# "config" singleton could never get its finalizer set, so the operator's reconcile
+# never got past step one - Pipelines/Triggers/Dashboard/Results never installed. Only
+# Pipelines-as-Code appeared to be present, and only because it's deployed by this
+# directory's own pipelines-as-code-vendored.yaml (a standalone bypass, not the
+# operator) - see that file's own header for the parallel PAC-specific story.
+#
+# Root cause (confirmed via tekton-operator-webhook's own pod logs, full Go panic
+# stack captured live): validation.webhook.operator.tekton.dev's ServeHTTP handler
+# panics - "assignment to entry in nil map" - inside the vendored
+# pipelines-as-code@v0.49.0 code (pkg/params/settings.getHubCatalogs, called from
+# SyncConfig, called from PACSettings.validate, called from every single
+# TektonConfig.Validate()) on every UPDATE to the "config" object, including the
+# finalizer-add step every reconcile starts with. net/http's built-in panic recovery
+# closes the connection without a response, which the API server surfaces as a bare
+# "EOF" - not a certificate or networking problem (both were live-verified fine first;
+# see this repo's own session history). Both webhooks default to failurePolicy: Fail,
+# so the crash blocks the write outright, forever, on every retry.
+#
+# This is the SAME underlying panic pipelines-as-code-vendored.yaml's header already
+# documented from the 2026-08-23 the dev cluster incident (it references "this directory's own
+# validation.webhook.operator.tekton.dev failurePolicy: Ignore patch") - that patch was
+# only ever applied imperatively against the live the dev cluster cluster at the time and never
+# actually committed here, so it was silently lost on every subsequent full cluster
+# recreate (the dev cluster's later etcd-corruption rebuild, and now the dev cluster's from-scratch
+# bootstrap). This file is that patch, persisted for real.
+#
+# Why a separate file instead of a field in tektonconfig.yaml or vendored-install.yaml:
+# neither ValidatingWebhookConfiguration nor MutatingWebhookConfiguration exist as
+# static resources in vendored-install.yaml - the operator's own
+# tekton-operator-cluster-operations controller generates and continuously reconciles
+# both objects at runtime (confirmed live: caBundle/resourceVersion churn on every
+# operator pod restart), always re-asserting failurePolicy: Fail from its own hardcoded
+# default (no supported env var/flag found to override it). This Application's
+# ServerSideApply=true (see application.yaml) makes that survivable: because
+# `webhooks` is a list-type:map field (keyed by `name` in the admissionregistration.k8s.io
+# API), submitting ONLY `failurePolicy` for the matching webhook name here lets ArgoCD
+# and the operator's own field manager co-own the same object without fighting over
+# clientConfig/rules/caBundle, which stay entirely the operator's. ArgoCD's selfHeal
+# then keeps re-asserting Ignore if the operator's own reconcile ever flips it back.
+#
+# Ignore (not just a longer timeout) is deliberate: the underlying validation is
+# genuinely broken for this object today, not just slow - the only two options are
+# "never accept the finalizer-add at all" (today's actual behavior) or "skip validation
+# on failure and let the rest of the (correct, working) reconcile proceed". Real fix is
+# still what pipelines-as-code-vendored.yaml already says: bump the vendored operator
+# past whatever release fixes upstream getHubCatalogs, then delete this file and that
+# one, and flip platforms.kubernetes.pipelinesAsCode.enable back to true in
+# tektonconfig.yaml.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validation.webhook.operator.tekton.dev
+webhooks:
+  - name: validation.webhook.operator.tekton.dev
+    failurePolicy: Ignore
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: webhook.operator.tekton.dev
+webhooks:
+  - name: webhook.operator.tekton.dev
+    failurePolicy: Ignore

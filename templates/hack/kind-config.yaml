@@ -1,0 +1,33 @@
+# hack/kind-config.yaml - rendered by Apron for runtime: kind; `apron up` runs
+#   kind create cluster --name @@CLUSTER_NAME@@ --config hack/kind-config.yaml
+#
+# disableDefaultCNI: true - kind's default kindnet silently ignores every NetworkPolicy; `apron up` installs Calico
+# (@@CALICO_VERSION@@) right after creation, before anything else touches the cluster.
+#
+# podSubnet: identical on every cluster on purpose - each cluster's pod CIDR only routes inside that cluster.
+#
+# maxPods: kubelet's default 110 is below what the full stack schedules on one node (100 pods measured on the dev
+# cluster). podman's per-container pids limit is not a kubelet setting: set `pids_limit = 8192` once in
+# ~/.config/containers/containers.conf if kind runs on podman.
+#
+# extraPortMappings: host 80/443 -> Traefik's fixed NodePorts (10-crds-operators/traefik/traefik.yaml). kind has no
+# LoadBalancer, so this is how the host reaches the Gateway. Baked in at create time; changing them means a recreate.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: @@CLUSTER_NAME@@
+networking:
+  disableDefaultCNI: true
+  podSubnet: "@@KIND_POD_SUBNET@@"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: KubeletConfiguration
+        maxPods: @@KIND_MAX_PODS@@
+    extraPortMappings:
+      - containerPort: @@TRAEFIK_HTTP_NODEPORT@@
+        hostPort: @@KIND_HOST_HTTP_PORT@@
+        protocol: TCP
+      - containerPort: @@TRAEFIK_HTTPS_NODEPORT@@
+        hostPort: @@KIND_HOST_HTTPS_PORT@@
+        protocol: TCP

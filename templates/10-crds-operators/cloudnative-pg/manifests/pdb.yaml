@@ -1,0 +1,13 @@
+# Keeps one CNPG operator replica (and so its admission webhook) up through voluntary disruptions. See
+# ../application.yaml for why the operator runs two replicas (airframe review C8).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cnpg-cloudnative-pg
+  namespace: cnpg-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+      app.kubernetes.io/instance: cnpg

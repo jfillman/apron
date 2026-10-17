@@ -1,0 +1,57 @@
+# Multi-source, not a plain valueFiles path into platform-cicd.git: the dev cluster's per-
+# cluster values (Fulcio material, clusterName, tektonChainsNamespace) are cluster
+# state, not application source, so they live in THIS repo
+# (values-<cluster>.yaml, next to this Application) rather than reaching into
+# platform-cicd's own hack/ dir - platform-cicd stays installable standalone, with zero
+# cluster-specific state committed to it. Same $ref pattern this chart's own
+# tenant-onboarding-applicationset.yaml template already uses for each tenant's
+# cicd.yaml (platform-cicd/charts/platform-cicd-control-plane/templates/argocd/
+# tenant-onboarding-applicationset.yaml) - proven live, reused here rather than
+# invented fresh. hack/generate-cluster-values.sh writes values-<cluster>.yaml
+# straight into this directory now (see its own header) - hack/'s copy is retired.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: glidepath-control-plane
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: platform-cicd
+spec:
+  project: default
+  sources:
+    - repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/glidepath.git
+      targetRevision: @@GLIDEPATH_VERSION@@
+      path: charts/glidepath-control-plane
+      helm:
+        releaseName: glidepath-control-plane
+        valuesObject:
+          # Must match this source's own repoURL above - the chart derives its GitHub
+          # owner from this (see _helpers.tpl's githubOwner helper), required now that
+          # the chart no longer hardcodes a default org. Field name stays
+          # platformCicdRepoUrl (not renamed to match glidepath) - the chart's own
+          # values.yaml still calls it that too, a deferred naming-convention item, not
+          # something this repoint changes.
+          platformCicdRepoUrl: https://@@SCM_HOST@@/@@SCM_OWNER@@/glidepath.git
+        valueFiles:
+          # $-ref resolves relative to that source's checkout ROOT.
+          - $clustercfg/50-glidepath/glidepath-control-plane/values.yaml
+          # defaultChart: forwarded to every app's glidepath-app (ADR-0023 slice 1).
+          - $clustercfg/cluster-defaults.yaml
+          # clusters: the fleet's cluster records, shared with Airframe's cluster-registry chart (ADR-0024).
+          - $clustercfg/clusters.yaml
+    - repoURL: @@REPO_URL@@
+      targetRevision: main
+      ref: clustercfg
+      # Exists only to be $ref'd above - without this, ArgoCD's directory-source
+      # auto-detection would try to apply every *.yaml in this repo as a raw manifest.
+      directory:
+        exclude: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

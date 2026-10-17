@@ -1,0 +1,43 @@
+# Registers QEMU/binfmt_misc emulation handlers on every node in this cluster, so
+# privileged build steps (kaniko, or anything else exec-ing a non-native-arch binary)
+# can actually run cross-arch RUN steps instead of failing with "exec format error".
+#
+# Real, live-confirmed gap this closes: the dev cluster is a single arm64 node with NO
+# binfmt_misc support at all (`/proc/sys/fs/binfmt_misc` doesn't even exist as a path -
+# checked live from inside a pod). Backstage's build-image.yaml kaniko Task builds
+# natively on whatever node it lands on with no --customPlatform override, so every
+# build here comes out arm64 - fine for the dev cluster itself, but Backstage deploys to
+# the prod cluster (genuinely amd64 hardware, a separate host, see the prod cluster's repo/
+# 60-backstage/backstage/deployment.yaml's own 1.0.2-84f2f38 comment for the full
+# incident writeup) where an arm64 image can't run at all. This DaemonSet is the
+# prerequisite fix, not the complete one - kaniko's build-image.yaml Task itself still
+# needs a --customPlatform=linux/amd64 flag added (deliberately NOT done here, since
+# that Task is shared by every onboarded app - forcing amd64 globally would break every
+# other app's arm64-native build on this cluster; that needs a per-app config knob,
+# scoped separately).
+#
+# Directory-source, same pattern as 00-bootstrap/cluster-registry/application.yaml and
+# 00-bootstrap/backstage-ingestor-rbac/application.yaml in this same repo (excludes
+# itself, everything else in the directory applies as-is).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: binfmt
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: binfmt
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 00-bootstrap/binfmt
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      selfHeal: true

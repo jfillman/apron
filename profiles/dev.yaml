@@ -1,0 +1,44 @@
+# profiles/dev.yaml - WHAT a dev cluster runs, independent of the runtime: the fleet's lower zone, its one CI/CD
+# control plane (Glidepath, Bootstrap-tier Crossplane) and workloads, and the fleet's Infisical server.
+# cluster.yaml overrides any of it; `apron check` enforces the rules between these values.
+zone: lower
+roles: [control-plane, workloads]
+infisical:
+  host: true                    # exactly one cluster in the fleet runs Infisical
+components:
+  crossplane:
+    providerGithub: true        # Bootstrap-tier XRDs write GitHub repos: control plane only
+  cloudTargets: false           # Crossplane AWS/Azure providers (AwsLambdaTarget/...). Needs aws.accountId and an IAM
+                                # role hangar-crossplane-<name> trusting this cluster's issuer: turn on after creating it
+  certManager: true
+  externalSecrets: true
+  argoRollouts: true
+  sloth: true
+  cloudnativePg: true
+  mongodb: true
+  rabbitmq: true
+  dex: true
+  binfmt: true                  # QEMU binfmt for multi-arch image builds on the CI cluster
+  serviceCatalog:
+    enabled: true
+    scope: full                 # every XRD, Bootstrap-tier included: control plane only
+  policy: true
+  observability: true
+  glidepath: true               # the CI/CD control plane (Tekton/PaC/Chains/Rekor/Testkube)
+  autopilot: true
+  gatewayRoutes: true
+  aiTriage: true
+  backstage: false
+  towerAccess: false            # Tower's cluster-scoped grants where Tower runs (the prod profile)
+  towerAccessHub: true          # what lets Tower on another cluster read/act on this one (trust file + RBAC)
+observability:
+  full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector, Grafana
+aiTriage:
+  cpuRequest: 250m
+  memoryRequest: 1024Mi
+  memoryLimit: 2048Mi
+cnpg:
+  replicas: 2
+tower:
+  cluster: ""                   # the cluster Tower runs on (its prod cluster); set it to trust that cluster's tokens
+  env: prod                     # Tower's Airframe environment: namespace app-backstage-<env>

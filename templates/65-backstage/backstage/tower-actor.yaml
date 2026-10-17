@@ -1,0 +1,40 @@
+# Tower's write identity for the dev cluster (2026-10-12, SPEC-tower-cluster-credentials.md phase 3).
+#
+# tower-actor is a ServiceAccount no pod runs as, with no RBAC on this cluster. Its tokens exist only when Backstage
+# asks for one: a TokenRequest per write action (Tekton Re-run/Cancel, release runs, break-glass), audience the dev cluster,
+# 10 minutes, not bound to a pod: Kubernetes binds a token only to a pod running as the same ServiceAccount
+# (backstage#140, 2026-10-14: binding to the Backstage pod failed every write). the dev cluster accepts it as
+# hangar:the prod cluster:tower-actor, the only identity there holding Tower's write grants
+# (the control-plane cluster's repo 00-bootstrap/backstage-ingestor-rbac/tower-actor-rbac.yaml). Backstage's own ServiceAccount may
+# mint tokens for this one name and nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tower-actor
+  namespace: backstage
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tower-actor-token-minter
+  namespace: backstage
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    resourceNames: ["tower-actor"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-tower-actor-token-minter
+  namespace: backstage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tower-actor-token-minter
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: backstage

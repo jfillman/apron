@@ -1,0 +1,37 @@
+# Airframe's cluster registry: one labeled ConfigMap per cluster (and per alias) in crossplane-system, which every
+# Composition's cluster gate reads through a Crossplane extra-resources lookup (airframe service-catalog design §0).
+# Rendered by Airframe's charts/cluster-registry from the repo-root clusters.yaml - the same records Glidepath's control
+# plane reads (glidepath ADR-0024) - instead of hand-written ConfigMaps, so a cluster is declared once.
+#
+# Lives in crossplane-system on the dev cluster because that is where Bootstrap-tier Crossplane runs: extra-resources lookups
+# only read the local cluster. Manual sync on purpose (no automated policy), as before: a registry change is attested
+# by a person.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-registry
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: cluster-registry
+spec:
+  project: default
+  sources:
+    - repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git
+      targetRevision: @@AIRFRAME_REGISTRY_VERSION@@
+      path: charts/cluster-registry
+      helm:
+        releaseName: cluster-registry
+        valueFiles:
+          - $clustercfg/clusters.yaml
+    - repoURL: @@FLEET_REPO_URL@@
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

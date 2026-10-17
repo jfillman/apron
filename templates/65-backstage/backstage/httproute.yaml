@@ -1,0 +1,31 @@
+# Superseded 2026-09-03 by the kiac migration - see idp/docs/local-clusters.md.
+# man is now a kiac cluster (Apple `container` runtime, not kind-on-podman), so
+# the Contour/NodePort/kind-config.yaml mechanism this comment used to describe
+# no longer exists on this cluster at all. Reached today through kiac's own
+# installed Gateway (`kiac`, ns `<gateway namespace>`, GatewayClass traefik ->
+# traefik.io/gateway-controller - same pattern as the control-plane cluster's repo/
+# 60-gateway-routes and the prod cluster's repo/50-gateway-routes), whose
+# address is the cluster's control-plane VM IP directly - no NodePort
+# forwarding involved. Add `<service>.<domain>` to /etc/hosts pointing at
+# that IP (`container list` or `kiac get nodes` for the current value - it
+# changes on every VM restart, kiac does not persist it, see
+# idp/docs/local-clusters.md's static-IP section). HTTP only today - the kiac
+# Gateway has no TLS listener yet, so this is plain
+# http://<service>.<domain>/ (no port suffix - port 80).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: backstage
+  namespace: backstage
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  hostnames:
+    - backstage.@@CLUSTER_DOMAIN@@
+  rules:
+    - backendRefs:
+        - name: backstage
+          port: 7007

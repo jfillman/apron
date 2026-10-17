@@ -1,0 +1,68 @@
+# DeploymentRuntimeConfig for provider-infisical, referenced by provider-infisical's
+# runtimeConfigRef in providers.yaml (this directory).
+#
+# Own dedicated runtime config, never the shared "default" one - a
+# DeploymentRuntimeConfig named "default" is the fallback for every package that
+# doesn't specify its own runtimeConfigRef, Providers and Composition Functions
+# alike; editing a shared one has previously crash-looped every Function
+# cluster-wide from a single flag meant for one provider (a real incident, see
+# feedback_crossplane_provider_live_ops.md). Limits added 2026-10-03, after a real
+# reconcile-load problem (the earlier revision of this comment said to revisit if one showed up).
+#
+# --max-reconcile-rate=2 and --poll=1h. Every reconcile of this Terraform-based provider launches
+# a `terraform apply -refresh-only` plus a terraform-provider-infisical plugin process, each a Go
+# binary that starts a thread per CPU. At the binary's defaults (--max-reconcile-rate=10 per second,
+# --poll=10m) the 55 Infisical resources on the dev cluster produced bursts of dozens of those at once: a
+# fresh pod had ~200 plugin children after 20 minutes (many never reaped), and the VM's run queue
+# sat at 350-400 on 11 CPUs. Scaling the provider to 0 for 80s halved that queue (measured with
+# vmstat). Starved, the plugin's GetProviderSchema call timed out ("Plugin did not respond"), every
+# reconcile failed and retried, and a new service's Infisical project could never be created
+# (smoke-ecs, 2026-10-03). A retry loop that made its own cause worse.
+#
+# Infisical here is self-hosted and in-cluster, so there is no external rate limit to protect
+# (unlike provider-github-runtime.yaml); the cap protects the node. An hourly poll is plenty: these
+# resources change only when an app is onboarded, and creation reconciles immediately.
+#
+# Resources: a memory limit so a leak cannot take the node (each plugin process is ~100-200MB and
+# at most a couple run at once now). NO cpu limit on purpose: throttling the provider would slow
+# the plugin handshake and bring the same timeout back. The requests only reserve a floor.
+#
+# Zombie plugin processes (children the provider never reaps) are NOT fixed by any setting here;
+# fewer launches means fewer zombies. That leak belongs in the provider.
+#
+# containers[0].name is required even with no arg overrides - confirmed live
+# (kubectl apply --dry-run=server) that DeploymentRuntimeConfig's
+# deploymentTemplate.spec.template.spec.containers is a required field, not an
+# optional strategic-merge overlay the way an empty template.spec: {} would suggest.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-infisical-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/provider: provider-infisical
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --max-reconcile-rate=2
+                - --poll=1h
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
+#@if fleet.hubAddress and not infisical.host
+          hostAliases:
+            - ip: "@@HUB_ADDRESS@@"
+              hostnames:
+                - @@HUB_DOMAIN@@
+#@end

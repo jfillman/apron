@@ -1,0 +1,74 @@
+# Bounds the state the Rollouts notifications engine keeps (ADR-0021, option A).
+#
+# The engine records every oncePer value it has sent in the Rollout's
+# notified.notifications.argoproj.io annotation and never prunes it (phase 0: 32 keys after
+# one afternoon). The heartbeat trigger adds a key every 15 minutes, which would reach
+# Kubernetes' 256 KiB annotation cap in about four weeks. Stripping the annotation bounds it,
+# and because the engine then sees empty state it immediately resends the current state of the
+# Rollout, which is itself a heartbeat (verified in phase 0: the Rollout stays Synced in Argo
+# CD, the resend is immediate, no 15 minute wait).
+#
+# Only Rollouts the platform tracks (hangar.io/release-tracked=true). Only the one annotation.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-prune
+  namespace: argo-rollouts
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: release-facts}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argo-rollouts-notification-prune
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: release-facts}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-rollouts-notification-prune
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: release-facts}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: argo-rollouts-notification-prune}
+subjects:
+  - {kind: ServiceAccount, name: notification-prune, namespace: argo-rollouts}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notification-prune
+  namespace: argo-rollouts
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: release-facts}
+spec:
+  schedule: "17 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      template:
+        spec:
+          serviceAccountName: notification-prune
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: prune
+              image: registry.k8s.io/kubectl:v1.31.4
+              args:
+                - annotate
+                - rollouts.argoproj.io
+                - --all-namespaces
+                - --selector=hangar.io/release-tracked=true
+                - --overwrite
+                - notified.notifications.argoproj.io-
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
