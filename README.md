@@ -88,3 +88,26 @@ kubectl apply -f root-app-of-apps.yaml
 `--server-side`, not plain `apply` — the `applicationsets.argoproj.io` CRD is too
 large for `kubectl apply`'s default `last-applied-configuration` annotation, hit live
 on both existing clusters.
+
+<!-- apron CLI section: kept separate so it merges cleanly with the rest of this README. -->
+## Install Hangar on a cluster
+
+`./apron` does it in two commands ([docs/cli.md](docs/cli.md)). Pick a name: it becomes the cluster's kubectl
+context, fleet entry, Infisical project stem, issuer path and hostname stem.
+
+**An existing cluster** (the primary path). Its kubectl context must be the cluster's name
+(`apron up --rename-context <current>` renames it):
+
+```
+./apron init prod --name <name> --runtime existing --repo-url https://github.com/<owner>/gitops-<name>.git \
+  --scm-owner <owner> --out ../gitops-<name> --create-repos --push
+./apron up --out ../gitops-<name>
+```
+
+**A local cluster**: the same, with `--runtime kiac` (Apple container VMs) or `--runtime kind`. `apron up` creates the
+cluster first, then onboards it exactly as above.
+
+`apron up` stops once, after installing Argo CD, to list the Secrets you create by hand (it prints the commands with
+`<value>` placeholders). Create them and run `apron up` again. Then follow the steps it prints
+([docs/after-up.md](docs/after-up.md)) and add the cluster to the fleet with
+`./apron fleet add --from ../gitops-<name> --fleet <control-plane repo>/clusters.yaml`.
