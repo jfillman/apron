@@ -403,6 +403,7 @@ EOF
 }
 cmd_fleet() {
   local sub="${1:-}"; [ $# -gt 0 ] && shift
+  case "${sub}" in -h|--help|"") usage_fleet; return 0 ;; esac
   local from="" fleet="" org="" url="" incl=""
   while [ $# -gt 0 ]; do
     case "$1" in
