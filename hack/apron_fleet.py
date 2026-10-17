@@ -60,6 +60,10 @@ def record_for(v):
     if (v.get("infisical") or {}).get("host"):
         flags["infisicalHost"] = True
     rec["airframe"] = flags
+    # Every record but the control plane's is a release target: Glidepath's relay reads that cluster's token from
+    # this Secret (synced from Infisical key relay-token-<name> on the hub), so the field is required there.
+    if "control-plane" not in rec["roles"]:
+        rec["glidepath"] = {"relaySecretName": f"cluster-{name}-relay-token"}
     return {k: x for k, x in rec.items() if x is not None}
 
 
@@ -85,6 +89,11 @@ def cmd_add(a):
                     for fk, fx in x.items():
                         flags.setdefault(fk, fx)
                     rec["airframe"] = flags
+                elif k == "glidepath":
+                    gp = rec.get("glidepath") or {}
+                    for gk, gx in x.items():
+                        gp.setdefault(gk, gx)
+                    rec["glidepath"] = gp
                 else:
                     rec[k] = x
             print(f"updated {new['name']} in {a.fleet}")
