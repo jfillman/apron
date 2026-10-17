@@ -1,6 +1,5 @@
-# ArgoCD Application for Crossplane itself. Values match the live `helm get values
-# crossplane -n crossplane-system` output exactly (null — fully default install) so
-# adoption is a no-op sync, not a recreation. project: default for now — moves to a
+# ArgoCD Application for Crossplane itself. A default install except provider.defaultActivations: [] (see below
+# and managed-resource-activation.yaml). project: default for now — moves to a
 # real cluster-admin-scoped AppProject once the argocd-platform/argocd-apps split
 # happens (gitops-strategy.md §4, deferred with 01-argocd-platform/).
 apiVersion: argoproj.io/v1alpha1
@@ -19,6 +18,13 @@ spec:
     targetRevision: 2.3.4
     helm:
       releaseName: crossplane
+      # No catch-all activation policy: with the chart default, the init container (re)creates a
+      # ManagedResourceActivationPolicy "default" activating "*" on every start, so any provider added would turn
+      # every one of its kinds into a CRD (provider-aws-ec2: 208). managed-resource-activation.yaml lists what is
+      # active instead. Must be a values block: `--set provider.defaultActivations={}` still renders the flag.
+      valuesObject:
+        provider:
+          defaultActivations: []
   destination:
     server: https://kubernetes.default.svc
     namespace: crossplane-system

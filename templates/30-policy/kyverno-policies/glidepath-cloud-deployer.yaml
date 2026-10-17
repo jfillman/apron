@@ -16,7 +16,7 @@
 #   Others may update one only without changing its spec (cancelling it aside): Chains and Results add finalizers and
 #   annotations to every TaskRun, and refusing them left the deploy TaskRun unsigned and missing from Results.
 # - glidepath-cloud-deployer-pipelineruns: a PipelineRun naming it must run the catalog's deploy Pipeline (cluster
-#   resolver, platform-catalog, no inline spec); only deploy-aws-lambda may get it, with no other override; the
+#   resolver, platform-catalog, no inline spec); only deploy-aws-lambda and deploy-aws-ecs may get it, with no other override; the
 #   run-wide default stays pipeline-runner; and the run-wide podTemplate may set hostAliases only, so no env (a
 #   BASH_ENV alone would run code inside the deploy steps that hold the token) and no volumes reach that Task.
 #   The deploy Pipeline and its Tasks come from platform-catalog, which an app repository cannot change.
@@ -108,7 +108,7 @@ metadata:
   name: glidepath-cloud-deployer-pipelineruns
   annotations:
     policies.kyverno.io/title: glidepath-cloud-deployer PipelineRuns
-    policies.kyverno.io/description: A PipelineRun may hand glidepath-cloud-deployer only to the catalog deploy Pipeline's deploy-aws-lambda task.
+    policies.kyverno.io/description: A PipelineRun may hand glidepath-cloud-deployer only to the catalog deploy Pipeline's deploy-aws-lambda and deploy-aws-ecs tasks.
 spec:
   validationActions: [Deny]
   failurePolicy: Fail
@@ -153,17 +153,17 @@ spec:
     - expression: >-
         !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.serviceAccountName) ||
         object.spec.taskRunTemplate.serviceAccountName != 'glidepath-cloud-deployer'
-      message: glidepath-cloud-deployer may not be the run-wide ServiceAccount (taskRunTemplate); name it for deploy-aws-lambda only.
+      message: glidepath-cloud-deployer may not be the run-wide ServiceAccount (taskRunTemplate); name it for deploy-aws-lambda or deploy-aws-ecs only.
     - expression: >-
         variables.deployerSpecs.all(s,
-          has(s.pipelineTaskName) && s.pipelineTaskName == 'deploy-aws-lambda' &&
+          has(s.pipelineTaskName) && s.pipelineTaskName in ['deploy-aws-lambda', 'deploy-aws-ecs'] &&
           s.all(k, k in ['pipelineTaskName', 'serviceAccountName']))
-      message: Only deploy-aws-lambda may run as glidepath-cloud-deployer, with no other override (podTemplate, stepSpecs, ...).
+      message: Only deploy-aws-lambda and deploy-aws-ecs may run as glidepath-cloud-deployer, with no other override (podTemplate, stepSpecs, ...).
     - expression: >-
         !has(object.spec.taskRunSpecs) ||
-        object.spec.taskRunSpecs.all(s, !has(s.pipelineTaskName) || s.pipelineTaskName != 'deploy-aws-lambda' ||
+        object.spec.taskRunSpecs.all(s, !has(s.pipelineTaskName) || !(s.pipelineTaskName in ['deploy-aws-lambda', 'deploy-aws-ecs']) ||
           s.all(k, k in ['pipelineTaskName', 'serviceAccountName']))
-      message: deploy-aws-lambda may carry no override besides its ServiceAccount.
+      message: deploy-aws-lambda and deploy-aws-ecs may carry no override besides their ServiceAccount.
     - expression: >-
         !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.podTemplate) ||
         object.spec.taskRunTemplate.podTemplate.all(k, k == 'hostAliases')

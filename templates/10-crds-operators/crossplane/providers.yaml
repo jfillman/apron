@@ -100,7 +100,7 @@ spec:
 # 2026-09-18: all 7 real app-tier SecretStore XRs on this cluster are now live on
 # this provider's native resource chain (airframe v0.3.75 cutover, secrets restored
 # from the pre-migration backup, verified key-for-key). The old operator is NOT yet
-# decommissioned - platform-cicd-control-plane (glidepath repo) still renders its
+# decommissioned - glidepath-control-plane (glidepath repo) still renders its
 # own InfisicalProject CR directly for its platform-wide operational secrets (NOT
 # through this catalog's SecretStore XRD - see that chart's own infisical-project.yaml
 # header). That migration + the operator's full removal is the very next step; see
@@ -125,7 +125,7 @@ spec:
 # v0.0.0-6.g142bb1b: Identity now publishes its provider-assigned id via
 # writeConnectionSecretToRef (key "identityId") - default upjet behavior published an
 # empty connection secret here (confirmed live), since "id" isn't itself a sensitive
-# Terraform attribute. Needed so platform-cicd-control-plane's own Helm-rendered
+# Terraform attribute. Needed so glidepath-control-plane's own Helm-rendered
 # migration (a plain manifest, no Crossplane Composition, no .observed.resources
 # access) can get this value into a real k8s Secret using Crossplane's native
 # mechanism, matching what cluster-secret-store.yaml already expects.
@@ -206,21 +206,17 @@ spec:
 # a dependency. All share provider-cloud-runtime.yaml (small requests, a hard memory limit, a slow
 # poll).
 #
-# NOT installed, on purpose (removed 2026-10-08, same evening they went in): provider-aws-ecs and
-# provider-aws-ec2 (v2.9.0), the two AwsEcsTarget needs. Every v2 provider installs both its
-# cluster-scoped and its namespaced CRDs, so the eight cloud providers brought this cluster to 417
-# Upbound CRDs (ec2 alone 208); kube-apiserver reached 7.5GB, etcd started dropping leader-election
-# leases and the whole control plane crash-looped. Only function targets are being tested, so the
-# two ECS providers go until an AwsEcsTarget is actually requested - re-add both Provider blocks
-# (package xpkg.upbound.io/upbound/provider-aws-{ecs,ec2}:v2.9.0, runtimeConfigRef
-# provider-cloud-runtime, label hangar.io/origin: cloud-targets) and the XRD and Composition in
-# the catalog work unchanged. The Application has no prune, so removing them here also needs a
-# live `kubectl delete provider provider-aws-ecs provider-aws-ec2` once the sync shows them gone.
+# provider-aws-ecs and provider-aws-ec2, the two AwsEcsTarget needs, were removed on 2026-10-08, the evening they
+# went in: with every kind active, the eight cloud providers brought a cluster to 417 Upbound CRDs (ec2 alone 208);
+# kube-apiserver reached 7.5GB, etcd dropped leader-election leases and the control plane crash-looped. Back since
+# 2026-10-17 with activation made explicit: every provider here declares SafeStart, the chart's catch-all policy is
+# off (application.yaml), and managed-resource-activation.yaml activates only the ECS group and the 8 EC2 kinds the
+# composition uses. A kind not listed there stays an inactive MRD, not a CRD.
 #
 # Credentials: provider-aws-config.yaml / provider-azure-config.yaml, one ClusterProviderConfig each.
 # AWS (since 2026-10-16) uses web identity federation with no stored secret: provider-aws-runtime.yaml
 # mounts an STS-audience ServiceAccount token, and the role trusts the dev cluster's public issuer. Azure still
-# reads a Secret that provider-azure-creds-external-secret.yaml pulls from the platform-cicd-<cluster>
+# reads a Secret that provider-azure-creds-external-secret.yaml pulls from the glidepath-<cluster>
 # Infisical project (key provider-azure-creds). Until that secret exists the Azure providers stay
 # Healthy, but every Azure managed resource reports it cannot get credentials.
 apiVersion: pkg.crossplane.io/v1
@@ -284,6 +280,40 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-lambda:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ecs
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ecs:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ec2
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.9.0
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig

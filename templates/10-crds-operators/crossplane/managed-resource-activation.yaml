@@ -1,0 +1,56 @@
+# Which managed resource kinds (MRDs) Crossplane activates, i.e. turns into real CRDs with a running controller
+# (2026-10-17). Every provider installed here declares SafeStart, so its kinds start Inactive and only what this
+# policy names becomes a CRD. The chart's catch-all default policy ("*") is turned off in application.yaml
+# (provider.defaultActivations: []), so this file is the whole list.
+#
+# Why: provider-aws-ec2 alone has 208 kinds (namespaced and cluster-scoped). On 2026-10-08 the eight cloud providers,
+# every kind active, brought a cluster to 417 Upbound CRDs; kube-apiserver reached 7.5 GB, etcd dropped
+# leader-election leases and the control plane crash-looped (providers.yaml). AwsEcsTarget needs 8 EC2 kinds and 3
+# ECS ones; activating those alone costs a handful of CRDs.
+#
+# Activation is one-way: an Active kind never goes back to Inactive, and removing a line here deactivates nothing.
+# A new provider, or a composition that composes a new kind, needs its kinds listed here, or the composition fails
+# with "no matches for kind". Patterns: an exact MRD name (<plural>.<group>) or "*.<group>".
+apiVersion: apiextensions.crossplane.io/v1alpha1
+kind: ManagedResourceActivationPolicy
+metadata:
+  name: hangar
+spec:
+  activate:
+    # --- Already active when this policy replaced the catch-all (every kind of these groups, both scopes) ---
+    - "*.actions.github.m.upbound.io"
+    - "*.actions.github.upbound.io"
+    - "*.enterprise.github.m.upbound.io"
+    - "*.enterprise.github.upbound.io"
+    - "*.repo.github.m.upbound.io"
+    - "*.repo.github.upbound.io"
+    - "*.team.github.m.upbound.io"
+    - "*.team.github.upbound.io"
+    - "*.user.github.m.upbound.io"
+    - "*.user.github.upbound.io"
+    - "*.identity.infisical.m.hangar.io"
+    - "*.project.infisical.m.hangar.io"
+    - "*.kubernetes.crossplane.io"
+    - "*.kubernetes.m.crossplane.io"
+    - "*.helm.crossplane.io"
+    - "*.helm.m.crossplane.io"
+    - "*.iam.aws.m.upbound.io"
+    - "*.iam.aws.upbound.io"
+    - "*.ecr.aws.m.upbound.io"
+    - "*.ecr.aws.upbound.io"
+    - "*.lambda.aws.m.upbound.io"
+    - "*.lambda.aws.upbound.io"
+    - "*.azure.m.upbound.io"
+    - "*.azure.upbound.io"
+    - "*.containerapp.azure.m.upbound.io"
+    - "*.containerapp.azure.upbound.io"
+    # --- AwsEcsTarget (airframe compositions/awsecstarget), namespaced kinds only ---
+    - "*.ecs.aws.m.upbound.io"                        # Cluster, Service, TaskDefinition and a few more
+    - vpcs.ec2.aws.m.upbound.io                       # network.mode: create
+    - subnets.ec2.aws.m.upbound.io
+    - internetgateways.ec2.aws.m.upbound.io
+    - routetables.ec2.aws.m.upbound.io
+    - routes.ec2.aws.m.upbound.io
+    - routetableassociations.ec2.aws.m.upbound.io
+    - securitygroups.ec2.aws.m.upbound.io
+    - securitygrouprules.ec2.aws.m.upbound.io
