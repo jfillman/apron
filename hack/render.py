@@ -249,7 +249,7 @@ def cli_values(v):
              "create": (f"kubectl --context {v['name']} -n infisical create secret generic "
                         "infisical-bootstrap-credentials --from-literal=INFISICAL_ADMIN_EMAIL=<value> "
                         "--from-literal=INFISICAL_ADMIN_PASSWORD=<value: openssl rand -base64 24> "
-                        "--from-literal=INFISICAL_ADMIN_ORGANIZATION=idp")},
+                        "--from-literal=INFISICAL_ADMIN_ORGANIZATION=hangar")},
         ]
     elif get(v, "components.externalSecrets"):
         secrets.append({

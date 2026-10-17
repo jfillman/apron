@@ -4,7 +4,7 @@
 # Cluster identity: give a cluster its own ServiceAccount token issuer, publish that issuer's discovery document and
 # keys, and let other clusters' API servers trust it. The point is cross-cluster calls with short-lived, audience-bound
 # ServiceAccount tokens instead of long-lived token Secrets (docs/cluster-identity.md; first user: Tower,
-# ~/tech/SPEC-tower-cluster-credentials.md). Everything here is API-server flags and node files, so none of it can be
+# hangar SPEC-tower-cluster-credentials.md). Everything here is API-server flags and node files, so none of it can be
 # an Argo CD Application.
 #
 #   render     --config cluster.yaml --out DIR
@@ -26,9 +26,9 @@
 #              hangar:<cluster>:<SA>. Then the refusals: wrong audience, a 20-minute token, the namespace's default SA.
 #
 # --node-exec is the command prefix that runs one command inside the control-plane node, with stdin, e.g.
-#   "container exec -i kiac-dev-control-plane"
-#   "ssh laptop /opt/podman/bin/podman exec -i kind-prod-control-plane"
-#   "docker exec -i kind-staging-control-plane"
+#   "container exec -i <name>-control-plane"          (kiac)
+#   "ssh <host> /opt/podman/bin/podman exec -i <name>-control-plane"   (kind on another machine)
+#   "docker exec -i <name>-control-plane"             (kind)
 # Only plain argv commands (cat, cp, mkdir, tee, curl) run in the node, so a remote shell in between is fine.
 #
 # Live edits change /etc/kubernetes/manifests/kube-apiserver.yaml; the kubelet restarts the API server (~30-90 s).
@@ -289,7 +289,7 @@ PY
   [ "${got}" = "${ISSUER}" ] || die "discovery reports issuer ${got}, expected ${ISSUER}"
   ok "discovery issuer is ${got}"
   # --validate=false: right after a restart the API server can be too slow serving /openapi/v2 for kubectl's
-  # client-side validation (hit live on kind-prod), and a TokenReview needs no schema check.
+  # client-side validation (hit live on the prod cluster), and a TokenReview needs no schema check.
   local tok aud
   for aud in "${ISSUER}" "${DEFAULT_ISSUER}"; do
     tok="$(kubectl --context "${CONTEXT}" -n default create token default --audience "${aud}" --duration 10m)"

@@ -21,7 +21,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: idp-onboarding
+  name: airframe-onboarding
   namespace: argocd-apps
   labels:
     hangar.io/component: cluster-config
@@ -50,22 +50,22 @@ spec:
   # SecretStore added 2026-08-18 (Item 8's second multi-cluster revision) - real gap
   # caught live the first time NodeJSApplication's own new secretstore-xr.yaml
   # commit actually synced: "resource catalog.idp.io:SecretStore is not permitted in
-  # project idp-onboarding". Unlike SLO/Redis/OAuthServer, SecretStore genuinely does
+  # project airframe-onboarding". Unlike SLO/Redis/OAuthServer, SecretStore genuinely does
   # go through xr-requests/ now (NodeJSApplication/ApplicationEnvironment both commit
   # it directly) - not a values.yaml/chart-rendered Attached resource anymore.
   #
   # SpringBootApplication added 2026-08-24 - second Bootstrap-tier language XRD,
   # same shape/locality as NodeJSApplication (dev-only, hence absent from
   # the prod cluster's repo's narrower copy of this file). Hit the same
-  # "not permitted in project idp-onboarding" gap live on the first order-api commit.
+  # "not permitted in project airframe-onboarding" gap live on the first order-api commit.
   namespaceResourceWhitelist:
     # GoApplication/PythonApplication added 2026-08-27 (Backstage catalog-ingestion
     # work, idp/docs/backstage-design.md): both XRDs/Compositions were already fully
     # built ("Third"/"Fourth Bootstrap-tier stack XRD" per their own headers) but never
     # added here - caught live before it repeated the identical "not permitted in
-    # project idp-onboarding" gap SecretStore/SpringBootApplication already hit.
+    # project airframe-onboarding" gap SecretStore/SpringBootApplication already hit.
     # catalog.hangar.io/SecretStore added 2026-09-29 (Tier 2 domain-rename, see memory
-    # project_tier2_domain_rename_plan.md) - same "not permitted in project idp-onboarding" gap
+    # project_tier2_domain_rename_plan.md) - same "not permitted in project airframe-onboarding" gap
     # every other kind above already hit live, this time for the new-group SecretStore twin.
     - group: catalog.hangar.io
       kind: SecretStore
@@ -91,7 +91,7 @@ spec:
       kind: TektonCICD
     # LambdaFunction/AzureFunction added 2026-10-04 (container-image function XRDs, airframe
     # lambdafunction.yaml / azurefunction.yaml) - same recurring "not permitted in project
-    # idp-onboarding" gap every other Bootstrap-tier kind hit on its first XR.
+    # airframe-onboarding" gap every other Bootstrap-tier kind hit on its first XR.
     - group: catalog.hangar.io
       kind: LambdaFunction
     - group: catalog.hangar.io

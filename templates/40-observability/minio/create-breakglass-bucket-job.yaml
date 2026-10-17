@@ -3,7 +3,7 @@
 # template is immutable, so editing the completed one would fail the sync.
 #
 # Not created here: the access key Backstage uses. Create it by hand in the MinIO console (<service>.<domain>)
-# with the policy below, and plant its key and secret in Infisical (the prod cluster, platform-cicd-<cluster> / shared) as
+# with the policy below, and plant its key and secret in Infisical (the prod cluster, glidepath-<cluster> / shared) as
 # tower-breakglass-minio-access-key and tower-breakglass-minio-secret-key:
 #   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],
 #     "Resource":["arn:aws:s3:::tower-breakglass/*"]}]}

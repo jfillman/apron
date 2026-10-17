@@ -12,7 +12,7 @@
 # (tenants/<new-app>/xr-requests/nodejsapplication.yaml) already creates the
 # tenants/<new-app>/ directory, which is all this generator needs to notice it.
 #
-# project: idp-onboarding (see appproject.yaml in this same directory), not `default`
+# project: airframe-onboarding (see appproject.yaml in this same directory), not `default`
 # and not the per-app AppProject (which, same circularity, doesn't exist yet either for
 # a brand-new app) - see appproject.yaml's own header for the full reasoning.
 apiVersion: argoproj.io/v1alpha1
@@ -46,7 +46,7 @@ spec:
         - resources-finalizer.argocd.argoproj.io
       namespace: argocd-apps
     spec:
-      project: idp-onboarding
+      project: airframe-onboarding
       source:
         repoURL: @@TENANTS_REPO_URL@@
         targetRevision: main

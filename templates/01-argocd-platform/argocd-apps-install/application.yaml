@@ -561,7 +561,7 @@ spec:
             #
             # Narrowed 2026-10-10 (Tower authorization review follow-up): Tower's writes reach app environment
             # Applications only, never the platform projects this instance also holds - `default` (the
-            # *-onboarding and *-appproject Applications) and `idp-onboarding` (*-xr-requests). A deny wins over
+            # *-onboarding and *-appproject Applications) and `airframe-onboarding` (*-xr-requests). A deny wins over
             # the allow in Argo CD RBAC, so these stay out whatever the app projects are named (<app>-lower on a
             # Ground cluster, <app> on a Flight one). Terminate and Force sync use the same `sync` action, and
             # Backstage decides who may run each (towerPermissions.ts).
@@ -573,13 +573,13 @@ spec:
             policy.csv: |
               p, role:tower-sync, applications, sync, */*, allow
               p, role:tower-sync, applications, sync, default/*, deny
-              p, role:tower-sync, applications, sync, idp-onboarding/*, deny
+              p, role:tower-sync, applications, sync, airframe-onboarding/*, deny
               p, role:tower-rollout, applications, action/argoproj.io/Rollout/*, */*, allow
               p, role:tower-rollout, applications, action/argoproj.io/Rollout/*, default/*, deny
-              p, role:tower-rollout, applications, action/argoproj.io/Rollout/*, idp-onboarding/*, deny
+              p, role:tower-rollout, applications, action/argoproj.io/Rollout/*, airframe-onboarding/*, deny
               p, role:tower-pod, applications, delete//Pod/*, */*, allow
               p, role:tower-pod, applications, delete//Pod/*, default/*, deny
-              p, role:tower-pod, applications, delete//Pod/*, idp-onboarding/*, deny
+              p, role:tower-pod, applications, delete//Pod/*, airframe-onboarding/*, deny
               g, backstage, role:readonly
               g, backstage, role:tower-sync
               g, backstage, role:tower-rollout

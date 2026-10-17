@@ -14,7 +14,7 @@ metadata:
   name: tekton-pipelines-controller-allow-observability-scrape
   namespace: tekton-pipelines
   labels:
-    app.kubernetes.io/part-of: platform-cicd
+    app.kubernetes.io/part-of: glidepath
 spec:
   podSelector:
     matchLabels: { app: tekton-pipelines-controller }

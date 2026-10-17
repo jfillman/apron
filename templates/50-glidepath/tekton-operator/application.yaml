@@ -16,7 +16,7 @@ metadata:
   namespace: argocd
   labels:
     hangar.io/component: cluster-config
-    hangar.io/subcomponent: platform-cicd
+    hangar.io/subcomponent: glidepath
 spec:
   project: default
   source:

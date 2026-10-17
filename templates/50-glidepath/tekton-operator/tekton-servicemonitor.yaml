@@ -17,7 +17,7 @@ metadata:
   name: tekton-pipelines-controller
   namespace: tekton-pipelines
   labels:
-    app.kubernetes.io/part-of: platform-cicd
+    app.kubernetes.io/part-of: glidepath
 spec:
   selector:
     matchLabels: { app: tekton-pipelines-controller }

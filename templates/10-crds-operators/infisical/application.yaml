@@ -68,7 +68,7 @@
 # declarative, one-shot way to mint one (infisical bootstrap CLI under the hood).
 # `--ignore-if-bootstrapped=true` (chart default, unconditional) makes this safe to
 # leave enabled permanently - a no-op Job on every sync after the first.
-# organization: "idp" overrides the chart default "default-org" - traced through
+# organization: "hangar" overrides the chart default "default-org" - traced through
 # templates/bootstrap-job.yaml: --organization is a CLI flag templated from THIS
 # values field, not read from the credential Secret's own
 # INFISICAL_ADMIN_ORGANIZATION env var (that env var is effectively unused by this
@@ -83,9 +83,9 @@
 # Requires a second, one-time manually-created Secret before this can actually run
 # (same "never pasted to an assistant" convention as infisical-secrets above):
 #   kubectl create secret generic infisical-bootstrap-credentials -n infisical \
-#     --from-literal=INFISICAL_ADMIN_EMAIL="platform-admin@idp.local" \
+#     --from-literal=INFISICAL_ADMIN_EMAIL="platform-admin@hangar.local" \
 #     --from-literal=INFISICAL_ADMIN_PASSWORD="$(openssl rand -base64 24)" \
-#     --from-literal=INFISICAL_ADMIN_ORGANIZATION="idp"
+#     --from-literal=INFISICAL_ADMIN_ORGANIZATION="hangar"
 # (INFISICAL_ADMIN_ORGANIZATION is set here for completeness/CLI-flag-alternative
 # safety even though this Job's own --organization flag wins - see above.)
 apiVersion: argoproj.io/v1alpha1
@@ -121,7 +121,7 @@ spec:
               value: "true"
           autoBootstrap:
             enabled: true
-            organization: idp
+            organization: hangar
             secretDestination:
               namespace: infisical
             image:
