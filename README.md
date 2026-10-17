@@ -78,6 +78,29 @@ defaults to it.
 Day 2, after upgrading Apron or bumping `versions.yaml`: `apron render --out DIR` re-renders from `cluster.yaml`. It
 prints what it added, changed and removed, and leaves `cluster.yaml` and `clusters.yaml` alone. Review, commit, push.
 
+<!-- apron CLI section: kept separate so it merges cleanly with the rest of this README. -->
+## Install Hangar on a cluster
+
+`./apron` does it in two commands ([docs/cli.md](docs/cli.md)). Pick a name: it becomes the cluster's kubectl
+context, fleet entry, Infisical project stem, issuer path and hostname stem.
+
+**An existing cluster** (the primary path). Its kubectl context must be the cluster's name
+(`apron up --rename-context <current>` renames it):
+
+```
+./apron init prod --name <name> --runtime existing --repo-url https://github.com/<owner>/gitops-<name>.git \
+  --scm-owner <owner> --out ../gitops-<name> --create-repos --push
+./apron up --out ../gitops-<name>
+```
+
+**A local cluster**: the same, with `--runtime kiac` (Apple container VMs) or `--runtime kind`. `apron up` creates the
+cluster first, then onboards it exactly as above.
+
+`apron up` stops once, after installing Argo CD, to list the Secrets you create by hand (it prints the commands with
+`<value>` placeholders). Create them and run `apron up` again. Then follow the steps it prints
+([docs/after-up.md](docs/after-up.md)) and add the cluster to the fleet with
+`./apron fleet add --from ../gitops-<name> --fleet <control-plane repo>/clusters.yaml`.
+
 ## Rebuilding the lab
 
 The lab's dev cluster runs on a Mac with kiac, its prod cluster on a second MacBook with kind. That is a hardware
@@ -99,4 +122,5 @@ choice, not a rule: either profile runs on any runtime. Steps 1-6 above with `--
 | `hack/render.py`, `hack/check.py`, `hack/new_cluster.py` | render, invariants (zone/roles, singletons, one-name rule), starter `cluster.yaml` |
 | `hack/cluster-identity.sh` | issuer and trust on a running control-plane node |
 | `tests/run.sh` | offline tests: renders, re-render, every invariant refused |
-| `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md) |
+| `apron`, `hack/apron_fleet.py`, `tests/cli/` | the CLI (`init`, `render`, `up`, `fleet`, `identity`, `verify`, `resume`, `down`) and its tests |
+| `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md), [the CLI](docs/cli.md), [after `apron up`](docs/after-up.md) |
