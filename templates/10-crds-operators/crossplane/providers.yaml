@@ -246,6 +246,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-iam:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
@@ -263,6 +267,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-ecr:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
@@ -280,6 +288,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-lambda:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
@@ -297,6 +309,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-ecs:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
@@ -314,6 +330,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
@@ -348,6 +368,10 @@ metadata:
     hangar.io/origin: cloud-targets
 spec:
   package: xpkg.upbound.io/upbound/provider-azure-containerapp:v2.8.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
