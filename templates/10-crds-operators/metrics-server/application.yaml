@@ -1,0 +1,34 @@
+# metrics-server: the metrics.k8s.io API that every HorizontalPodAutoscaler (and `kubectl top`) reads. kind and
+# kiac clusters ship without it, which leaves every HPA `cannot-scale` (seen live on an earlier kind cluster: Tekton's
+# webhook HPAs). Rendered for runtimes that lack it (runtimes/*.yaml components.metricsServer); managed clusters
+# (EKS, AKS, GKE) usually bring their own, so runtime: existing leaves it off.
+#
+# --kubelet-insecure-tls: kind and kiac kubelets serve self-signed certificates metrics-server can't verify.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    chart: metrics-server
+    targetRevision: "3.14.0"
+    helm:
+      releaseName: metrics-server
+      valuesObject:
+        args:
+          - --kubelet-insecure-tls
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
