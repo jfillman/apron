@@ -17,3 +17,5 @@ traefik:
   fixedNodePorts: true
   httpNodePort: 30080
   httpsNodePort: 30443
+components:
+  metricsServer: true          # kiac ships no metrics-server

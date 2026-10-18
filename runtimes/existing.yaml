@@ -9,3 +9,5 @@ runtime:
 traefik:
   serviceType: LoadBalancer
   fixedNodePorts: false
+components:
+  metricsServer: false          # managed clusters usually bring their own; set true if yours lacks metrics.k8s.io

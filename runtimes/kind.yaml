@@ -19,3 +19,5 @@ traefik:
   fixedNodePorts: true
   httpNodePort: 30080
   httpsNodePort: 30443
+components:
+  metricsServer: true          # kind ships no metrics-server

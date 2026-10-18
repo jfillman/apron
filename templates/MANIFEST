@@ -20,6 +20,7 @@
 10-crds-operators/argo-rollouts/notifications-prune.yaml              components.argoRollouts and not isControlPlane
 10-crds-operators/cert-manager/         components.certManager
 10-crds-operators/cloudnative-pg/       components.cloudnativePg
+10-crds-operators/metrics-server/       components.metricsServer
 10-crds-operators/mongodb-kubernetes/   components.mongodb
 10-crds-operators/mongodb-kubernetes/namespace/   components.mongodb and not isControlPlane
 10-crds-operators/rabbitmq-operators/   components.rabbitmq
