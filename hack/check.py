@@ -56,6 +56,16 @@ def violations(v, fleet=None):
             "cannot trust each other (docs/cluster-identity.md)")
     elif name and not issuer.rstrip("/").endswith("/" + name):
         add(f"issuer must end in /{name} (one-name rule: https://<issuerBase>/oidc/<name>; got {issuer})")
+    # a pod CIDR that contains a LAN address the pods must reach routes that traffic inside the cluster instead
+    subnet, hub = get(v, "runtime.kind.podSubnet"), get(v, "fleet.hubAddress")
+    if get(v, "runtime.type") == "kind" and subnet and hub:
+        import ipaddress
+        try:
+            if ipaddress.ip_address(hub) in ipaddress.ip_network(subnet, strict=False):
+                add(f"fleet.hubAddress {hub} is inside runtime.kind.podSubnet {subnet}: pods would route it inside the "
+                    "cluster and never reach the hub. Pick a pod subnet that doesn't overlap your LAN")
+        except ValueError:
+            pass
     ctx = get(v, "runtime.existing.context")
     if get(v, "runtime.type") == "existing" and ctx and ctx != name and not on("runtime.existing.renameContext"):
         add(f"runtime.existing.context '{ctx}' is not the cluster name '{name}': a cluster's kubectl context IS its "

@@ -5,6 +5,8 @@
 # (@@CALICO_VERSION@@) right after creation, before anything else touches the cluster.
 #
 # podSubnet: identical on every cluster on purpose - each cluster's pod CIDR only routes inside that cluster.
+# It must not overlap the LAN: pods route their own CIDR inside the cluster, so a hub at 192.168.1.x is unreachable
+# from 192.168.0.0/16. Calico takes its pool from this value (kubeadm podSubnet).
 #
 # maxPods: kubelet's default 110 is below what the full stack schedules on one node (100 pods measured on the dev
 # cluster). podman's per-container pids limit is not a kubelet setting: set `pids_limit = 8192` once in
