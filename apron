@@ -345,7 +345,14 @@ ensure_context() {
   else
     ok "context ${NAME} exists"
   fi
-  kubectl --context "${NAME}" get --raw /readyz >/dev/null 2>&1 || die "context ${NAME} is not reachable"
+  # A cluster that was just created or restarted takes a minute or two to serve /readyz: wait instead of
+  # failing on the first try (APRON_API_WAIT seconds, default 180).
+  local i wait="${APRON_API_WAIT:-180}"
+  for ((i = 0; ; i += 5)); do
+    kubectl --context "${NAME}" get --raw /readyz >/dev/null 2>&1 && break
+    [ "${i}" -lt "${wait}" ] || die "context ${NAME} is not reachable after ${wait}s"
+    sleep 5
+  done
   ok "context ${NAME} reachable"
 }
 
