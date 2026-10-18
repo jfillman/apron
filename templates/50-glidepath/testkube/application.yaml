@@ -68,6 +68,14 @@ spec:
             enabled: false
           postgresql:
             enabled: true
+          # The chart's MinIO image (docker.io/minio/minio) was deleted from Docker Hub on 2026-09-11, and Quay
+          # answers 401 for every tag since 2026-09-24. Pigsty's fork is a drop-in: its entrypoint takes the
+          # chart's `server /data --console-address :9090` args unchanged (same as 40-observability/minio).
+          minio:
+            image:
+              registry: docker.io
+              repository: pgsty/silo
+              tag: RELEASE.2026-10-15T00-00-00Z
   destination:
     server: https://kubernetes.default.svc
     namespace: testkube
