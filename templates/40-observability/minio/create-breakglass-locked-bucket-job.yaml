@@ -29,7 +29,7 @@ spec:
       containers:
         - name: mc
           # The MinIO server image ships the same mc (see create-breakglass-bucket-job.yaml).
-          image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+          image: docker.io/pgsty/silo:RELEASE.2026-10-15T00-00-00Z   # MinIO's own images are gone (Quay 401 since 2026-09-24); Pigsty's fork, mc included
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh

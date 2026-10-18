@@ -27,6 +27,16 @@ spec:
       releaseName: minio
       valuesObject:
         mode: standalone
+        # MinIO stopped publishing images (Docker Hub deleted 2026-09-11; Quay answers 401 for every tag since
+        # 2026-09-24), so neither the chart's default server image nor its mc image pulls on a fresh node. Pigsty's
+        # fork is a drop-in: same docker-entrypoint.sh (it maps `minio server` to its renamed `silo` binary), MINIO_*
+        # env vars, and `mc` in the same image. https://silo.pigsty.io/compatibility/migration/
+        image:
+          repository: docker.io/pgsty/silo
+          tag: RELEASE.2026-10-15T00-00-00Z
+        mcImage:
+          repository: docker.io/pgsty/silo
+          tag: RELEASE.2026-10-15T00-00-00Z
         replicas: 1
         resources:
           requests:

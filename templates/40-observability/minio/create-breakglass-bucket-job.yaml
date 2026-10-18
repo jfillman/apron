@@ -25,7 +25,7 @@ spec:
         - name: mc
           # The MinIO server image, which ships the same mc release (RELEASE.2024-11-21T17-21-54Z, checked 2026-10-10):
           # quay.io/minio/mc no longer pulls (HEAD 401 / ImagePullBackOff), the server image is already on the node.
-          image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+          image: docker.io/pgsty/silo:RELEASE.2026-10-15T00-00-00Z   # MinIO's own images are gone (Quay 401 since 2026-09-24); Pigsty's fork, mc included
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
