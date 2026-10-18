@@ -20,6 +20,11 @@
 apiVersion: kubernetes.m.crossplane.io/v1alpha1
 kind: ClusterProviderConfig
 metadata:
+  annotations:
+    # The ClusterProviderConfig kind only exists once the provider has installed (providers.yaml, same
+    # Application): without this a first sync fails its dry run and never installs the provider.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    argocd.argoproj.io/sync-wave: "1"
   name: default
   labels:
     hangar.io/component: cluster-config
