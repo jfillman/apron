@@ -1,6 +1,9 @@
 # Read-only access for Tower's kubernetes-ingestor ServiceAccount (backstage-ingestor in @@TOWER_NAMESPACE@@), the same
 # grants the prod cluster's Backstage carried: native workloads (view), CRDs, Crossplane XRDs/Compositions/XRs
-# (crossplane-browse), Argo Rollouts, and the Prometheus proxy for the SLOs tab.
+# (crossplane-browse), Argo Rollouts, the Prometheus proxy for the SLOs tab, and (below) the Topology tab's extra
+# kinds: Gateway API, ExternalSecrets, ServiceMonitors and RBAC objects. The hub grants the same kinds to Tower's
+# federated identity (00-bootstrap/backstage-ingestor-rbac/rbac.yaml); these are this cluster's own copies, named
+# tower-local-* so a cluster carrying both never has two Applications owning one ClusterRole.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -107,6 +110,75 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: tower-breakglass-binder
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: @@TOWER_NAMESPACE@@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-local-gateway-api-viewer
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "gateways"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-local-gateway-api-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tower-local-gateway-api-viewer
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: @@TOWER_NAMESPACE@@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-local-topology-resource-viewer
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-local-topology-resource-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tower-local-topology-resource-viewer
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: @@TOWER_NAMESPACE@@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-local-rbac-viewer
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-ingestor-local-rbac-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tower-local-rbac-viewer
 subjects:
   - kind: ServiceAccount
     name: backstage-ingestor
