@@ -241,6 +241,7 @@ cmd_up() {
     kiac) runtime_kiac ;; kind) runtime_kind "${out}" ;; existing) runtime_existing "${rename_from}" ;;
   esac
   ensure_context "${rename_from}"
+  kiac_max_pods
 
   step "phase 2: onboard"
   install_cni
@@ -270,6 +271,30 @@ runtime_kiac() {
   if [ "${DRY_RUN}" = false ] && kiac_exists; then ok "kiac cluster ${NAME} exists; not creating"; return; fi
   [ "${DRY_RUN}" = false ] || echo "  (skipped if kiac get clusters lists ${NAME})"
   run "${args[@]}"
+}
+
+# kiac_max_pods: kiac has no kubelet setting, and the kubelet's default of 110 pods is below what the dev profile runs
+# on one node. Set runtime.kiac.maxPods in each node's /var/lib/kubelet/config.yaml and restart the kubelet, only where
+# the node's pod capacity differs. Idempotent; up and resume both run it (kind gets it from its kind config instead).
+kiac_max_pods() {
+  [ "${RUNTIME}" = kiac ] || return 0
+  local want exec node have i wait="${APRON_NODE_WAIT:-180}"
+  want="$(rt maxPods)"; [ -n "${want}" ] || return 0
+  exec="$(val '.runtime.nodeExec')"; [ -n "${exec}" ] || die "resolved values have no runtime.nodeExec"
+  step "kubelet maxPods ${want}"
+  local script="f=/var/lib/kubelet/config.yaml; if grep -q '^maxPods:' \$f; then sed -i 's/^maxPods:.*/maxPods: ${want}/' \$f; else echo 'maxPods: ${want}' >>\$f; fi; systemctl restart kubelet"
+  if [ "${DRY_RUN}" = true ]; then echo "  + ${exec} <node> sh -c \"${script}\"   (each node whose pod capacity is not ${want})"; return; fi
+  for node in $(kubectl --context "${NAME}" get nodes -o jsonpath='{.items[*].metadata.name}'); do
+    have="$(kubectl --context "${NAME}" get node "${node}" -o jsonpath='{.status.capacity.pods}' 2>/dev/null || true)"
+    if [ "${have}" = "${want}" ]; then ok "${node}: maxPods ${have}"; continue; fi
+    # shellcheck disable=SC2086
+    run ${exec} "${node}" sh -c "${script}" </dev/null || die "could not set maxPods on ${node}"
+    for ((i = 0; i < wait; i += 5)); do
+      have="$(kubectl --context "${NAME}" get node "${node}" -o jsonpath='{.status.capacity.pods}' 2>/dev/null || true)"
+      [ "${have}" = "${want}" ] && break; sleep 5
+    done
+    if [ "${have}" = "${want}" ]; then ok "${node}: maxPods ${want}"; else warn "${node} still reports pod capacity '${have}' after ${wait}s"; fi
+  done
 }
 
 runtime_kind() {
@@ -485,6 +510,7 @@ cmd_resume() {
     existing) die "runtime existing: nothing to resume" ;;
   esac
   ensure_context ""
+  kiac_max_pods
   local ip domain hosts
   domain="$(val '.domain')"; [ -n "${domain}" ] || die "resolved values have no domain"
   if [ "${RUNTIME}" = kind ]; then ip=127.0.0.1
