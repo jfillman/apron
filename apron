@@ -176,10 +176,14 @@ git_setup() {
 create_repos() {
   require gh
   step "GitHub repos"
-  local r
+  # create_repos CLUSTER_REPO TENANTS_REPO. The tenants repo gets a README commit: the control plane's
+  # tenant-onboarding ApplicationSet lists its refs, and a repo with no branch at all leaves it Degraded
+  # ("remote repository is empty"). The cluster repo stays empty, since --push writes its first commit.
+  local r extra
   for r in "$@"; do
+    extra=(); [ "${r}" = "$1" ] || extra=(--add-readme)
     if gh repo view "${r}" >/dev/null 2>&1; then echo "  skipped ${r}: already exists (left untouched)"
-    else gh repo create "${r}" --private >/dev/null; ok "created ${r} (private)"; fi
+    else gh repo create "${r}" --private "${extra[@]}" >/dev/null; ok "created ${r} (private${extra:+, with a README})"; fi
   done
 }
 
