@@ -1,0 +1,46 @@
+# The object-locked bucket for Tower's break-glass session recordings (gaps phase B, G5, 2026-10-11): tower-breakglass-v2.
+# The first bucket (create-breakglass-bucket-job.yaml) is unversioned with no object lock, so someone with MinIO admin
+# rights could replace a recording. This one is created with object locking (which turns on versioning) and a default
+# retention of 365 days in GOVERNANCE mode: a version cannot be deleted or overwritten for a year by anyone without
+# s3:BypassGovernanceRetention, which nobody holds day to day (compliance mode cannot be shortened even by root, too
+# sharp for a lab). Every checkpoint the backend writes is a new version of the same key; the session record names the
+# final version and its SHA-256, and anchors the hash in Rekor. The lifecycle rule expires current and noncurrent
+# versions after 365 days (retention has passed by then). Existing recordings stay in the old bucket until their own
+# expiry; the backend reads rows without a bucket from there (glidepath.breakglass.recordings.legacyBucket).
+#
+# Not created here: the access key Backstage uses is the existing one (tower-breakglass-minio-access-key in Infisical).
+# Extend its policy by hand in the MinIO console to cover both buckets; the new bucket needs GetObjectVersion for the
+# player to read a named version:
+#   {"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+#     "Action":["s3:PutObject","s3:GetObject","s3:GetObjectVersion"],
+#     "Resource":["arn:aws:s3:::tower-breakglass/*","arn:aws:s3:::tower-breakglass-v2/*"]}]}
+# Put and get only: never list, delete or bypass-governance. Then switch the backend to the new bucket
+# (glidepath.breakglass.recordings.bucket: tower-breakglass-v2); a session refuses to start if it cannot write there.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-breakglass-locked-bucket-v1
+  namespace: observability
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          # The MinIO server image ships the same mc (see create-breakglass-bucket-job.yaml).
+          image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              mc alias set myminio http://minio:9000 admin minioadmin123
+              mc mb --with-lock --ignore-existing myminio/tower-breakglass-v2
+              mc retention set --default governance 365d myminio/tower-breakglass-v2
+              mc retention info myminio/tower-breakglass-v2
+              case "$(mc ilm rule ls --json myminio/tower-breakglass-v2 2>/dev/null)" in
+                *'"Days":365'*) echo "365-day expiry rule already present" ;;
+                *) mc ilm rule add --expire-days 365 --noncurrent-expire-days 365 myminio/tower-breakglass-v2 ;;
+              esac

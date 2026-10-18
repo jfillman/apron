@@ -1,0 +1,52 @@
+# Tower's write identity on this cluster (2026-10-12, SPEC-tower-cluster-credentials.md phase 3).
+#
+# hangar:the prod cluster:tower-actor is the prod cluster's ServiceAccount backstage/tower-actor, accepted through
+# 00-bootstrap/cluster-identity/. No pod runs as it. Backstage mints a 10-minute token for it per write action
+# (TokenRequest on the prod cluster, audience the dev cluster, bound to the Backstage pod) and drops it after that action.
+# Reads use the pod's own projected token instead (hangar:the prod cluster:backstage-ingestor, read bindings in rbac.yaml).
+#
+# The write grants are the same two the old ServiceAccount holds, still held to their shape by
+# 30-policy/kyverno-policies/tower-identity-writes.yaml and tower-breakglass.yaml, which name this user too:
+#   - backstage-tekton-rerun: create + patch PipelineRuns (Re-run, Cancel, release runs);
+#   - tower-breakglass-binder: create/delete tower-breakglass-* RoleBindings and bind the two debug roles, to this
+#     user only.
+# `view` because those actions read what they act on (the PipelineRun to copy, the TriggerTemplate, the target pod and
+# namespace). Phase 4 removes the ServiceAccount's write bindings and its long-lived token.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tower-actor-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:tower-actor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tower-actor-tekton-rerun
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-tekton-rerun
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:tower-actor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tower-actor-breakglass-binder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tower-breakglass-binder
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:tower-actor

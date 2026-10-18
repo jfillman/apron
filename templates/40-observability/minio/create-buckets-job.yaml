@@ -1,0 +1,42 @@
+# Works around a real, confirmed upstream bug in minio/minio (charts.min.io) 5.4.0:
+# its own post-install Job's init script (templates/configmap.yaml's `initialize`
+# data key) DEFINES a createBucket() shell function but never actually CALLS it for
+# any configured `buckets:` entry - confirmed via a clean `helm template` render
+# with no other explanation (not a values mistake, not a deployment artifact - the
+# function invocation is simply absent from the rendered template). Result: minio
+# comes up healthy with zero buckets, and Tempo/Loki crash-loop forever on "bucket
+# does not exist" since the chart's own automation silently never creates them.
+#
+# Picked up automatically by minio-secrets' directory-source Application alongside
+# thanos-objstore-secret.yaml (its exclude list only excludes the two Application
+# objects themselves, not this file) - no separate Application needed.
+#
+# tekton-results bucket added 2026-09-17 - Tekton Results' S3 log/result storage,
+# see 50-glidepath/tekton-operator/tekton-results-s3-secret.yaml for the creds
+# that reference it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # v2 (2026-10-11): quay.io/minio/mc no longer pulls (ImagePullBackOff since the tag was removed upstream), so this
+  # uses the MinIO server image, which ships the same mc, like create-breakglass-bucket-job.yaml. A Job's pod template
+  # is immutable, hence the new name.
+  name: minio-create-buckets-v2
+  namespace: observability
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set myminio http://minio:9000 admin minioadmin123 &&
+              mc mb --ignore-existing myminio/thanos &&
+              mc mb --ignore-existing myminio/loki &&
+              mc mb --ignore-existing myminio/tempo &&
+              mc mb --ignore-existing myminio/tekton-results

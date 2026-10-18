@@ -45,16 +45,15 @@ cluster A (caller)                                    cluster B (trusting)
 
 ## New clusters
 
-With `enabled: true`, `hack/customize-cluster.sh`:
+Every Apron cluster's issuer is `https://<issuerBase>/oidc/<name>` (one-name rule; `issuerBase` defaults to
+`hangarplatform.dev`). The hub cluster (dev profile, `components.towerAccessHub`) gets
+`00-bootstrap/cluster-identity/authentication-config.yaml`, which trusts the issuer of the cluster Tower runs on
+(`tower.cluster`) for `backstage-ingestor` and `tower-actor` in Tower's namespace (`app-backstage-<env>`). That
+directory has no `application.yaml`, so Argo CD never syncs it.
 
-1. renders `00-bootstrap/cluster-identity/` (the README, plus `authentication-config.yaml` when `trust` is set), which
-   has no `application.yaml`, so Argo CD never syncs it;
-2. patches `hack/kind-config.yaml`:
-   - the issuer flags (kubeadm v1beta4 `extraArgs`, a list, so the issuer can appear twice);
-   - with trust entries, `--authentication-config`, the volume, and a bind mount of the rendered file.
-
-After `kind create cluster`, publish the keys (next-steps item 4c). For a non-kind cluster, put the same flags and the
-file in its own provisioning.
+The flags are set on the running node after `apron up`, the same way for every runtime: `apron identity` wraps
+`hack/cluster-identity.sh publish`, `issuer` and `trust` with the context, issuer and node derived from the name (kiac
+can't pass API-server flags at create time, so one path for every runtime). Publish the keys first.
 
 ## Running clusters
 
@@ -76,21 +75,19 @@ to the trusting cluster. It then checks that a wrong audience and a 20-minute to
 The node's filesystem survives restarts. A recreated cluster gets the configuration from its kind config instead
 (new clusters, above).
 
-## In use: Tower on kind-prod → kiac-dev
+## In use
 
-The first consumer, live since 2026-10-12.
+- **Tower → hub.** Tower's cluster signs as `https://<issuerBase>/oidc/<tower cluster>`; the hub trusts it for two
+  ServiceAccounts in `app-backstage-<env>`, both with audience `<hub name>`: `backstage-ingestor` (the Tower pod's
+  projected token, reads) and `tower-actor` (a token minted per write action). Records: the hub repo's
+  `00-bootstrap/cluster-identity/` and `00-bootstrap/backstage-ingestor-rbac/`, Tower's `66-tower-access/`, Tower
+  `docs/credentials/index.md`.
+- **AWS → hub.** An IAM identity provider for the hub's issuer; roles trust audience `sts.amazonaws.com` and an exact
+  ServiceAccount (`hangar-crossplane-<hub name>` for `crossplane-system:provider-aws-*`, `glidepath-deploy-<function>`
+  for `app-<app>-cicd:glidepath-cloud-deployer`). Enable with `components.cloudTargets` and `aws.accountId`. Records:
+  Airframe `docs/admin/cloud-credentials.md`, Glidepath `docs/admin/cloud-deploy-identity.md`.
 
-- **kind-prod** signs as `https://hangarplatform.dev/oidc/kind-prod`. The keys are on hangar's site, under
-  `web/public/oidc/`.
-- **kiac-dev** trusts it for two kind-prod ServiceAccounts in `backstage`, both with audience `kiac-dev`:
-  - `backstage-ingestor`, the Backstage pod's projected token, for reads;
-  - `tower-actor`, a token minted per write action.
-- **The records:**
-  - gitops-cluster-dev `00-bootstrap/cluster-identity/` (the trust file);
-  - gitops-cluster-kind-prod `00-bootstrap/cluster-identity/` (the issuer flags);
-  - Tower `docs/credentials/index.md` (identities, diagrams, operations, troubleshooting).
-
-Lessons from that rollout that apply to any consumer:
+Lessons from the first rollouts that apply to any consumer:
 
 - **Make the issuer unique first.** Every kind and kubeadm cluster defaults to the same issuer, and an API server
   refuses to trust its own.
@@ -103,30 +100,10 @@ Lessons from that rollout that apply to any consumer:
   federated entry must keep a non-empty placeholder token. Tower's token-file strategy never sends it.
 - **Pod-bound tokens** carry the pod's name. The trust maps it to `extra["hangar.io/pod"]` so the audit log names the
   pod. Tokens that aren't pod-bound (`kubectl create token`) are accepted too; the mapping is `has()`-guarded.
-
-## In use: AWS trusts kiac-dev
-
-The second consumer, live since 2026-10-16: AWS, so Crossplane and Glidepath reach it with no stored key.
-
-- **kiac-dev** signs as `https://hangarplatform.dev/oidc/kiac-dev` (keys on hangar's site, `web/public/oidc/kiac-dev`).
-  `hack/kiac-dev-cluster-identity.sh` in gitops-cluster-dev puts the flags back after a rebuild, because kiac can't
-  set API server flags for the kubeadm distro.
-- **AWS** has an IAM identity provider for that issuer. Roles trust it for one audience, `sts.amazonaws.com`, and an
-  exact ServiceAccount:
-  - `hangar-crossplane-kiac-dev`: `system:serviceaccount:crossplane-system:provider-aws-*`;
-  - `glidepath-deploy-<function>`, one per Lambda function: `system:serviceaccount:app-<app>-cicd:glidepath-cloud-deployer`.
-- **The fleet file** carries both facts: `serviceAccountIssuer` per cluster and the `aws:` block
-  ([clusters-file.md](clusters-file.md)).
-- **The records:** Airframe `docs/admin/cloud-credentials.md` (roles, trust, guardrails, diagrams) and Glidepath
-  `docs/admin/cloud-deploy-identity.md` (the deploy side).
-
-Two more lessons for any consumer:
-
 - **Publish before you switch, and keep publishing.** AWS fetches `/.well-known/openid-configuration` from the issuer
-  URL itself. A site deploy that dropped dotfiles (hangar#55) would have broken every token; the site's deploy job now
-  fails if any issuer stops serving its discovery document.
-- **Kubernetes tokens carry one audience,** so `StringEquals` on `aud` in an IAM trust policy is right, even though
-  Access Analyzer suggests checking for multi-valued audiences.
+  URL itself; a site deploy that dropped dotfiles would have broken every token.
+- **Kubernetes tokens carry one audience,** so `StringEquals` on `aud` in an IAM trust policy is right.
+- **A rebuilt cluster has a new `sa.key`.** Publish its keys again before anything relies on federation.
 
 ## Managed clusters
 

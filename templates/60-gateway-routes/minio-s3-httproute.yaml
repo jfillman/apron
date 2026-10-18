@@ -1,0 +1,24 @@
+# MinIO's S3 API on the dev gateway (2026-10-10), for Tower's break-glass session recordings: Backstage runs on
+# the prod cluster and uploads each recording to the tower-breakglass bucket here (glidepath/Tower break-glass spec:
+# recordings live off the cluster they record). Reached from the prod cluster as http://<service>.<domain>:8080 through
+# the Backstage Deployment's hostAliases, the same path <service>.<domain> takes. Access is by a MinIO
+# access key scoped to that one bucket; the root credentials never leave this cluster.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: minio-s3
+  namespace: observability
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - minio.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: minio
+          port: 9000

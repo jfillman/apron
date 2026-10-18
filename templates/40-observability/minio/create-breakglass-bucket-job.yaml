@@ -1,0 +1,39 @@
+# The bucket for Tower's break-glass session recordings (2026-10-10), kept one year (decided with the user): a
+# lifecycle rule expires objects after 365 days. Its own Job, not a line in minio-create-buckets: a Job's pod
+# template is immutable, so editing the completed one would fail the sync.
+#
+# Not created here: the access key Backstage uses. Create it by hand in the MinIO console (<service>.<domain>)
+# with the policy below, and plant its key and secret in Infisical (the prod cluster, glidepath-<cluster> / shared) as
+# tower-breakglass-minio-access-key and tower-breakglass-minio-secret-key:
+#   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],
+#     "Resource":["arn:aws:s3:::tower-breakglass/*"]}]}
+# Put and get only: Backstage can write a recording and read it back for the player, never list or delete.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # v3 (2026-10-11): the "add the lifecycle rule once" guard used grep, which the server image lacks, so a recreated
+  # bucket would have got a duplicate rule. Now a shell pattern over `mc ilm rule ls --json`. A Job's pod template
+  # is immutable, hence the new name.
+  name: minio-create-breakglass-bucket-v3
+  namespace: observability
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          # The MinIO server image, which ships the same mc release (RELEASE.2024-11-21T17-21-54Z, checked 2026-10-10):
+          # quay.io/minio/mc no longer pulls (HEAD 401 / ImagePullBackOff), the server image is already on the node.
+          image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set myminio http://minio:9000 admin minioadmin123 &&
+              mc mb --ignore-existing myminio/tower-breakglass &&
+              case "$(mc ilm rule ls --json myminio/tower-breakglass 2>/dev/null)" in
+                *'"Days":365'*) echo "365-day expiry rule already present" ;;
+                *) mc ilm rule add --expire-days 365 myminio/tower-breakglass ;;
+              esac

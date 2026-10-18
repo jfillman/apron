@@ -1,0 +1,142 @@
+# The real §0 xr-requests mechanism (idp/docs/service-catalog-design.md) - one
+# Application per app directory under <this cluster's tenants repo>/tenants/, rendering
+# whatever raw XR manifests are committed into that app's own xr-requests/ subfolder.
+# This is how NodeJSApplication/ApplicationEnvironment (and future SpringBootApplication)
+# get created for real: a git commit, not `kubectl apply`.
+#
+# Generator uses a `directories` matcher (path: tenants/*), NOT a `files` matcher keyed
+# on app.yaml or identity.yaml like the sibling ../tenant-appprojects/ and
+# ../tenant-onboarding/ ApplicationSets. Deliberate: app.yaml is WRITTEN by
+# NodeJSApplication's own Composition - gating the Application that CREATES that XR on
+# a file the XR itself produces would be circular. A brand-new app's very first commit
+# (tenants/<new-app>/xr-requests/nodejsapplication.yaml) already creates the
+# tenants/<new-app>/ directory, which is all this generator needs to notice it.
+#
+# project: airframe-onboarding (see appproject.yaml in this same directory), not `default`
+# and not the per-app AppProject (which, same circularity, doesn't exist yet either for
+# a brand-new app) - see appproject.yaml's own header for the full reasoning.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: xr-requests
+  namespace: argocd-apps
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: xr-requests
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=invalid"]
+  # Destination namespace prefix (2026-10-17): the XRs belong in the tenant's own control-plane
+  # namespace, which glidepath's tenant-onboarding ApplicationSet names
+  # <platformIdentity.type>-<appName>-cicd. Until this date the prefix here was a hardcoded `app-`,
+  # so the two infra tenants (skyport-auth, skyport-broker) got a second, stray app-<name>-cicd
+  # namespace holding only their XRs while their real control-plane namespace was
+  # infra-<name>-cicd. The prefix is now read from tenants/<app>/identity.yaml.
+  #
+  # Why a merge generator and what it is keyed on: the directories generator stays the BASE (see the
+  # header - a brand-new app has no identity.yaml yet, TektonCICD writes it), and a files generator
+  # on identity.yaml is merged in where the file exists. Argo CD's merge generator cannot key on a
+  # nested value with goTemplate (documented restriction, and the key lookup in merge.go is a plain
+  # top-level map index), and the two generators' `path` maps differ (the files one adds filename
+  # keys). So both generators emit an identical top-level `values` map, {app: <dir name>}, and
+  # the merge keys on the whole `values` key - json.Marshal of a map is key-sorted, so equal maps
+  # give equal keys. pathParamPrefix keeps the files generator's path out of the base's `.path`.
+  # No identity.yaml (a brand-new app tenant) -> no merge match -> the `dig` default `app` below.
+  # A brand-new INFRA tenant must commit identity.yaml with its first xr-requests/ file, or its
+  # first sync goes to app-<name>-cicd (airframe docs/user/quickstart-broker.md says so).
+  generators:
+    - merge:
+        mergeKeys:
+          - values
+        generators:
+          - git:
+              repoURL: @@TENANTS_REPO_URL@@
+              revision: main
+              directories:
+                - path: "tenants/*"
+              values:
+                app: "{{.path.basename}}"
+          - git:
+              repoURL: @@TENANTS_REPO_URL@@
+              revision: main
+              pathParamPrefix: identity
+              files:
+                - path: "tenants/*/identity.yaml"
+              values:
+                app: "{{.identity.path.basename}}"
+  template:
+    metadata:
+      name: "{{.path.basename}}-xr-requests"
+      labels:
+        hangar.io/component: cluster-config
+        hangar.io/subcomponent: xr-requests
+        hangar.io/app: "{{.path.basename}}"
+      # Cascade-deletes everything this Application created (the Bootstrap-tier XRs) if
+      # a tenant's whole tenants/<app>/ directory is ever removed - same finalizer,
+      # same reasoning as the sibling ApplicationSets in this repo.
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      namespace: argocd-apps
+    spec:
+      project: airframe-onboarding
+      source:
+        repoURL: @@TENANTS_REPO_URL@@
+        targetRevision: main
+        # Source path is the APP directory (tenants/<app>), not the xr-requests/
+        # subfolder directly - found live: git doesn't track empty directories, so a
+        # directory-type source pointed straight at xr-requests/ starts erroring
+        # manifest generation entirely ("app path does not exist") the moment the
+        # LAST file in it is removed - exactly the moment a real deletion needs it to
+        # cleanly diff down to zero resources instead. tenants/<app> itself is
+        # guaranteed to exist (the directories generator above just matched it), so
+        # scoping down to just xr-requests/*.yaml via recurse+include instead keeps
+        # the source path always valid while still only ever applying XR manifests -
+        # app.yaml and <env>/identity.yaml, both siblings of xr-requests/ under the
+        # same tenants/<app>/ root, are excluded by the include pattern.
+        path: "tenants/{{.path.basename}}"
+        directory:
+          recurse: true
+          include: "xr-requests/*.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        # app-<name>-<suffix> or infra-<name>-<suffix> (see the generator comment). An XR file that sets its
+        # own metadata.namespace wins over this - Tower's create form writes one - so it must match.
+        # appproject.yaml only allows these two prefixes, so any other type fails the sync.
+        namespace: '{{ dig "platformIdentity" "type" "app" . }}-{{.path.basename}}-@@XR_NAMESPACE_SUFFIX@@'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          # Server-side apply (airframe review A2, 2026-10-09): with client-side apply Argo CD never
+          # sends a fieldValidation directive (gitops-engine builds its ApplyOptions without one), so
+          # the API server's default is Warn and a misspelled XR field is pruned silently - the request
+          # looks Synced and the composition never sees the value. SSA has to type the object against
+          # the XRD schema, so the same typo fails the sync with ".spec.<field>: field not declared in
+          # schema" (confirmed with a dry-run on the dev cluster). Field ownership moves to argocd-controller on
+          # the first SSA apply (ClientSideApplyMigration, on by default); Crossplane keeps its own
+          # managers on spec.crossplane.resourceRefs and status, which git never declares, so there is
+          # nothing to conflict with. Pre-merge, the same check is `airframe-validate --xr`.
+          - ServerSideApply=true
+          # SUSPECTED RESOLVED, not proven (downgraded 2026-08-15 - full writeup in
+          # idp/docs/service-catalog-design.md's own status note): deleting an
+          # ApplicationEnvironment xr-request through this Application was confirmed
+          # twice, live, to deadlock against the Usage it composes - the Usage's own
+          # controller (protection.crossplane.io) refused to release its finalizer until
+          # the ApplicationEnvironment ("using" resource, spec.by) was actually gone,
+          # while the ApplicationEnvironment itself wouldn't finish going away until that
+          # same Usage (an owned, blockOwnerDeletion:true dependent) was gone first -
+          # circular. PrunePropagationPolicy=background (kept below) was tried as a fix
+          # and did NOT resolve it on a same-day retest. A later same-day pass
+          # reproduced the same deletion path 3 times, including one attempt matching
+          # the original failure's timing/cluster almost exactly - all 3 tore down
+          # cleanly, no code change made to the Usage/finalizer mechanism in between.
+          # Best lead: a real, separate ArgoCD Redis-cache staleness bug
+          # (../../01-argocd-platform/README.md) was found and fixed immediately before the clean
+          # runs, and the original failures happened during heavy same-day onboard/
+          # teardown churn - plausible, not proven. If this ever recurs: kubectl patch
+          # usage <name> -n <ns> --type=merge -p '{"metadata":{"finalizers":[]}}'. Treat
+          # env deletion through this path as usable but monitored, not yet fully
+          # routine.
+          - PrunePropagationPolicy=background

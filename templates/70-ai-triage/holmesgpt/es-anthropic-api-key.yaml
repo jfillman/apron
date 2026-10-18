@@ -1,0 +1,23 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: holmesgpt-secrets
+  namespace: holmesgpt
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: ai-triage
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: holmesgpt-secrets
+    creationPolicy: Owner
+    template:
+      data:
+        ANTHROPIC_API_KEY: "{{ .anthropicApiKey }}"
+  data:
+    - secretKey: anthropicApiKey
+      remoteRef:
+        key: anthropic-api-key

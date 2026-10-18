@@ -1,0 +1,36 @@
+# RabbitMQ Cluster Operator v2.23.0 + Messaging Topology Operator v1.20.3 (Item 7 Phase 2,
+# the `rabbitmq` component). Vendored release manifests (no official Helm chart; Bitnami's is
+# off the table): cluster-operator.yaml is cluster-operator.yml, messaging-topology-operator.yaml
+# is messaging-topology-operator-with-certmanager.yaml minus its duplicate Namespace. Both
+# operator images are multi-arch (amd64 + arm64). Both use cert-manager for webhook/metrics
+# certs. Manual sync, like every operator Application in this directory.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rabbitmq-operators
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/rabbitmq-operators
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rabbitmq-system
+  ignoreDifferences:
+    # cert-manager's cainjector fills these in
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions: ['.webhooks[].clientConfig.caBundle']
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions: ['.webhooks[].clientConfig.caBundle']
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

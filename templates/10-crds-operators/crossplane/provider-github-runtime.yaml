@@ -1,0 +1,51 @@
+# DeploymentRuntimeConfig for provider-github, referenced by provider-github's
+# runtimeConfigRef in providers.yaml (this directory).
+#
+# Root-caused 2026-09-07 via the GitHub Security Log + live `kubectl get
+# repositories.repo.github.m.upbound.io -A` (every one showed SYNCED=False) +
+# `-o yaml` on individual Repository MRs: NOT a Terraform/upjet field-comparison
+# drift bug (spec.forProvider and status.atProvider matched exactly on inspection) -
+# every managed resource across every app was simply failing Observe() with the
+# identical live error `403 API rate limit of 5000 still exceeded until <hourly
+# reset>`. GitHub's primary rate limit is scoped per-account (see
+# project_kiac_github_rate_limit_investigation.md), shared across every classic PAT
+# under this account including backstage-github-token - so this provider's own
+# background reconcile traffic (confirmed from the Security Log: 1432 successful
+# repo.change_merge_setting writes alone, 48% of the entire log, continuous and
+# still active) was a direct, self-inflicted contributor to draining the same pool
+# Backstage's scaffolder needs, which is why "testing the backstage plugins" kept
+# breaking.
+#
+# --poll=1h (was the binary's own default of 10m, confirmed live via
+# `provider --help` in the running pod - not guessed) cuts this provider's own
+# background Observe() traffic ~6x. This doesn't eliminate the shared-pool problem
+# (other consumers under the same account still contribute), but removes Crossplane's
+# own continuous reconcile-and-retry - including retrying every ~10 minutes *while
+# already rate-limited*, which was actively keeping the account pinned at empty for
+# longer than necessary after each hourly reset - as a factor entirely.
+#
+# --max-reconcile-rate=50 predates this fix (applied live 2026-09-04, found live
+# on this cluster with no corresponding git commit anywhere - committing it here now
+# so it survives a cluster rebuild instead of silently reverting to the binary's own
+# default of 100). Left as-is: still a reasonable concurrency cap, no direct evidence
+# it needs to change once --poll=1h is in place.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-github-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/provider: provider-github
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --max-reconcile-rate=50
+                - --poll=1h

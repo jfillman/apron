@@ -1,0 +1,30 @@
+# The AWS ClusterProviderConfig every cloud-target managed resource references
+# (providerConfigRef kind: ClusterProviderConfig, name: default - the same shape provider-github
+# and provider-infisical use).
+#
+# Credentials (2026-10-16): AssumeRoleWithWebIdentity as hangar-crossplane-the dev cluster, with the
+# projected ServiceAccount token that provider-aws-runtime.yaml mounts (see that file for the trust
+# chain). Nothing long-lived: STS sessions last an hour and the token rotates. This replaced the
+# static access key in the provider-aws-creds Secret, retired once a real create/delete round trip
+# through this config worked (an ECR repository, 2026-10-16). The role carries the HangarCrossplaneCloudTargets policy that the IAM user had
+# (airframe docs/admin/cloud-credentials.md).
+apiVersion: aws.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+  annotations:
+    # This kind's CRD arrives with the family provider in the SAME sync: without this, Argo CD's dry
+    # run rejects the whole operation ("could not find version v1beta1 of aws.m.upbound.io/
+    # ClusterProviderConfig", seen live 2026-10-08) and nothing in this directory applies.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  credentials:
+    source: WebIdentity
+    webIdentity:
+      roleARN: arn:aws:iam::@@AWS_ACCOUNT_ID@@:role/hangar-crossplane-@@CLUSTER_NAME@@
+      roleSessionName: @@CLUSTER_NAME@@-crossplane
+      tokenConfig: {source: Filesystem, fs: {path: /var/run/secrets/aws/token}}

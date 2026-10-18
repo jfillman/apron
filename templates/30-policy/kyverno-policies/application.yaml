@@ -1,0 +1,31 @@
+# Plain-manifest directory source (not a Helm chart) for cluster-wide policy objects,
+# same "Helm chart + directory-sourced plain manifest" split root-app-of-apps.yaml's own
+# header describes for 10-crds-operators/crossplane's packages-application.yaml.
+# Separate Application from 30-policy/kyverno/ (the engine itself) so a policy content
+# change doesn't require touching the engine's own sync, and vice versa.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 30-policy/kyverno-policies
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

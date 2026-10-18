@@ -1,0 +1,31 @@
+# Backstage itself - the real, published image (<registry>/<owner>/backstage, built by
+# the app's own onboarded CI pipeline, see idp_session_backstage_kind_man_bootstrap
+# memory / idp/docs/backstage-design.md). Plain Deployment/Service, not a Helm chart -
+# no officially-maintained Backstage chart exists to adopt (checked, see this
+# directory's README). Directory-sourced plain manifests, same split as
+# infisical-secretstore-operator's own application.yaml + sibling files - this
+# Application resource excludes itself, everything else in the directory applies as-is.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: backstage
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 65-backstage/backstage
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: backstage
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,17 @@
+# versions.yaml - the one place Apron pins Hangar's own products and the installs it renders. Bump a pin here after
+# cutting the tag, then `apron render` every cluster repo. Defaults are what the lab clusters ran on 2026-10-17.
+#
+# The name-free Airframe and Glidepath changes (no hardcoded cluster names or owner) are on their
+# no-hardcoded-cluster-names branches: cut new tags from them and set those tags here before rebuilding.
+versions:
+  airframe:
+    catalog: v0.3.154 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions
+    clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
+    analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
+    defaultChart: v0.3.154 # cluster-defaults.yaml defaultChart: the app chart every environment renders
+  glidepath: main # 50-glidepath: control plane, catalog, Rekor values (a tag once one is cut)
+  argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
+  # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
+infisical:
+  nodePort: 31800 # the Infisical host's NodePort, how other clusters reach it
+  bootstrapImageTag: "0.43.99-arm64" # autoBootstrap Job image; arm64 nodes need the -arm64 tag (see the template)

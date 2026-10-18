@@ -1,0 +1,35 @@
+# Tower's write identity for the hub cluster. tower-actor is a ServiceAccount no pod runs as, with no RBAC on this
+# cluster. Its tokens exist only when Tower asks for one: a TokenRequest per write action, audience = the hub cluster's
+# name, 10 minutes. The hub accepts it as hangar:<this cluster>:tower-actor (its 00-bootstrap/cluster-identity trust
+# file and backstage-ingestor-rbac/tower-actor-rbac.yaml). Tower's own ServiceAccount may mint tokens for this one name.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tower-actor
+  namespace: @@TOWER_NAMESPACE@@
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tower-actor-token-minter
+  namespace: @@TOWER_NAMESPACE@@
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    resourceNames: ["tower-actor"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-tower-actor-token-minter
+  namespace: @@TOWER_NAMESPACE@@
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tower-actor-token-minter
+subjects:
+  - kind: ServiceAccount
+    name: backstage-ingestor
+    namespace: @@TOWER_NAMESPACE@@

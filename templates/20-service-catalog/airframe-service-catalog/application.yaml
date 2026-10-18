@@ -1,0 +1,607 @@
+# Pins idp-service-catalog's XRDs + Compositions - the cluster-installed-once
+# raw-manifest layer - to a git tag. "git source, pinned to a tag" is the
+# mechanism idp/docs/gitops-strategy.md §8 specifies for this repo, reusing
+# the directory-source pattern already proven for
+# 10-crds-operators/crossplane/packages-application.yaml (raw manifests, not
+# a Helm chart) - just sourced from idp-service-catalog itself instead of
+# this repo.
+#
+# Deliberately a narrow include glob rather than an exclude list (unlike
+# packages-application.yaml's directory.exclude): idp-service-catalog's own
+# compositions/<name>/ folders carry maintainer-only siblings alongside each
+# generated composition.yaml - templates/*.yaml source fragments (not valid
+# standalone manifests, they're Go-template text with unquoted `<<...>>`
+# actions), example/ XR fixtures (one, xr-invalid.yaml, is deliberately
+# invalid), and build-composition.sh. Listing exactly what's real avoids ever
+# needing to extend an exclude list as future catalog items add their own
+# non-manifest siblings the same way.
+#
+# charts/idp-application and functions/ are deliberately NOT included here:
+# the chart isn't installed cluster-wide - Compositions render it per
+# app-release into gitops-<app-name> repos, see idp-application/README.md -
+# and Function packages are already registered by pinned OCI tag in
+# 10-crds-operators/crossplane/functions.yaml, not by syncing functions/'s
+# own source directories.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airframe-service-catalog
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: service-catalog
+spec:
+  project: default
+  source:
+    repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git
+    # 2026-08-19: bumped from v0.3.24, found live stuck there while chasing an
+    # unrelated registry-credentials sync failure - checkout-api-dev's own
+    # idp-application chart (pinned separately, in
+    # 02-argocd-apps/tenant-appprojects/chart/templates/
+    # lower-envs-applicationset.yaml, already at v0.3.35) renders a RolloutWatch
+    # XR unconditionally whenever a release has a workload, but this
+    # Application - the thing that actually installs the RolloutWatch XRD/
+    # Composition - had never synced past v0.3.24, which predates that XRD's
+    # addition (v0.3.27) entirely: `kubectl get crd rolloutwatches.catalog.
+    # idp.io` returned NotFound on the dev cluster. v0.3.24..v0.3.35's only xrds/
+    # compositions/ diff is that one addition (checked via `git diff --stat`) -
+    # a clean, additive-only bump, not a version chosen at random.
+    # 2026-08-22: bumped from v0.3.35. Adds ApplicationEnvironment's new
+    # spec.configMapGenerator field (xrds/applicationenvironment.yaml +
+    # its Composition) - without it, tenants/<app>/<env>/identity.yaml's
+    # continuous RepositoryFile reconciliation had no way to durably carry a
+    # per-env opt-in into the tenant-onboarding ApplicationSet's optional 3rd
+    # Kustomize source, silently reverting a manual edit that had set it.
+    # v0.3.35..v0.3.36's only xrds/compositions/ diff is that one addition
+    # (checked via `git diff --stat`) - clean, additive-only, same bar the
+    # prior bump above used.
+    # 2026-08-23: bumped from v0.3.36 to v0.3.38 (skipping v0.3.37 - its own
+    # changes don't touch xrds/ or compositions/*/composition.yaml at all,
+    # confirmed via `git log`/`git diff --stat` across the full v0.3.36..v0.3.38
+    # range). v0.3.38 adds crossplane.io/external-name to NodeJSApplication's
+    # src/gitops Repository managed resources - fixes a real live bug this
+    # same the dev cluster rebuild hit: a fresh Repository MR with no external-name
+    # tries to Create a GitHub repo that already exists (GitHub, unlike
+    # Crossplane state, survives the rebuild) and 422s forever. Diff is that
+    # one addition, twice (checked via `git diff --stat`) - clean,
+    # additive-only, same bar the prior bumps above used.
+    # 2026-08-24: bumped from v0.3.38 to v0.3.39. Fixes the SecretStore
+    # Composition's hardcoded Infisical NodePort IP - stale at 10.89.0.2 since
+    # this same the dev cluster rebuild moved the node's real podman-network address
+    # to 10.89.0.5, breaking every cross-cluster SecretStore this Composition
+    # renders (live-verified: `unable to create client` on the prod cluster).
+    # v0.3.38..v0.3.39's only xrds/compositions/ diff is that IP string, twice
+    # (checked via `git diff --stat`) - clean, same bar the prior bumps above
+    # used.
+    # 2026-08-24: bumped from v0.3.39 to v0.3.41 (v0.3.40 is an unrelated
+    # idp-application chart tag on this shared repo). The IP flipped back to
+    # 10.89.0.2 after a further the dev cluster restart - not monotonic, don't
+    # assume a higher IP is newer. No live effect here either, same as the
+    # v0.3.39 bump above.
+    # 2026-08-24: bumped from v0.3.41 to v0.3.42. Adds SpringBootApplication -
+    # a brand-new XRD (xrds/springbootapplication.yaml) + Composition
+    # (compositions/springbootapplication/composition.yaml), Item 1/2's second
+    # Bootstrap-tier stack, structurally a port of NodeJSApplication's already-
+    # live mechanism onto Java/Spring Boot. v0.3.41..v0.3.42's only xrds/
+    # compositions/ diff is this one addition (checked via `git diff --stat`) -
+    # clean, additive-only, same bar the prior bumps above used. Already
+    # live-verified pre-bump via direct `kubectl apply` on the dev cluster (throwaway
+    # springbootapp-verify-test, real GitHub repos/commits, torn down after) -
+    # this bump is what makes it the durable, GitOps-managed source of truth
+    # instead of an out-of-band kubectl apply.
+    # 2026-08-24: bumped from v0.3.42 to v0.3.43. Excludes "Delete" from
+    # cicd-identity-yaml's managementPolicies in both NodeJSApplication and
+    # SpringBootApplication's Compositions - safety step ahead of extracting
+    # CI/CD onboarding into its own TektonCICD XRD, so that removing this
+    # composition-resource-name from the pipeline later orphans only the k8s
+    # RepositoryFile CR, not the real tenants/<app>/identity.yaml file on
+    # GitHub (matches applicationenvironment's own cluster-identity-yaml.yaml
+    # precedent). v0.3.42..v0.3.43's only xrds/compositions/ diff is that one
+    # field, twice (checked via `git diff --stat`) - clean, additive-only,
+    # same bar the prior bumps above used.
+    # 2026-08-25: bumped from v0.3.43 to v0.3.44. Extracts CI/CD onboarding out of
+    # NodeJSApplication/SpringBootApplication's own Compositions into a new
+    # TektonCICD XRD (xrds/tektoncicd.yaml + compositions/tektoncicd/) - both app
+    # XRDs now compose a TektonCICD child directly instead of rendering the
+    # devCluster-gate/identity.yaml-commit/status logic inline. Depends on v0.3.43's
+    # managementPolicies fix already being live (already verified, all three
+    # onboarded apps patched in place, no delete/recreate): this bump orphans the
+    # old cicd-identity-yaml composition-resource-name on checkout-api,
+    # nodejs-demo-app, and order-api, and because Delete is now excluded, that only
+    # removes the k8s CR - the real tenants/<app>/identity.yaml file on GitHub
+    # survives, and the new TektonCICD child's own RepositoryFile
+    # (overwriteOnCreate: true, identical content) re-establishes ownership.
+    # v0.3.43..v0.3.44's only xrds/compositions/ diff is this extraction (checked
+    # via `git diff --stat`) - same bar the prior bumps above used.
+    # 2026-08-25: bumped from v0.3.44 to v0.3.45. ApplicationEnvironment's own
+    # app-usage.yaml no longer hardcodes kind: NodeJSApplication on the composed
+    # Usage's spec.of - a real bug found live testing order-api's fresh
+    # SpringBootApplication install (that Usage's `of` target never resolved,
+    # which left the whole composite stuck at Ready: False forever, not the
+    # "harmless no-op" the old code assumed). New 00-app-kind-gate.yaml resolves
+    # the real owning kind via an ExtraResources lookup, same pattern as
+    # 00-cluster-gate.yaml/00-devcluster-gate.yaml. Verified offline via
+    # crossplane render before this bump (existing gate-pass fixture unchanged,
+    # new springboot-app-exists.yaml fixture proves the new branch) - only
+    # composition.yaml under applicationenvironment/ changed, same scoped bar as
+    # the prior bumps above.
+    # 2026-08-25: bumped from v0.3.45 to v0.3.46. Adds PythonApplication
+    # (xrds/pythonapplication.yaml + compositions/pythonapplication/) and
+    # GoApplication (xrds/goapplication.yaml + compositions/goapplication/) - third
+    # and fourth Bootstrap-tier stacks, structural ports of NodeJSApplication built
+    # after the TektonCICD extraction (both compose a TektonCICD child for CI/CD
+    # onboarding instead of carrying it inline). v0.3.45..v0.3.46's only
+    # xrds/compositions/ diff is these two brand-new additions (checked via
+    # `git diff --stat`) - clean, additive-only, same bar the prior bumps above
+    # used. Generated main.py/main.go/go.mod offline-verified against the real
+    # Python/Go toolchains before this bump, not just crossplane render.
+    # 2026-08-25: bumped from v0.3.46 to v0.3.47. ApplicationEnvironment's own
+    # 00-app-kind-gate.yaml only checked NodeJSApplication/SpringBootApplication,
+    # defaulting to NodeJSApplication otherwise - found live the moment
+    # search-api-the prod cluster-prod/process-api-the prod cluster-prod were created (v0.3.46's
+    # own new PythonApplication/GoApplication stacks): the composed Usage's
+    # spec.of.kind resolved to NodeJSApplication for both, which doesn't exist for
+    # either app, stuck at Ready: False the same way order-api's did before this
+    # gate existed at all. Extends the same lookup mechanism with two more
+    # ExtraResources requirements. v0.3.46..v0.3.47's only xrds/compositions/ diff
+    # is this one gate file (checked via `git diff --stat`) - clean, same bar the
+    # prior bumps above used.
+    #
+    # v0.3.47->v0.3.49 (2026-08-27, Backstage catalog ingestion): v0.3.48 added CI/
+    # README for infisical-secretstore-operator (outside this sync glob, no-op here).
+    # v0.3.49 annotates the 5 Bootstrap-tier XRDs with terasky.backstage.io/
+    # add-to-catalog + target-path (idp/docs/backstage-design.md) - additive only,
+    # checked via `git diff --stat v0.3.47 v0.3.49`.
+    #
+    # v0.3.50 (2026-08-29): adds TektonCICD/NodeJSApplication spec.extraGitopsRepos -
+    # an app whose gitops-image-bump stage (platform-cicd) targets a repo it doesn't
+    # own by the gitops-<appName> convention (e.g. Backstage -> gitops-cluster-
+    # the former management cluster) needs an extra Repository CR grant. A hand-edit to the generated
+    # tenants/backstage/identity.yaml got reverted by the TektonCICD Composition's
+    # own reconcile loop - this makes the grant a real declared XR field instead, so
+    # it's part of the desired state rather than drift. Additive only.
+    # 2026-09-04: bumped from v0.3.50 to v0.3.53 to keep this pin from drifting too
+    # far behind the repo's latest tag. v0.3.51..v0.3.53's changes (RolloutWatch
+    # component-type annotation, idp-application's outcome-relay hostAliases) are
+    # both outside this Application's include list (slo/secretstore/rolloutwatch
+    # XRD+Composition only) - confirmed via `git diff v0.3.50 v0.3.53 --stat` on
+    # those exact paths, no diff. No functional change to this Application's own
+    # synced resources.
+    # 2026-09-04: bumped v0.3.53 -> v0.3.54 - a real functional fix this time, unlike
+    # the note above. v0.3.54 quotes every crossplane.io/external-name value in
+    # applicationenvironment/goapplication/nodejsapplication/pythonapplication/
+    # springbootapplication's composition.yaml (unquoted "<repo>:<file>:" scalars had
+    # an invalid trailing bare colon, breaking YAML decode fleet-wide - every app XR on
+    # this cluster was Synced: False from render-github-resources's fatal error).
+    # This Application's include list IS the broad {xrds/*.yaml,compositions/*/
+    # composition.yaml} wildcard (unlike the prod cluster/the former management cluster's narrower copies), so
+    # this bump is required here, not optional.
+    # 2026-09-04: bumped v0.3.54 -> v0.3.55 - tektoncicd's own external-name had the
+    # identical unquoted-trailing-colon YAML bug, missed in the v0.3.54 sweep because
+    # its render step is named render-tektoncicd-resources, not render-github-resources
+    # (a directory-scoped grep, not this Application's own include list, is what missed
+    # it - this include list is the broad wildcard and was already covering it).
+    # 2026-09-08: bumped v0.3.55 -> v0.3.59. Two real fixes in range (checked via
+    # `git diff v0.3.55 v0.3.59 --stat` against this Application's own xrds/
+    # compositions/*/composition.yaml scope):
+    #   - Fixes stale Infisical hostAPI IP (10.89.0.2, dead podman-network address)
+    #     in secretstore's Composition, replaced with the <domain> hostname
+    #     already used elsewhere.
+    #   - Drops "Update" from cluster-identity-yaml (applicationenvironment) and
+    #     cicd-identity-yaml (tektoncicd)'s managementPolicies - these were the only
+    #     two RepositoryFile resources in the whole catalog still keeping "Update" for
+    #     self-heal-on-manual-edit. Real production incident: provider-upjet-github's
+    #     RepositoryFile can get permanently stuck at Ready: Creating after any
+    #     transient Create failure (confirmed live during the 2026-09-04/06 GitHub
+    #     rate-limit exhaustions) - with "Update" present, the reconciler then retries
+    #     a real GitHub commit every poll cycle forever, never stabilizing. This
+    #     exhausted the platform's shared 5000/hr GitHub quota live on 2026-09-07/08
+    #     (Backstage was initially suspected, ruled out live - the actual source was
+    #     this reconcile loop). Same tradeoff already accepted for every other
+    #     RepositoryFile in this catalog (loses auto-drift-correction, in exchange for
+    #     not being able to loop forever).
+    # 2026-09-13: bumped v0.3.59 -> v0.3.60. Fixes the SLO XR's own Ready status:
+    # Sloth's PrometheusServiceLevel never sets status.conditions[type=Ready] (only
+    # custom fields like promOpRulesGenerated), so function-auto-ready's "no Ready
+    # condition = not ready" fallback pinned every SLO XR at Ready: False/Creating
+    # forever, even once Sloth had actually finished generating the PrometheusRule -
+    # confirmed live on checkout-api-liveness-latency (the prod cluster), which had been
+    # stuck this way for 4+ hours despite a fully working pipeline. Sets the
+    # gotemplating.fn.crossplane.io/ready annotation on the composed
+    # PrometheusServiceLevel from its own observed promOpRulesGenerated status.
+    # v0.3.59..v0.3.60's only xrds/compositions/ diff is this one addition (checked
+    # via `git diff --stat`) - clean, additive-only, same bar the prior bumps above
+    # used.
+    # 2026-09-13: bumped v0.3.60 -> v0.3.62 (matches the prod cluster's repo's own
+    # bump). v0.3.60's own dig-based readiness check crashes instead of degrading
+    # gracefully on a genuine first reconcile - Sprig's dig only falls through to
+    # its default when a key is fully ABSENT, not when an intermediate level is
+    # PRESENT but nil (v0.3.61), and .observed.resources itself can be nil too, not
+    # just an empty map (v0.3.62). Confirmed live on the prod cluster's checkout-api-
+    # readiness-latency: 36 identical ComposeResources crashes over 16 minutes
+    # before v0.3.61, then a second crash one level up until v0.3.62. Only
+    # xrds/compositions/ diff across both bumps is compositions/slo/composition.yaml
+    # (checked via `git diff --stat`).
+    # v0.3.72: fixes a fleet-wide compose failure v0.3.71 itself introduced -
+    # that fix's own explanatory comment in values-yaml.yaml wrote the literal
+    # text `<<- if $clusterOk >>`, and << >> are this Composition's real
+    # Go-template delimiters, so the templating engine parsed it as a real,
+    # unclosed `if` action (comments are still plain text to a template
+    # parser) and broke composition for every ApplicationEnvironment XR in
+    # the cluster from ~2026-09-15T19:03 UTC onward (confirmed live: every
+    # existing env plus 2 brand-new onboards - checkout-api/proofing,
+    # order-api/pre-prod - stuck on "cannot compose resources ... unexpected
+    # EOF"). v0.3.71: fixes a real prod-config-wipe bug (values-yaml.yaml's
+    # Delete management policy let a transient $clusterOk gate flap
+    # delete-then-recreate a live app's already-deployed
+    # rollout.image/releaseTracking, confirmed on order-api 2026-09-15) plus
+    # 3 already-tagged SLO namespace/naming fixes that had never been adopted
+    # here (v0.3.63 was cut before any of them existed).
+    # 2026-09-18: bumped from v0.3.72 to v0.3.73 - SecretStore's Composition now
+    # renders <scm-host>/<owner>/provider-infisical's real resource chain
+    # (Project/ProjectEnvironment/Identity/IdentityKubernetesAuth/ProjectIdentity/
+    # a synthetic identityId Secret) for kubernetes-auth clusters (the dev cluster, the
+    # one that hosts Infisical directly), replacing the hand-rolled
+    # infisical-secretstore-operator's InfisicalProject CR for that path.
+    # Universal-auth clusters (the prod cluster) are unaffected - that branch still
+    # renders the old CR, deliberately, since IdentityUniversalAuthClientSecret
+    # hits a real bug in terraform-provider-infisical's own Go SDK. Only
+    # compositions/secretstore/composition.yaml changed in range (checked via
+    # `git diff --stat v0.3.72 v0.3.73` against this Application's own
+    # xrds/compositions/*/composition.yaml scope) - same bar every bump above
+    # used.
+    #
+    # REAL CONSEQUENCE, not a routine additive bump like most bumps above:
+    # every already-onboarded the dev cluster app's existing InfisicalProject CR falls
+    # out of the new template's render set on its very next reconcile
+    # (compositionUpdatePolicy is unset/Automatic on all of them - confirmed
+    # live) - Crossplane garbage-collects it, which fires
+    # infisical-secretstore-operator's own on_delete() handler
+    # (unconditional, no guard: DELETE /api/v1/projects/{id}), permanently
+    # deleting the real Infisical project AND every secret stored in it. New
+    # Project/Identity/etc. get created fresh, empty, under new credentials.
+    # Before this bump: every affected project's secrets were backed up twice
+    # (local file export + live sibling "-backup" projects in Infisical
+    # itself, both verified secret-count-for-secret-count against the
+    # originals) - see infisical-backups/the dev cluster-full-export-20260917-184924/
+    # locally. Restoring the real secret values into each newly-created
+    # project from that backup is the very next step after this bump goes
+    # live, not a follow-up someday.
+    # 2026-09-17: bumped from v0.3.73 to v0.3.74 - fixes a self-inflicted parse
+    # bug in v0.3.73 itself: infisicalproject.yaml's new explanatory comment used
+    # a Go-template comment ACTION (`<<- /* ... */ >>`) with a space between `*/`
+    # and the closing `>>`. Go's text/template lexer requires the right delimiter
+    # to immediately follow the comment-close token with zero characters between
+    # - the space broke it with "comment ends before closing delimiter",
+    # confirmed live: all 7 real SecretStore XRs on the dev cluster went
+    # Synced: False/ReconcileError the moment v0.3.73 synced. Root-caused by
+    # extracting the rendered template and parsing it with Go's own text/template
+    # package locally (reproduced the exact error at the exact line). Fixed by
+    # replacing it with a plain `#`-prefixed YAML comment, matching every other
+    # comment block in this Composition's templates (never parsed as a template
+    # action, so this can't recur the same way). Only
+    # compositions/secretstore/composition.yaml changed (checked via `git diff
+    # --stat v0.3.73 v0.3.74`) - same bar every bump above used.
+    #
+    # Confirmed no data loss occurred during the v0.3.73 outage window: because
+    # the render failed entirely, Crossplane never obtained a valid new desired
+    # state to diff the old InfisicalProject CRs against, so no garbage
+    # collection happened - all 7 apps' old CRs stayed Ready/untouched the whole
+    # time (`kubectl get infisicalprojects.secrets.idp.io -A` confirmed all
+    # PHASE: Ready, zero new provider-infisical Project resources existed). The
+    # REAL CONSEQUENCE warning above still applies in full now that this bump
+    # actually renders cleanly - secret backup/restore is still the very next
+    # step once this reaches the dev cluster.
+    # 2026-09-17: bumped from v0.3.74 to v0.3.75 - found live during the real
+    # cutover itself, right after v0.3.74 unblocked all 7 XRs: the synthetic
+    # identityId Secret's Object resource (provider-kubernetes) used
+    # spec.forProvider.manifest.stringData, which the API server silently
+    # converts to `data` server-side and never persists as `stringData` - so
+    # provider-kubernetes' managedFields-based Observe (which extracts only the
+    # fields it owns by walking the desired manifest's own field paths) found
+    # nothing at the stringData path and errored converting a nil into a map
+    # ("unable to convert managed fields ... expected map, got <nil>",
+    # ReconcileError on checkout-api-the dev cluster's Object the moment it reached its
+    # first real Observe pass, right after its old InfisicalProject CR was
+    # manually deleted to free the project slug - see below). Fixed by switching
+    # to `data` with an explicit b64enc. Only
+    # compositions/secretstore/composition.yaml changed (checked via `git diff
+    # --stat v0.3.74 v0.3.75`) - same bar every bump above used. Caught and fixed
+    # before touching the other 6 apps' old CRs, so they hit this only once
+    # collectively, not once each.
+    #
+    # STATUS OF THE REAL CUTOVER as of this bump: Crossplane does NOT
+    # auto-garbage-collect the old InfisicalProject CRs just because they fell
+    # out of the Composition's render set (confirmed live: the CR's ref
+    # disappeared from the XR's own spec.resourceRefs immediately, but the CR
+    # itself sat untouched, Ready, for 8+ minutes across 20+ reconciles - the new
+    # Project resource simply kept failing with a 400 "slug already exists"
+    # since Infisical enforces unique slugs org-wide and the old project still
+    # held it). The real mechanism is: manually delete each old InfisicalProject
+    # CR (verified backup exists first) to free its slug, which fires the old
+    # kopf operator's on_delete() and lets the new Project create cleanly on
+    # retry. checkout-api-the dev cluster was cut over this way as the live canary
+    # before this bump (old CR deleted, new chain verified reaching Ready). The
+    # other 7 apps' (7 cicd + platform-cicd) old CRs are still intact/untouched -
+    # same one-at-a-time, verify-then-proceed approach continues after this
+    # bump lands, restoring each app's secrets from backup immediately after its
+    # own cutover.
+    # 2026-09-22: bumped from v0.3.75 to v0.3.77 (v0.3.76 was cut earlier but never
+    # pinned here - this pin had drifted 8 commits behind main). Checked via
+    # `git diff --stat v0.3.75 v0.3.77 -- 'xrds/*.yaml' 'compositions/*/composition.yaml'`
+    # against this Application's own include scope:
+    #   - Real trigger for this bump: NodeJSApplication/GoApplication/
+    #     PythonApplication/SpringBootApplication's scaffolded Dockerfile renamed to
+    #     Containerfile (matching Glidepath's build.dockerfile -> build.containerfile
+    #     schema rename, same day). Backstage's own repo is dual-onboarded as a
+    #     NodeJSApplication XR for CI-only purposes (see backstage's catalog-info.yaml),
+    #     and this stale pin is exactly why its RepositoryFile kept reconciling a
+    #     Dockerfile back into existence after the repo file was renamed by hand -
+    #     the live Composition was still running the pre-rename template.
+    #   - Also in range, all additive/zero-behavior-change for already-onboarded apps
+    #     (same bar every bump above used): InfraService/Redis XRDs (Item 7, new
+    #     standalone files), TektonCICD's new type/registerPipelinesAsCode fields
+    #     (both default to today's hardcoded app-type behavior), scaffolder
+    #     target-path annotation fix, Delete-excluding managementPolicies on
+    #     previously-missed tenant-owned RepositoryFiles (a safety hardening, not a
+    #     behavior change), and a Backstage-catalog description annotation.
+    # 2026-09-23: bumped from v0.3.77 to v0.3.79. SecretStore gains an opt-in
+    # provider-infisical branch for universal-auth clusters, gated on a ConfigMap that
+    # does not exist here; the dev cluster is the kubernetes-auth branch, which renders the
+    # same resource set as before (checked by offline render of both). Redis gets
+    # fullnameOverride so its connection-secret names resolve. v0.3.77..v0.3.79's only
+    # xrds/compositions/ diff is those two files (checked via `git diff --stat`).
+    # 2026-09-23: bumped from v0.3.79 to v0.3.80. Scaffold RepositoryFiles in the four
+    # app stacks lose their Delete policy, get overwriteOnCreate false, and pin
+    # file:/external-name to the provider's own state (status.atProvider.file). Fixes the
+    # Dockerfile-to-Containerfile default change that put 7 objects into a ~16k
+    # GitHub-calls/hour retry loop. v0.3.79..v0.3.80's only diff is those four stacks'
+    # composition.yaml + src-repo.yaml (+ README); no XRD change. Canaried live on all six
+    # apps (nodejs/go/springboot) before this bump.
+    # 2026-09-23: v0.3.80 -> v0.3.81. SecretStore's Composition drops the old operator
+    # (InfisicalProject/InfisicalEnvironment) branch - provider-infisical is the only path
+    # (needed so retiring the operator on the prod cluster can't leave a new app rendering an
+    # object with no CRD). the dev cluster is the kubernetes-auth branch, whose rendered output is
+    # identical to v0.3.80 (offline render). v0.3.80..v0.3.81's only xrds/compositions/ diff
+    # is compositions/secretstore/composition.yaml (checked via `git diff --stat`).
+    # 2026-09-23: v0.3.81 -> v0.3.82. SecretStore renders the Infisical Project and
+    # ProjectEnvironment managed resources WITHOUT Delete in managementPolicies, so deleting an
+    # XR (or ArgoCD pruning its file) can no longer delete a project and its secrets. Identities
+    # and credentials keep Delete. Only compositions/secretstore/composition.yaml differs from
+    # v0.3.81 (checked via `git diff --stat`); the mechanism was proven live first.
+    # 2026-09-24: bumped from v0.3.82 to v0.3.83. Every RepositoryFile template now
+    # renders the live object's crossplane.io/external-name (computed name only for new
+    # objects). The provider rewrites a created RepositoryFile's external-name to its id
+    # (repo:file:main) while the templates rendered repo:file:, so the two overwrote each
+    # other every ~2s - ~280 GitHub calls/min from five objects, the real cause of the
+    # repeated rate-limit exhaustion. v0.3.82..v0.3.83 = that fix (composition.yaml +
+    # RepositoryFile templates of the app, applicationenvironment and tektoncicd stacks)
+    # plus the other session's 66b86d6 (retired infisical-secretstore-operator: CI
+    # workflows/docs, and an 8-line secretstore composition.yaml/build-script change - see
+    # that commit); no XRD change. Fresh renders of the fixed stacks are byte-identical to
+    # before; see airframe README "RepositoryFile external-names follow the observed object".
+    # 2026-09-24: v0.3.83 -> v0.3.84. compositions/slo only: an availability SLO's error query now
+    # ends `or vector(0)`, so a healthy service (zero error events, hence no matching series) reports
+    # a 0 error ratio instead of an empty one. v0.3.83..v0.3.84 changes nothing else.
+    # 2026-09-24: v0.3.84 -> v0.3.85. compositions/redis only (plus docs): the Redis Release now pins
+    # chart 19.0.2 with the bitnamilegacy image, because Bitnami removed its versioned images and
+    # re-published chart 28.2.1 as a different appVersion (CrashLoopBackOff on redisearch). Verified
+    # live on the dev cluster with the same values. charts/ are byte-identical v0.3.83..v0.3.85.
+    # 2026-09-24: v0.3.85 -> v0.3.86. compositions/redis only: the XR's hangar.io/* labels are now
+    # copied onto the Release and passed to the chart as commonLabels, so `kubectl get all -l
+    # hangar.io/app=<app>` finds the cache's StatefulSet/Service/Secret/Pod. Selector and
+    # volumeClaimTemplates unchanged (helm template); verified live on the dev cluster. charts/ are
+    # byte-identical v0.3.83..v0.3.86.
+    # 2026-09-24: v0.3.86 -> v0.3.87. Adds the PostgreSQL component (xrds/postgresql.yaml +
+    # compositions/postgresql, dedicated CloudNativePG Cluster per app-env) and the chart's
+    # componentKinds entry for it. Needs the CNPG operator (10-crds-operators/cloudnative-pg) and
+    # Crossplane RBAC for postgresql.cnpg.io/networking.k8s.io (crossplane/native-resources-rbac.yaml).
+    # boarding-api's dev env renders byte-identically under v0.3.86 and v0.3.87.
+    # 2026-09-24: v0.3.87 -> v0.3.88. charts/airframe-application only: `env:` entries may carry
+    # valueFrom (e.g. a secretKeyRef to a component's Secret), which the chart used to drop. No
+    # XRD/Composition change. An env with only plain name/value entries renders byte-identically.
+    # 2026-09-25: v0.3.88 -> v0.3.89. Adds the RabbitMQ component (xrds/rabbitmq.yaml +
+    # compositions/rabbitmq: shared broker + per-app attach) and its componentKinds entry. Needs the
+    # RabbitMQ operators (10-crds-operators/rabbitmq-operators), cert-manager and Crossplane RBAC for
+    # rabbitmq.com. Existing apps render byte-identically.
+    # 2026-09-25: v0.3.89 -> v0.3.90. ApplicationEnvironment supports InfraService envs: new optional
+    # spec.appType (app|infra) picks gitops-infra-<name> vs gitops-<name>, and the app-kind gate resolves
+    # InfraService so its deletion-protection Usage goes Ready. Existing app envs are expected to render identically
+    # (spot-checked on the dev cluster: with appType unset the values.yaml RepositoryFile matched v0.3.89).
+    # 2026-09-26: v0.3.90 -> v0.3.91. Chart guard: no Rollout/RolloutWatch/Service/ServiceMonitor renders until
+    # rollout.image.repository and .tag are both set (a configured-but-unbuilt app no longer renders image ':').
+    # Verified: all 7 live env files render byte-identically with the old and new chart. Adds chart tests, CI,
+    # tools/airframe-validate and AGENTS.md (no runtime effect).
+    # 2026-09-26: v0.3.91 -> v0.3.92. Adds release.image (machine-owned; release pipeline writes it) with rollout.image
+    # as the deprecated fallback. Existing env files render byte-identically (all 7 live files checked before and after).
+    # 2026-09-27: v0.3.92 -> v0.3.94. pythonapplication scaffolds a VERSION file for pip apps (known-gap #1),
+    # so build-image's new pyproject.toml/VERSION precedence chain (glidepath-catalog) has something to read.
+    # 2026-09-27: v0.3.94 -> v0.3.95, and `include` narrowed from the `xrds/*.yaml` wildcard to an explicit
+    # per-file list. AF-3 (M1) added the first-ever non-manifest siblings inside xrds/ - xrds/<type>.meta.yaml
+    # sidecar files (component output contracts, no apiVersion/kind shape, read by tools/, never meant to
+    # reach a cluster) - which the wildcard would have matched and handed to ArgoCD as 3 invalid manifests.
+    # This header's own stated design (an explicit list, not an exclude list, "avoids ever needing to extend
+    # an exclude list as future catalog items add their own non-manifest siblings") already anticipated
+    # exactly this failure mode for compositions/; xrds/ just hadn't needed it until now. Listed every real
+    # XRD file as of this tag (13); a future XRD needs adding here too, the same as compositions/ already
+    # requires per-composition entries.
+    # 2026-09-28: v0.3.95 -> v0.3.96. AF-6a (ComponentReady status condition, no new files) + SP-3
+    # (MongoDB component) - SP-3 adds xrds/mongodb.yaml, a real 14th XRD, added to the explicit
+    # include list below (its mongodb.meta.yaml sidecar is deliberately not listed, same as the
+    # other components' .meta.yaml siblings). compositions/mongodb/composition.yaml is already
+    # covered by the existing compositions/*/composition.yaml wildcard.
+    # 2026-09-29: v0.3.96 -> v0.3.97. SP-4 (Dex OIDC component) adds xrds/dex.yaml, a real 15th
+    # XRD, added to the explicit include list below (its dex.meta.yaml sidecar deliberately not
+    # listed, same as every other component's .meta.yaml sibling).
+    # compositions/dex/composition.yaml is already covered by the existing
+    # compositions/*/composition.yaml wildcard. Needs function-dex installed first (separate PR,
+    # 10-crds-operators/crossplane/functions.yaml) or the Dex XR's pipeline has no step to run.
+    # 2026-09-29: v0.3.97 -> v0.3.98. Tier 2 domain-rename prep (airframe#23, see memory
+    # project_tier2_domain_rename_plan.md): adds catalog.hangar.io-group XRD twins for every
+    # attached-tier type (redis, postgresql, rabbitmq, mongodb, dex, rolloutwatch, slo) -
+    # xrds/<type>.hangar.yaml, added to the explicit include list below (same reason every prior
+    # new XRD needed adding here - the wildcard was narrowed in v0.3.95 specifically to stop this
+    # kind of non-canonical-name sibling from being silently skipped OR silently caught by a
+    # careless wildcard). compositions/<type>-hangar/composition.yaml is already covered by the
+    # existing compositions/*/composition.yaml wildcard - confirmed via `git diff --stat v0.3.97
+    # v0.3.98 -- 'xrds/*.yaml' 'compositions/*/composition.yaml'`, additive-only, exactly these 14
+    # files. Purely additive: the chart's attachedResourceApiVersion default is unchanged, so no
+    # live XR renders under the new group yet - an app opts in per-env by overriding that one
+    # value once its live component instances have been migrated (see that memory for the
+    # orphan-then-adopt recipe).
+    # 2026-09-29 (later still): v0.3.98 -> v0.3.99. Adds xrds/secretstore.hangar.yaml (airframe#25) -
+    # the SecretStore hangar-group twin, unblocking the real (non-scratch) SecretStore migration.
+    # compositions/secretstore-hangar/composition.yaml is already covered by the existing
+    # compositions/*/composition.yaml wildcard. Purely additive, same bar as every prior bump above.
+    # 2026-09-29 (later still again): v0.3.99 -> v0.3.100. Bootstrap-tier fix (airframe#26): the 5
+    # Bootstrap Compositions (nodejsapplication, applicationenvironment, springbootapplication,
+    # pythonapplication, goapplication) each hardcoded catalog.idp.io for the SecretStore
+    # xr-requests manifest they idempotently re-write on every reconcile - real live bug found
+    # migrating SecretStore (a hand-edited app manifest got silently reverted back to the old group
+    # by its own next Bootstrap XR reconcile). No new files - compositions/*/composition.yaml
+    # wildcard already covers all 5, no include-list change needed. Confirmed via `git diff --stat
+    # v0.3.99 v0.3.100 -- xrds/*.yaml compositions/*/composition.yaml ...`: exactly the 6
+    # apiVersion literals changed, nothing else.
+    # 2026-09-29 (later still yet again): v0.3.100 -> v0.3.101. InfraService fix (airframe#27) -
+    # a 6th SecretStore-rendering template missed in the first Bootstrap-tier pass (skyport-broker
+    # uses InfraService, not NodeJSApplication - a separate render-infra-resources/ template).
+    # Confirmed via `git diff --stat v0.3.100 v0.3.101 -- ...`: exactly 1 line, the same
+    # apiVersion literal fix pattern as v0.3.100's.
+    # 2026-09-30: v0.3.101 -> v0.3.102. Bootstrap-tier XRDs (airframe#28+#29, see memory
+    # project_tier2_domain_rename_plan.md): adds catalog.hangar.io-group twin XRDs for all 7
+    # Bootstrap-tier types (nodejsapplication, springbootapplication, pythonapplication,
+    # goapplication, infraservice, tektoncicd, applicationenvironment) - each added to the
+    # explicit include list below, same convention as every prior twin-XRD bump (v0.3.98/99).
+    # Fixes a hardcoded catalog.idp.io literal in the 5 app-composing types' rendered
+    # TektonCICD child (same class as v0.3.100/101's SecretStore fix), and a dual-group
+    # resolution fix in applicationenvironment's own app-kind-detection + deletion-protection
+    # Usage resource (checks both groups since the 5 app kinds migrate one at a time, not in
+    # lockstep with this Composition). #29 also bakes managementPolicies (no Delete) into the
+    # Repository resources NodeJSApplication/SpringBootApplication/PythonApplication/
+    # GoApplication/InfraService compose for an app's own source+gitops repos - these had no
+    # managementPolicies at all before, so the group-migration recipe would have deleted the
+    # real GitHub repo. All 14 real Repository resources on the dev cluster were already live-patched
+    # to the same policy ahead of this bump, as an interim mitigation - this makes it durable.
+    # Purely additive: no existing XR renders differently, no live migration has happened yet
+    # for any Bootstrap-tier type.
+    # 2026-09-30 (same day): v0.3.102 -> v0.3.103. HOTFIX (airframe#30): v0.3.102's TektonCICD
+    # fix was wrong - it flipped the composed TektonCICD child's apiVersion literal straight to
+    # catalog.hangar.io, but (unlike SecretStore, only flipped after every app's SecretStore had
+    # already migrated) no app has migrated TektonCICD yet. Confirmed live on the dev cluster within
+    # ~10 minutes of v0.3.102 syncing: Crossplane treated apiVersion as part of each composed
+    # child's identity, so all 5 app-composing types started rendering a brand-new
+    # catalog.hangar.io TektonCICD child under the same name, orphaning the real, already-Ready
+    # catalog.idp.io one - all 8 real apps' parent XRs (backstage, boarding-api, gate-api,
+    # flight-api, baggage-api, checkin-api, skyport-auth, skyport-broker) flipped to
+    # Ready: False ("Unready resources: tektoncicd"). This bump reverts the literal to
+    # catalog.idp.io in all 5 templates - no include-list change, no new files. See memory
+    # project_tier2_domain_rename_plan.md for the full incident writeup.
+    # 2026-09-30 (same day, again): v0.3.103 -> v0.3.104. Second fix in the same incident
+    # (airframe#31): the 6 catalog.hangar.io twin Compositions (nodejsapplication,
+    # springbootapplication, pythonapplication, goapplication, infraservice,
+    # applicationenvironment) were generated once in #28 and never regenerated - no twin has
+    # its own build script, so neither #29 (Repository managementPolicies) nor #30 (the
+    # TektonCICD revert) ever propagated to them. Caught live migrating skyport-auth's
+    # InfraService XR to catalog.hangar.io: it picked up the stale infraservice-hangar twin,
+    # recreating its Repository with no managementPolicies (live-patched as an interim fix)
+    # and a new TektonCICD child under catalog.hangar.io (the same bug #30 just fixed,
+    # un-reverted in this twin). All 6 twins regenerated from their current (fixed) base -
+    # confirmed via diff that only each twin's own identity (metadata.name,
+    # compositeTypeRef.apiVersion) differs from its base, no include-list change, no new
+    # files. See memory project_tier2_domain_rename_plan.md for the full writeup.
+    # 2026-09-30 (same day, fourth fix): v0.3.104 -> v0.3.105 (airframe#32). The dual-group
+    # $appGroup resolution added in #28 checked old-group items before hangar-group ones, so
+    # $appGroup only ever flipped to catalog.hangar.io once the OLD XR was already deleted -
+    # a real deadlock, since app-usage.yaml's Usage keeps referencing the old group the whole
+    # time the old XR exists, and the nousages.protection.crossplane.io admission webhook
+    # refuses to delete an XR a Usage still references. Hit live migrating skyport-broker's
+    # InfraService: ArgoCD's prune kept failing "denied the request: This resource is
+    # in-use", and deleting the Usage directly just got it recreated pointing at the same old
+    # group every time. Fixed by checking hangar-group items first - the moment a new-group
+    # XR exists, this gate (and the Usage) treats it as authoritative, unblocking the old
+    # XR's deletion immediately. Regenerated applicationenvironment-hangar's twin from the
+    # same fixed base. See memory project_tier2_domain_rename_plan.md for the full writeup.
+    # 2026-09-30 (Phase 0): v0.3.105 -> v0.3.106 (airframe#33). All *-hangar twin Compositions/XRDs are now
+    # GENERATED from their bases (tools/gen_hangar_twins.py, CI --check) instead of hand-copied - they
+    # had drifted three times in one day. Also app-usage.yaml's Usage `by.apiVersion` now renders the
+    # composite's own apiVersion instead of a hardcoded catalog.idp.io (no change for the base
+    # composition's output; fixes the hangar ApplicationEnvironment twin). No include-list change, no new
+    # files. See memory project_tier2_domain_rename_plan.md.
+    # 2026-09-30 (Phase 1): v0.3.106 -> v0.3.107 (airframe#34). The 5 app-composing types' TektonCICD child
+    # apiVersion is now STICKY to the observed child (existing children keep their group; a brand-new
+    # child is created under catalog.hangar.io) - no change for any existing app on deploy. Per-app
+    # migration is deleting that app's TektonCICD child (its RepositoryFile children have no Delete
+    # policy, so real files survive and the re-rendered child adopts them). Twins regenerated. No
+    # include-list change, no new files. See memory project_tier2_domain_rename_plan.md.
+    # 2026-09-30 (Phase 1b): v0.3.107 -> v0.3.108 (airframe#35). Adds the hangar.io/tektoncicd-group
+    # annotation ("hangar" or "idp") on the 5 app-composing XRs as an explicit override of #34's sticky
+    # TektonCICD apiVersion - deleting the child alone did NOT flip an app (the parent re-rendered the old
+    # group from a stale view within a second, hit live on skyport-auth). No annotation = no change for any
+    # existing app. Twins regenerated. No include-list change, no new files. See memory
+    # project_tier2_domain_rename_plan.md.
+    # 2026-09-30: v0.3.108 -> v0.3.109. MongoDB spec.mongoVersion (airframe#37); every other tracked file differs only in generated comments.
+    # 2026-09-30 Phase C3: include list made explicit (was compositions/*/composition.yaml) and the old
+    # catalog.idp.io component XRDs/Compositions (dex, mongodb, postgresql, rabbitmq, redis, rolloutwatch,
+    # secretstore) dropped - zero instances cluster-wide, verified. Application-tier + slo old-group files
+    # stay until their compositions/consumers stop using catalog.idp.io.
+    # 2026-09-30: v0.3.109 -> v0.3.111 (airframe#39 no Delete on cicd.yaml/README RepositoryFiles; #40 AppEnv + app compositions hangar-only).
+    # 2026-10-01 Phase C3 final: dropped every remaining old catalog.idp.io XRD/Composition (app-tier + slo); zero instances, verified.
+    # 2026-10-01 Phase C: v0.3.111 -> v0.3.112. airframe#41 (MongoDB readiness, RolloutWatch Job) + #42 (the
+    # *-hangar twins became the canonical xrds/X.yaml + compositions/X/; include list rewritten to match).
+    # 2026-10-04: v0.3.113 -> v0.3.114. airframe#47: functions no longer pass gitopsRepoUrl to TektonCICD
+    # (the XRD no longer requires it). No include-list change.
+    # 2026-10-08: v0.3.114 -> v0.3.119. airframe#53: ApplicationEnvironment spec.chart, rendered into identity.yaml
+    # (the only xrds/compositions change since v0.3.114). No include-list change.
+    # 2026-10-08: v0.3.119 -> v0.3.120. airframe#55: ApplicationEnvironment drops the always-False
+    # WorkloadDeployed condition (ClusterReady is now always present) and reports AppResolved instead
+    # of defaulting an unresolved appName to NodeJSApplication; the Usage is kept as observed through a
+    # transient empty lookup. airframe#54 (function-dex 0.1.5) is the functions.yaml pin, not this one.
+    # No include-list change.
+    # 2026-10-08: v0.3.120 -> v0.3.121. airframe#56: the three cloud-target XRDs/Compositions (AwsLambdaTarget,
+    # AwsEcsTarget, AzureContainerAppTarget - the infrastructure a deploy.target: aws-lambda/aws-ecs/
+    # azure-container-apps deploy updates, stood up and torn down as an XR) and the opt-in spec.target child on
+    # LambdaFunction/AzureFunction. Include list gains the six new files. Their providers are in
+    # 10-crds-operators/crossplane/providers.yaml (origin: cloud-targets); credentials are two Infisical secrets
+    # (provider-aws-creds, provider-azure-creds) a human plants - see airframe docs/user/cloud-targets.md.
+    # (2026-10-16: AWS no longer uses a secret - web identity federation, 10-crds-operators/crossplane/provider-aws-runtime.yaml.)
+    # 2026-10-10: v0.3.137 -> v0.3.140. airframe#83 (workload model): the ApplicationEnvironment bootstrap stops seeding
+    # rollout: null into a new Flight env's values.yaml (identity only; no Rollout renders until a release names an image).
+    # The only change to a tracked file since v0.3.137; XRD diff is comments only. Existing envs are untouched (the
+    # RepositoryFile has no Update).
+    # 2026-10-11: v0.3.140 -> v0.3.141. airframe#84 changes only charts/airframe-application (non-root default); no
+    # tracked file here changes. Bumped to keep one Airframe version on every pin.
+    # 2026-10-16: v0.3.141 -> v0.3.143. airframe#88: AwsLambdaTarget / AwsEcsTarget execution roles carry the fleet's
+    # permissions boundary from the cluster registry (clusters.yaml aws:). airframe#89: an AwsLambdaTarget also creates
+    # glidepath-deploy-<functionName> (trusted only by its namespace's glidepath-cloud-deployer) and its bootstrap Job
+    # assumes it. Both render unchanged while the registry has none.
+    # 2026-10-16: v0.3.143 -> v0.3.144. airframe#90: an AwsLambdaTarget never drops a function or bootstrap Job that
+    # already exists (#89's switch deleted and re-created smoke-fn's function, URL and permission).
+    # 2026-10-16: v0.3.144 -> v0.3.145. airframe#92: nor when the Repository is observed without its URL (an etcd stall
+    # deleted and re-ran both smoke-fn bootstrap Jobs, twice).
+    # 2026-10-16: v0.3.145 -> v0.3.146. airframe#93 (federation phase 4): the LambdaFunction scaffold lists no AWS
+    # secrets; AwsLambdaTarget credentialsSecret marked legacy.
+    # 2026-10-16: v0.3.146 -> v0.3.147. airframe#94: the AwsLambdaTarget access-key mode is gone (credentialsSecret
+    # removed; a cluster without web identity gets AwsLambdaTargetNeedsWebIdentity); the deploy role, the Job's role
+    # ARN and the exec role's boundary are kept when the registry or an observed value is missing for a reconcile.
+    targetRevision: @@AIRFRAME_CATALOG_VERSION@@
+    path: .
+    directory:
+      recurse: true
+#@if components.serviceCatalog.scope == 'full'
+      include: "{xrds/applicationenvironment.yaml,xrds/awsecstarget.yaml,xrds/awslambdatarget.yaml,xrds/azurecontainerapptarget.yaml,xrds/azurefunction.yaml,xrds/dex.yaml,xrds/goapplication.yaml,xrds/infraservice.yaml,xrds/lambdafunction.yaml,xrds/mongodb.yaml,xrds/nodejsapplication.yaml,xrds/postgresql.yaml,xrds/pythonapplication.yaml,xrds/rabbitmq.yaml,xrds/redis.yaml,xrds/rolloutwatch.yaml,xrds/secretstore.yaml,xrds/slo.yaml,xrds/springbootapplication.yaml,xrds/tektoncicd.yaml,compositions/applicationenvironment/composition.yaml,compositions/awsecstarget/composition.yaml,compositions/awslambdatarget/composition.yaml,compositions/azurecontainerapptarget/composition.yaml,compositions/azurefunction/composition.yaml,compositions/dex/composition.yaml,compositions/goapplication/composition.yaml,compositions/infraservice/composition.yaml,compositions/lambdafunction/composition.yaml,compositions/mongodb/composition.yaml,compositions/nodejsapplication/composition.yaml,compositions/postgresql/composition.yaml,compositions/pythonapplication/composition.yaml,compositions/rabbitmq/composition.yaml,compositions/redis/composition.yaml,compositions/rolloutwatch/composition.yaml,compositions/secretstore/composition.yaml,compositions/slo/composition.yaml,compositions/springbootapplication/composition.yaml,compositions/tektoncicd/composition.yaml}"
+#@end
+#@if components.serviceCatalog.scope == 'attached-tier-only'
+      # Attached-tier XRDs only (they compose native in-cluster resources): no Bootstrap-tier XRDs off the control
+      # plane. Dex is included so Dex runs on every cluster (owner decision, 2026-10-16).
+      include: "{xrds/slo.yaml,compositions/slo/composition.yaml,xrds/secretstore.yaml,compositions/secretstore/composition.yaml,xrds/rolloutwatch.yaml,compositions/rolloutwatch/composition.yaml,xrds/redis.yaml,compositions/redis/composition.yaml,xrds/postgresql.yaml,compositions/postgresql/composition.yaml,xrds/mongodb.yaml,compositions/mongodb/composition.yaml,xrds/rabbitmq.yaml,compositions/rabbitmq/composition.yaml,xrds/dex.yaml,compositions/dex/composition.yaml}"
+#@end
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+#@if isControlPlane
+    automated:
+      selfHeal: true
+#@end
+    syncOptions:
+      - CreateNamespace=true

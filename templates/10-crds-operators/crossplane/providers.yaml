@@ -1,0 +1,356 @@
+# Crossplane Provider packages. Rendered as plain manifests (not a Helm chart) via
+# the crossplane-packages Application's directory source — see
+# packages-application.yaml. Pinned to the exact package references already installed
+# (`kubectl get providers.pkg.crossplane.io`).
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-kubernetes
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes:v1.2.1
+---
+#@if components.crossplane.providerGithub
+# Backs NodeJSApplication (idp-service-catalog, the first Bootstrap-tier XRD —
+# idp/docs/service-catalog-design.md §1) — every "create/commit to a repo" step in that
+# XRD's Composition is a repo.github.upbound.io managed resource from this provider.
+# Confirmed live against the provider's own source (github.com/crossplane-contrib/
+# provider-upjet-github) rather than guessed: the actual xpkg package name is
+# provider-upjet-github, not provider-github (the design doc's shorthand) — the
+# examples/namespaced/ tree in that repo is unfinished upjet-template scaffolding
+# (literally apiVersion: template.m.crossplane.io/v1beta1, never filled in), so this
+# provider's real, working resources are the Cluster-scoped ones under examples/cluster/
+# — that's what provider-github-config.yaml (this same directory) and
+# idp-service-catalog's Composition target.
+#
+# KNOWN ROOT CAUSE, NOT YET FIXABLE BY VERSION BUMP (2026-09-04): v0.19.1's vendored
+# terraform-provider-github (v6.6.0, Feb 2025) has a real bug in github_repository_file's
+# Read() - it only special-cases HTTP 429 for rate limiting, but GitHub's actual
+# primary rate-limit response is 403 ("API rate limit of N still exceeded"), confirmed
+# live from this exact provider's own logs. A 403 falls through Read()'s error
+# handling straight to "resource no longer exists, remove from state", which
+# Crossplane surfaces as Observe() reporting ResourceExists:false - triggering a
+# fresh Create with overwriteOnCreate:true and silently wiping the file's real
+# content back to the Composition's bootstrap template. This actually happened live:
+# gitops-checkout-api and gitops-order-api's the prod cluster values.yaml (real
+# rollout/releaseTracking data) got clobbered this way multiple times today and once
+# on 2026-09-02, restored by hand each time (see those repos' own git history). The
+# fix exists upstream (terraform-provider-github's Feb 2026 refactor that only
+# removes state on an actual 404) and IS in provider-upjet-github's v0.20.0 go.mod
+# (confirmed via `gh api .../compare` against the fixing commit) - but v0.20.0 was
+# NEVER PUBLISHED to xpkg.upbound.io, the actual registry this Provider installs
+# from (confirmed: Crossplane's own package manager gets a real 404/MANIFEST_UNKNOWN
+# resolving it, and marketplace.upbound.io itself lists v0.19.1 as the latest
+# published release - the v0.20.0 git tag exists, but no corresponding OCI package
+# was ever pushed). Tried bumping to v0.20.0 live - Crossplane correctly refused to
+# touch the working install rather than break it, no harm done, reverted here.
+# Actually deploying this fix needs a custom-built image (clone provider-upjet-github
+# at v0.20.0, build, push to our own registry - same pattern as idp-service-catalog's
+# own operators under <registry>/<owner>/) - real follow-up work, not a quick pin bump.
+# Mitigated for now instead: the only resource type this bug can actually destroy
+# (values.yaml, the one file with continuously-live real content - everything else
+# this provider manages is idempotent bootstrap/platform content, safe to
+# re-overwrite) has its 3 affected RepositoryFile MRs paused
+# (crossplane.io/paused) directly in-cluster - see checkout-api-the prod cluster-{prod,
+# staging}-values-yaml and order-api-the prod cluster-prod-values-yaml in app-checkout-api-cicd/
+# app-order-api-cicd.
+#
+# 2026-09-18: repointed at a self-built, patched fork -
+# <scm-host>/<owner>/provider-upjet-github - instead of the never-updated
+# upstream xpkg.upbound.io package. Both bugs above are now fixed: Bug 1 (this
+# comment's own "KNOWN ROOT CAUSE" section) needed zero code changes - the fork's
+# main branch was already 51 commits ahead of v0.19.1 and already carried the real
+# upstream fix (commit 9a889c6, "chore: update terraform provider to 6.13.0"); the
+# blocker was purely that nothing past v0.19.1 was ever published to
+# xpkg.upbound.io, so building+publishing the fork's own main closed that gap
+# without touching Go code. Bug 2 (RepositoryFile permanently stuck Ready:False
+# after an interrupted create - crossplane/upjet#682, still open/unmerged) is
+# fixed by a local patch adding managed.WithDeterministicExternalName(true) to
+# RepositoryFile's generated controller (hack/patch-deterministic-external-name.sh
+# in the fork, reapplied after every `make generate` so it survives rebasing onto
+# newer upstream tags). Built+published multi-arch via this repo's own vendored
+# build system (<registry>/<owner>/provider-upjet-github), same pattern already
+# proven for provider-infisical and function-rollout-watcher.
+#
+# Rollout: canary-verify against one already-paused RepositoryFile
+# (checkout-api-the prod cluster-staging-values-yaml or similar) before unpausing the
+# rest of the fleet-wide-paused set - see the three resources named above.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-github
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/provider-upjet-github:v0.20.0-2.g7530c3d
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-github-runtime
+#@end
+---
+# Rebuilds airframe's hand-rolled infisical-secretstore-operator (kopf/Python,
+# operators/infisical-secretstore-operator/) as a real upjet-generated Crossplane
+# provider, wrapping the official Infisical/infisical Terraform provider instead of
+# hand-written REST calls. Source: <scm-host>/<owner>/provider-infisical.
+#
+# 2026-09-18: all 7 real app-tier SecretStore XRs on this cluster are now live on
+# this provider's native resource chain (airframe v0.3.75 cutover, secrets restored
+# from the pre-migration backup, verified key-for-key). The old operator is NOT yet
+# decommissioned - glidepath-control-plane (glidepath repo) still renders its
+# own InfisicalProject CR directly for its platform-wide operational secrets (NOT
+# through this catalog's SecretStore XRD - see that chart's own infisical-project.yaml
+# header). That migration + the operator's full removal is the very next step; see
+# 10-crds-operators/infisical-secretstore-operator/ for its current state.
+#
+# MVP resource set mirrors the current operator's scope exactly: Project,
+# ProjectEnvironment, Identity, IdentityUniversalAuth,
+# IdentityUniversalAuthClientSecret, IdentityKubernetesAuth, ProjectIdentity - all
+# namespaced (infisical.m.hangar.io). Live-verified 2026-09-17 against this exact
+# cluster: full create->Ready:True->delete lifecycle for Project/ProjectEnvironment/
+# Identity/IdentityUniversalAuth/ProjectIdentity (the last one with
+# adoptExisting: true - the native fix for the current operator's known
+# non-idempotent membership-grant bug, ensure_project_membership). IdentityKubernetesAuth
+# correctly surfaces a real upstream validation error against an incomplete test
+# config (expected, not a bug). IdentityUniversalAuthClientSecret hits a real bug in
+# terraform-provider-infisical's own Go SDK
+# (GetIdentityUniversalAuthClientSecretResponse.clientSecretData unmarshals an array
+# into a single-object struct field) that blocks its Observe path entirely - not
+# fixable from this repo, worth filing upstream; the resource is still installed
+# since Create-side generation/config is otherwise correct.
+#
+# v0.0.0-6.g142bb1b: Identity now publishes its provider-assigned id via
+# writeConnectionSecretToRef (key "identityId") - default upjet behavior published an
+# empty connection secret here (confirmed live), since "id" isn't itself a sensitive
+# Terraform attribute. Needed so glidepath-control-plane's own Helm-rendered
+# migration (a plain manifest, no Crossplane Composition, no .observed.resources
+# access) can get this value into a real k8s Secret using Crossplane's native
+# mechanism, matching what cluster-secret-store.yaml already expects.
+# 2026-09-23: v0.0.0-7.gb220ec2 fixes IdentityUniversalAuthClientSecret's Observe
+# (a non-empty seeded state id, so the Terraform provider's Read no longer hits the
+# LIST endpoint and fails unmarshalling an array) - unblocks universal auth for
+# the prod cluster. See hangar/docs/the prod cluster-infisical-migration-plan.md, phase 1.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-infisical
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/provider-infisical:v0.0.0-9.g38cb0bd
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-infisical-runtime
+---
+# Item 7 (service-catalog-design.md) Sequencing step 1 - the mechanism behind every
+# Component (Redis, Postgres, ...) wraps a real upstream Helm chart via this
+# provider's Release resource, rather than hand-assembled manifests. Version
+# verified against the actual registry before pinning, not just the GitHub release
+# tag (the same discipline provider-github's v0.20.0 trap already taught this
+# catalog) - v1.4.0 confirmed present at xpkg.upbound.io/crossplane-contrib/
+# provider-helm via a direct OCI manifest pull (bearer token + GET .../manifests/
+# v1.4.0 -> 200), not assumed from the tag alone.
+#
+# Namespaced resource family (helm.m.crossplane.io), not the Cluster-scoped one
+# (helm.crossplane.io) - confirmed live via `kubectl api-resources`, not guessed
+# from the provider's own example tree (which, unlike provider-github's stale
+# namespaced/ scaffolding, turned out to have real, filled-in examples for BOTH
+# scopes - the "check the actual installed CRD scope" lesson from that provider
+# still applied, it just didn't catch a doc-staleness bug here). helm.m.crossplane.io
+# Release is NAMESPACED=true; its ClusterProviderConfig (provider-helm-config.yaml,
+# this directory) stays cluster-scoped, referenced by every namespaced Release the
+# same way provider-kubernetes' Object already references its own
+# ClusterProviderConfig - same v2 rule (a namespaced XR's Composition can compose a
+# namespaced managed resource, never a cluster-scoped one directly).
+#
+# Live-verified 2026-09-18 on the dev cluster: full create->Ready:True->Synced:True->delete
+# lifecycle against a real throwaway chart (podinfo), clean teardown, no residue.
+# Two real RBAC/config gaps found live during that smoke test, both fixed before
+# this file was written (see provider-helm-config.yaml for the RBAC fix, in-line
+# comments there for the reasoning):
+# 1. The provider's package-manager-granted ClusterRole has zero RBAC for `namespaces`
+#    at cluster scope (same class of gap native-resources-rbac.yaml already
+#    documents for Crossplane's own controller, but for a different
+#    controller/ServiceAccount) - `create failed: failed to create namespace for
+#    release: ... forbidden`.
+# 2. Once past that, the SA also has zero RBAC for the actual resource kinds a
+#    rendered chart creates (Service, Deployment, ...) - expected for a provider
+#    that runs arbitrary `helm install` under the hood, unlike a Composition
+#    composing one fixed, known kind.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-helm
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-helm:v1.4.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-helm-runtime
+---
+#@if components.cloudTargets
+# ---------------------------------------------------------------------------------------------
+# Cloud-target providers (2026-10-08): what Airframe's AwsLambdaTarget / AwsEcsTarget /
+# AzureContainerAppTarget XRDs compose against (airframe docs/user/cloud-targets.md). Upbound's
+# v2 "family" packages: one small core per cloud (the ProviderConfig kinds; for Azure also
+# ResourceGroup) plus one package per service, each a separate pod, all multi-arch (amd64 + arm64,
+# skopeo-verified). Pinned explicitly, family cores included, so the package manager never floats
+# a dependency. All share provider-cloud-runtime.yaml (small requests, a hard memory limit, a slow
+# poll).
+#
+# provider-aws-ecs and provider-aws-ec2, the two AwsEcsTarget needs, were removed on 2026-10-08, the evening they
+# went in: with every kind active, the eight cloud providers brought a cluster to 417 Upbound CRDs (ec2 alone 208);
+# kube-apiserver reached 7.5GB, etcd dropped leader-election leases and the control plane crash-looped. Back since
+# 2026-10-17 with activation made explicit: every provider here declares SafeStart, the chart's catch-all policy is
+# off (application.yaml), and managed-resource-activation.yaml activates only the ECS group and the 8 EC2 kinds the
+# composition uses. A kind not listed there stays an inactive MRD, not a CRD.
+#
+# Credentials: provider-aws-config.yaml / provider-azure-config.yaml, one ClusterProviderConfig each.
+# AWS (since 2026-10-16) uses web identity federation with no stored secret: provider-aws-runtime.yaml
+# mounts an STS-audience ServiceAccount token, and the role trusts the dev cluster's public issuer. Azure still
+# reads a Secret that provider-azure-creds-external-secret.yaml pulls from the glidepath-<cluster>
+# Infisical project (key provider-azure-creds). Until that secret exists the Azure providers stay
+# Healthy, but every Azure managed resource reports it cannot get credentials.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-aws
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-aws:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-iam
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-iam:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ecr
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ecr:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-lambda
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-lambda:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ecs
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ecs:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ec2
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.9.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-azure
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-azure:v2.8.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-cloud-runtime
+#@end
+---
+#@if components.cloudTargets
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-containerapp
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-containerapp:v2.8.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-cloud-runtime
+
+#@end

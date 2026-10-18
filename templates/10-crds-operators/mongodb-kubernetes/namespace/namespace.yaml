@@ -1,0 +1,30 @@
+# The MCK Helm chart (unlike the RabbitMQ Cluster Operator's own vendored install manifest -
+# see 10-crds-operators/rabbitmq-operators/cluster-operator.yaml, which ships its own Namespace
+# object as a plain tracked resource) creates no Namespace of its own, relying entirely on this
+# Application's syncOptions: CreateNamespace=true.
+#
+# Root cause of the real, live failure this file fixes (found 2026-09-28, NOT an RBAC bug -
+# argocd-application-controller's own ClusterRole is a full apiGroups:["*"]/resources:["*"]/
+# verbs:["*"] wildcard on this cluster, confirmed live): CreateNamespace=true's namespace
+# creation is a special-cased step in ArgoCD's sync engine, not an ordinary tracked resource with
+# its own place in the normal Namespace-kind-first resource ordering. MCK's chart also renders
+# namespace-scoped Role/RoleBinding objects, which ArgoCD applies via a `kubectl auth reconcile`
+# equivalent (its own real strategy for RBAC kinds) rather than a plain apply - and that step
+# needs to GET the target namespace first to compute the permission delta. On every real sync
+# attempt against this cluster (confirmed live, repeated identically across 3 separate retries),
+# that GET raced ahead of CreateNamespace's own special-cased creation and failed with "namespaces
+# mongodb-kubernetes-system not found", the exact same message on every attempt.
+#
+# The fix: give the namespace its own ordinary, tracked manifest (this file), synced via a second
+# `sources:` entry (application.yaml) alongside the chart - the same effect the RabbitMQ
+# operator's own vendored Namespace already gets for free, just made explicit here since MCK's
+# chart doesn't ship one itself. A plain tracked Namespace resource gets ArgoCD's normal
+# Namespace-kind-first sync ordering, so it's guaranteed to exist before the chart's own
+# Role/RoleBinding objects ever reach the auth-reconcile step.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mongodb-kubernetes-system
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators

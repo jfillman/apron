@@ -1,0 +1,55 @@
+# 50-glidepath/rekor/application.yaml
+#
+# Rekor+Trillian+MySQL, deployed declaratively from the real upstream chart -
+# docs/admin/provenance-policy.md (platform-cicd.git) has the full incident history and
+# the real bugs found bringing this up for the first time: the chart's pinned MySQL
+# image (gcr.io/trillian-opensource-ci/db_server) and its netcat init-container image
+# are genuinely single-arch (amd64-only) and fail outright on a real arm64 node - see
+# platform-cicd's platform/sigstore/rekor-helm-values.yaml for the fixes.
+#
+# Retrofitted onto this pre-existing cluster 2026-09-05, replacing the imperative
+# staged `helm install`/`helm upgrade --set` sequence this same session first used to
+# bring Rekor up and de-risk it - same $ref pattern platform-cicd-control-plane/
+# application.yaml already uses for one values anchor, extended to two here:
+#   - platformcicd: the shared, cluster-agnostic parts of the values (image digest
+#     overrides, probes, resource caps) - lives in platform-cicd.git, not copied here.
+#   - clustercfg: just this cluster's two MySQL credentials (values-secrets.yaml, next
+#     to this file) - genuinely per-cluster, but low-stakes internal DB auth, not real
+#     crypto material - see that file's own header for why.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rekor
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: glidepath
+spec:
+  project: default
+  sources:
+    - repoURL: https://sigstore.github.io/helm-charts
+      chart: rekor
+      targetRevision: 1.8.3
+      helm:
+        releaseName: rekor
+        valueFiles:
+          - $glidepath/glidepath/sigstore/rekor-helm-values.yaml
+          - $clustercfg/50-glidepath/rekor/values-secrets.yaml
+    - repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/glidepath.git
+      targetRevision: @@GLIDEPATH_VERSION@@
+      ref: glidepath
+      directory:
+        exclude: "*"
+    - repoURL: @@REPO_URL@@
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rekor-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

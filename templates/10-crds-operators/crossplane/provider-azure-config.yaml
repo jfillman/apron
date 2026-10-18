@@ -1,0 +1,24 @@
+# The Azure ClusterProviderConfig every cloud-target managed resource references. Credentials come
+# from the provider-azure-creds Secret that provider-azure-creds-external-secret.yaml syncs from
+# Infisical: a JSON document {"clientId","clientSecret","subscriptionId","tenantId"} for a service
+# principal with Contributor on the subscription (Upbound's provider-azure credential format).
+apiVersion: azure.m.upbound.io/v1beta1
+kind: ClusterProviderConfig
+metadata:
+  name: default
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+  annotations:
+    # This kind's CRD arrives with the family provider in the SAME sync: without this, Argo CD's dry
+    # run rejects the whole operation ("could not find version v1beta1 of azure.m.upbound.io/
+    # ClusterProviderConfig", seen live 2026-10-08) and nothing in this directory applies.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  credentials:
+    source: Secret
+    secretRef:
+      name: provider-azure-creds
+      namespace: crossplane-system
+      key: credentials

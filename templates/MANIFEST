@@ -1,0 +1,92 @@
+# templates/MANIFEST: which template paths a cluster gets. One rule per line: `<path or dir/> <condition>`.
+# A path not listed is always rendered. The most specific (longest) matching rule wins. Conditions use the resolved
+# values (hack/apronlib.py evaluate): dotted keys, not/and/or, == / != against 'quoted' strings.
+# Lines inside a file can be switched too, with `#@if <condition>` ... `#@end` (no nesting).
+
+# 00 bootstrap
+00-bootstrap/backstage-ingestor-rbac/   components.towerAccessHub
+00-bootstrap/binfmt/                    components.binfmt
+00-bootstrap/cluster-identity/          components.towerAccessHub and tower.cluster
+00-bootstrap/cluster-registry/          components.serviceCatalog.enabled
+
+# 02 argocd-apps
+02-argocd-apps/xr-requests/             components.serviceCatalog.enabled
+02-argocd-apps/repo-creds/notifications-relay-token-external-secret.yaml   not isControlPlane
+
+# 10 crds-operators
+10-crds-operators/argo-rollouts/        components.argoRollouts
+10-crds-operators/argo-rollouts/notifications-configmap.yaml          components.argoRollouts and not isControlPlane
+10-crds-operators/argo-rollouts/notifications-external-secret.yaml    components.argoRollouts and not isControlPlane
+10-crds-operators/argo-rollouts/notifications-prune.yaml              components.argoRollouts and not isControlPlane
+10-crds-operators/cert-manager/         components.certManager
+10-crds-operators/cloudnative-pg/       components.cloudnativePg
+10-crds-operators/mongodb-kubernetes/   components.mongodb
+10-crds-operators/mongodb-kubernetes/namespace/   components.mongodb and not isControlPlane
+10-crds-operators/rabbitmq-operators/   components.rabbitmq
+10-crds-operators/sloth/                components.sloth
+10-crds-operators/crossplane/provider-github-config.yaml              components.crossplane.providerGithub
+10-crds-operators/crossplane/provider-github-creds-external-secret.yaml   components.crossplane.providerGithub
+10-crds-operators/crossplane/provider-github-runtime.yaml             components.crossplane.providerGithub
+10-crds-operators/crossplane/provider-aws-config.yaml                 components.cloudTargets
+10-crds-operators/crossplane/provider-aws-runtime.yaml                components.cloudTargets
+10-crds-operators/crossplane/provider-azure-config.yaml               components.cloudTargets
+10-crds-operators/crossplane/provider-azure-creds-external-secret.yaml    components.cloudTargets
+10-crds-operators/crossplane/provider-cloud-runtime.yaml              components.cloudTargets
+# The Infisical host delivers provider-infisical's credential from its own Infisical project; a consumer has it
+# planted by hand (the only project it could come from is one this provider manages).
+10-crds-operators/crossplane/provider-infisical-creds-external-secret.yaml   infisical.host
+10-crds-operators/external-secrets/     components.externalSecrets
+10-crds-operators/external-secrets/cluster-secret-store.yaml          components.externalSecrets and not infisical.host
+10-crds-operators/external-secrets/packages-application.yaml          components.externalSecrets and not infisical.host
+10-crds-operators/external-secrets/registry-credentials-cluster-external-secret.yaml   components.externalSecrets and not infisical.host
+10-crds-operators/external-secrets/secretstore-xr.yaml                components.externalSecrets and not infisical.host
+10-crds-operators/infisical/            infisical.host
+10-crds-operators/infisical-shared-k8s-auth/   infisical.host
+
+# 20 service catalog
+20-service-catalog/                     components.serviceCatalog.enabled
+20-service-catalog/analysis-catalog/    components.serviceCatalog.enabled and components.argoRollouts
+
+# 30 policy
+30-policy/                              components.policy
+30-policy/kyverno-policies/backstage-component-type-annotations.yaml   components.policy and isControlPlane
+30-policy/kyverno-policies/glidepath-cloud-deployer.yaml              components.policy and isControlPlane
+30-policy/kyverno-policies/no-long-lived-sa-tokens.yaml               components.policy and components.towerAccessHub
+30-policy/kyverno-policies/testkube-rbac.yaml                         components.policy and components.glidepath
+30-policy/kyverno-policies/testkube-secret-usage.yaml                 components.policy and components.glidepath
+30-policy/kyverno-policies/tower-breakglass.yaml                      components.policy and components.towerAccessHub
+30-policy/kyverno-policies/tower-identity-writes.yaml                 components.policy and components.towerAccessHub
+30-policy/breakglass/                   components.policy and components.towerAccess
+
+# 40 observability: Prometheus everywhere; the rest of the stack only with observability.full
+40-observability/                       components.observability
+40-observability/loki/                  components.observability and observability.full
+40-observability/minio/                 components.observability and observability.full
+40-observability/otel-collector/        components.observability and observability.full
+40-observability/tempo/                 components.observability and observability.full
+40-observability/thanos/                components.observability and observability.full
+40-observability/minio/create-breakglass-bucket-job.yaml          components.observability and observability.full and components.towerAccessHub
+40-observability/minio/create-breakglass-locked-bucket-job.yaml   components.observability and observability.full and components.towerAccessHub
+
+# 50 glidepath (the CI/CD control plane)
+50-glidepath/                           components.glidepath
+55-autopilot/                           components.autopilot
+
+# 60 gateway routes: one HTTPRoute per UI this cluster runs
+60-gateway-routes/                      components.gatewayRoutes
+60-gateway-routes/grafana-httproute.yaml          components.gatewayRoutes and components.observability and observability.full
+60-gateway-routes/minio-console-httproute.yaml    components.gatewayRoutes and components.observability and observability.full
+60-gateway-routes/minio-s3-httproute.yaml         components.gatewayRoutes and components.observability and observability.full
+60-gateway-routes/infisical-httproute.yaml        components.gatewayRoutes and infisical.host
+60-gateway-routes/rekor-httproute.yaml            components.gatewayRoutes and components.glidepath
+60-gateway-routes/tekton-dashboard-httproute.yaml components.gatewayRoutes and components.glidepath
+
+# 65/66 Tower (Backstage)
+65-backstage/                           components.backstage
+66-tower-access/                        components.towerAccess
+
+# 70 AI triage
+70-ai-triage/                           components.aiTriage
+
+# runtime files
+hack/kind-config.yaml                   runtime.type == 'kind'

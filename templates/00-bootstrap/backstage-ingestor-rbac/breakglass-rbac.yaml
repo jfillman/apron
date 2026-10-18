@@ -1,0 +1,58 @@
+# Tower break-glass debug sessions on Ground (2026-10-10; spec SPEC-tower-break-glass-debug.md, phase 2).
+#
+# Backstage holds none of the debug verbs between sessions. For a session it creates a RoleBinding in the app's
+# namespace binding one of the two debug ClusterRoles below to its own identity (backstage-ingestor), with a Kyverno
+# cleanup TTL so it expires even if Backstage dies, and deletes it when the session ends. Its standing right is only
+# that: create/delete RoleBindings that reference these two roles (`bind` restricted by resourceNames). Kyverno's
+# tower-breakglass policies (30-policy/kyverno-policies/tower-breakglass.yaml) keep that right from widening:
+# name, namespace, subject, role and TTL are all checked.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-debug-live
+rules:
+  # Live mode: add an ephemeral debug container to the running pod and attach to it. `delete` (2026-10-11, user
+  # decision): at the end, restart the pod directly when Argo CD does not manage it (an attached component such as
+  # Redis, installed by Helm outside the app's Application), since an ephemeral container stays in the pod spec for
+  # the pod's life. Kyverno's tower-breakglass-pod-delete lets Backstage delete only pods carrying a debug-* container
+  # (or copy-mode pods), so the grant cannot delete anything else in the namespace.
+  # `patch` (gaps phase C, G14, 2026-10-11): before adding a debug container with process access, Backstage annotates
+  # the pod hangar.io/breakglass-process-access: <session id> (an ephemeralcontainers update cannot change metadata).
+  # tower-breakglass-pod-annotate narrows this patch to that one annotation; tower-breakglass-debug-container then
+  # admits a targetContainerName only for a container named after that session, so a backend bug cannot add process
+  # access the approver never saw.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/ephemeralcontainers"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-debug-copy
+rules:
+  # Copy mode: create a copy of the pod that takes no traffic, attach to it, delete it at the end.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-binder
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames: ["tower-breakglass-debug-live", "tower-breakglass-debug-copy"]

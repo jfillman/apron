@@ -1,0 +1,67 @@
+# values-<cluster>.yaml
+#
+# the dev cluster's per-cluster overrides for platform-cicd's platform-cicd-control-plane
+# chart. Lives here (the cluster-config repo), not in platform-cicd.git's own hack/ -
+# this is cluster STATE, not application source, and platform-cicd needs to stay
+# installable on any cluster without carrying another cluster's secrets/identity in
+# its own repo. See ../application.yaml's own header for the multi-source mechanism
+# that wires this file in, and platform-cicd/hack/generate-cluster-values.sh for how
+# it's produced (writes straight into this directory now, not platform-cicd/hack).
+#
+# fulcio.*/rekor.publicKey removed 2026-09-05 (ADR-0006's "Update",
+# docs/admin/adr/0006-cluster-agnostic-bootstrap.md): both used to be hand-fetched
+# cert material pasted here after the fact. Fulcio's root is now generated live,
+# inside the cluster, by hooks/fulcio-bootstrap-job.yaml on first sync - it's minted
+# fresh as of this change (the second time this cluster's root has rotated; the prior
+# 2026-08-24 root and anything signed under it are unverifiable now regardless, same
+# as that rotation's own note). Rekor's public key is now fetched and applied directly
+# by hooks/rekor-pubkey-sync-job.yaml, retrying until rekor-server answers. Neither is
+# a Helm value any more.
+
+# clusterName (2026-08-16): derives tenantOnboardingApplicationSetName
+# (platform-cicd-tenant-onboarding, the collision-safe name) automatically - see
+# platform-cicd's charts/platform-cicd-control-plane/values.yaml own comments. Would
+# also derive tenantsRepoUrl as https://<scm-host>/<owner>/platform-cicd-<cluster>-tenants.git,
+# but that's overridden explicitly below instead.
+clusterName: @@CLUSTER_NAME@@
+# zone/roles: the dev cluster's record in the repo-root clusters.yaml (ADR-0024).
+
+# tenantsRepoUrl (explicit override - breaks the clusterName-derived default above on
+# purpose): <this cluster's tenants repo>, idp's own tenant-onboarding repo - NOT
+# platform-cicd's own tenants/ directory, which kind-observe's instance reads and which
+# holds real, live tenants (nodejs-demo-app, cicd-flow-test-app) that must not get
+# onboarded onto the dev cluster too. A dedicated platform-cicd-<cluster>-tenants repo existed
+# briefly (2026-08-15/16) before being eliminated once live history showed it only ever
+# held throwaway apps - NodeJSApplication's own Composition commits identity.yaml
+# straight into <this cluster's tenants repo> instead (idp-service-catalog v0.3.5+).
+tenantsRepoUrl: @@TENANTS_REPO_URL@@
+
+# selfManageNamespace: false since this Application's own CreateNamespace=true
+# syncOption already owns namespace creation - see platform-cicd's
+# templates/broker/interceptor.yaml own header comment for why the two can't coexist.
+selfManageNamespace: false
+
+# tektonChainsNamespace: the dev cluster runs Tekton via tektoncd/operator
+# (../tekton-operator/), which installs every component (Pipelines/Triggers/Chains/
+# Dashboard/PaC) into ONE targetNamespace rather than each component's own conventional
+# namespace - confirmed live against a real operator install. Must match that
+# TektonConfig's own spec.targetNamespace exactly, or verify-image-provenance.yaml/
+# verify-sast-attestation.yaml's cosign identity-regexp check (security-critical -
+# verifies the signature really came from the real Chains controller) fails every real
+# build. Also set in ../platform-cicd-catalog/application.yaml - same value, two
+# charts, kept in sync deliberately.
+tektonChainsNamespace: tekton-pipelines
+
+# Real onboarded Applications' secret stores - moved here from platform-cicd's own
+# chart defaults (cluster state, not chart source - see that chart's values.yaml).
+appSecretStores: []
+
+fulcio:
+  publicIssuers:
+    - @@ISSUER@@
+
+# chains.configPatch (2026-10-16): the dev cluster's API server signs as the public issuer since 03:33Z. Chains passes the
+# token file to Fulcio as-is (IDToken), so this is the truthful label rather than a functional switch.
+chains:
+  configPatch:
+    signers.x509.fulcio.issuer: "@@ISSUER@@"

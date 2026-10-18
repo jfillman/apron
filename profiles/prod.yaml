@@ -1,0 +1,41 @@
+# profiles/prod.yaml - WHAT a prod cluster runs, independent of the runtime: the upper zone (only reviewed merges reach
+# it, through its own Argo CD), workloads and platform services. It consumes the fleet's Infisical from the hub.
+zone: upper
+roles: [workloads, platform-services]
+infisical:
+  host: false
+components:
+  crossplane:
+    providerGithub: false
+  cloudTargets: false
+  certManager: true
+  externalSecrets: true
+  argoRollouts: true
+  sloth: true
+  cloudnativePg: true
+  mongodb: true
+  rabbitmq: true
+  dex: true
+  binfmt: false
+  serviceCatalog:
+    enabled: true
+    scope: attached-tier-only
+  policy: true
+  observability: true
+  glidepath: false
+  autopilot: false
+  gatewayRoutes: true
+  aiTriage: true
+  backstage: false              # Tower is an Airframe app now; 65-backstage stays for reference only
+  towerAccess: true             # cluster-scoped grants for Tower's ServiceAccount in app-backstage-<env>
+  towerAccessHub: false
+observability:
+  full: false                   # Prometheus + Alertmanager only
+aiTriage:
+  cpuRequest: 10m
+  memoryRequest: 100Mi
+  memoryLimit: 500Mi
+cnpg:
+  replicas: 1
+tower:
+  env: prod

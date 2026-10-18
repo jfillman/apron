@@ -1,0 +1,118 @@
+# Crossplane Function packages, pinned to the exact package references already
+# installed (`kubectl get functions.pkg.crossplane.io`). function-rollout-watcher is
+# the custom function from the ai-rollout prototype (<scm-host>/<owner>) - kept as its
+# own GHCR package, reused (not rebuilt) per the "fold it in" decision - see
+# service-catalog-design.md's Argo Rollouts / AnalysisTemplate section once its
+# Composition usage is ported in Phase 2.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-auto-ready
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0
+  # function-auto-ready-runtime.yaml: enables the CELHealthcheckCustomizations feature gate the
+  # catalog's readiness rules need (airframe review C7).
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: function-auto-ready
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-go-templating
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: xpkg.crossplane.io/crossplane-contrib/function-go-templating:v0.12.3
+---
+#@if isControlPlane
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.7.0
+#@end
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-rollout-watcher
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: ai-rollout
+spec:
+  # 2026-09-02: bumped from v0.2.4 - v0.2.4 (and every tag before it) was a
+  # genuine single-platform (amd64-only) OCI manifest, confirmed live via the
+  # GHCR API: it was built and pushed by hand at some point, since
+  # functions/function-rollout-watcher/.github/workflows/ci.yml (vendored from
+  # the Crossplane function-template-python scaffold) was never actually
+  # discoverable by GitHub Actions - it lives under a monorepo subdirectory,
+  # and Actions only scans the repo root's .github/workflows/. Crashed with
+  # "exec format error" on the dev cluster's real arm64 nodes. Fixed by adding a real
+  # top-level .github/workflows/function-rollout-watcher-ci.yaml (this repo's
+  # idp-service-catalog) that does the same amd64+arm64 matrix build the
+  # nested file already correctly described, wired to actually run. v0.2.5 is
+  # a genuine multi-platform OCI index (both linux/amd64 and linux/arm64),
+  # confirmed live against the GHCR manifest API - not the source code, which
+  # is unchanged from v0.2.4.
+  #
+  # 2026-08-24: bumped from v0.2.3 - fixes RolloutWatch XRs staying
+  # Synced=False/Ready=False forever after the Rollout they watch recovers
+  # (the diagnosis Job's bare identity was re-declared every reconcile
+  # unconditionally; if that Job was ever deleted out-of-band, Crossplane's
+  # re-create attempt failed required-field validation forever). Caught live
+  # on the dev cluster's checkout-api RolloutWatch. See
+  # idp-service-catalog/functions/function-rollout-watcher/README.md's own
+  # changelog for v0.2.4.
+  #
+  # 2026-08-22: bumped from v0.1.16, found live stuck several releases behind
+  # while fixing a real readiness bug on the prod cluster (v0.2.2's diagnosis-dispatch-sa
+  # composed ServiceAccount never went Ready, stuck the RolloutWatch XR and
+  # surfaced through ArgoCD as its Application sitting in Progressing - see
+  # idp-service-catalog/functions/function-rollout-watcher/README.md's own
+  # changelog for v0.2.3). the dev cluster had never picked up any of the
+  # diagnosis-dispatch-sa work (v0.1.16 predates it entirely), so this bump also
+  # brings the dev cluster's HolmesGPT dispatch path up to parity with the prod cluster's.
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-rollout-watcher:v0.2.8
+---
+#@if components.dex
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-dex
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: sp4-dex
+spec:
+  # 2026-09-29: v0.1.0 -> v0.1.1. Dex refuses to start with zero connectors (a real Dex
+  # requirement, server.go's own check) - v0.1.0's real Deployment crash-looped on exactly
+  # this on first live deploy. v0.1.1 adds a mockCallback placeholder connector (same pattern
+  # Dex's own examples/grpc-client/config.yaml uses for the same reason).
+  # 2026-09-29: v0.1.1 -> v0.1.2, fixed the Dex healthz probe path (was 404ing, crash-looping
+  # on liveness failure after a clean boot).
+  # 2026-09-29: v0.1.2 -> v0.1.3, fixed the generic Ready condition (config/pvc/service/
+  # networkpolicy have no status.conditions for auto-ready's generic detection) AND switched
+  # from a single-arch -arm64-suffixed tag to a real combined multi-arch manifest (confirmed
+  # via `skopeo inspect --raw`: both linux/amd64 and linux/arm64) - the prod cluster's equivalent
+  # Function object can now reference this exact same tag too, no separate -amd64 pin needed.
+  # 2026-10-08: v0.1.4 -> v0.1.5 (airframe#54, review finding C1). attach mode now adopts the
+  # server's secret on CreateClient already_exists (real Dex keeps its stored secret and never
+  # takes the one sent; GetClient reads it back), and a transient admin-API failure keeps the
+  # observed oauth-credentials Secret declared instead of letting Crossplane prune it. Same
+  # multi-arch manifest (amd64 + arm64, skopeo-verified).
+  # 2026-10-09: v0.1.6 -> v0.1.7 (airframe#79). Server mode runs Dex v2.46.0, the first stable
+  # release with client_credentials, instead of the floating :master tag.
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.7
+
+#@end

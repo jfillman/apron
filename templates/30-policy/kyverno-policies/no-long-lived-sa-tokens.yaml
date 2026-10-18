@@ -1,0 +1,43 @@
+# No long-lived ServiceAccount tokens for Backstage (2026-10-12; SPEC-tower-cluster-credentials.md phase 4).
+#
+# Backstage on the prod cluster used to read and write this cluster with the token in backstage-system/backstage-ingestor-token,
+# a `kubernetes.io/service-account-token` Secret that never expires, copied by hand into Infisical and from there
+# into the prod cluster. It is gone: reads use the prod cluster's short-lived projected token and writes a tower-actor token minted
+# per action, both accepted through 00-bootstrap/cluster-identity/ (apron docs/cluster-identity.md). This refuses
+# putting one back in backstage-system: a legacy token Secret there could only be a long-lived cross-cluster
+# credential again.
+#
+# Same conventions as the other policies here: compiled to a native ValidatingAdmissionPolicy, failurePolicy Fail,
+# matchConditions keep it to exactly those Secrets.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: no-long-lived-sa-tokens
+  annotations:
+    policies.kyverno.io/title: No long-lived ServiceAccount tokens for Backstage
+    policies.kyverno.io/description: Refuses kubernetes.io/service-account-token Secrets in backstage-system.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets"]
+  matchConditions:
+    - name: sa-token-in-backstage-system
+      expression: >-
+        request.namespace == 'backstage-system' &&
+        has(object.type) && object.type == 'kubernetes.io/service-account-token'
+  validations:
+    - expression: "false"
+      message: >-
+        No long-lived ServiceAccount token Secrets in backstage-system: Backstage reaches this cluster with short-lived
+        federated tokens (apron docs/cluster-identity.md; ~/tech/SPEC-tower-cluster-credentials.md).

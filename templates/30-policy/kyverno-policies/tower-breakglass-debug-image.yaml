@@ -1,0 +1,63 @@
+# Tower break-glass debug image signature at admission (gaps phase D, G10, 2026-10-11). The debug image is pinned by
+# digest in tower-breakglass-debug-container, but a digest is only as good as the build that made it: this policy also
+# verifies the cosign keyless signature tower's debug-image workflow puts on it (Fulcio identity = that workflow on main,
+# GitHub's OIDC issuer; Rekor = the public log). It runs in Kyverno's admission controller (image verification cannot
+# compile to a native VAP), fail closed, so it is scoped: Kyverno copies the policy's matchConditions onto the one
+# fine-grained webhook pair it registers for it (ivpol.{validate,mutate}.kyverno.svc-fail-finegrained-<name>, verified
+# on both clusters), so the webhook and the policy only ever see an ephemeral-container update or a break-glass copy
+# pod, every optional field has()-guarded (feedback_kyverno_fail_closed_blast_radius). Nothing else passes through it.
+# (The CRD has no webhookConfiguration.matchConditions; an earlier version set one, which the API server pruned and
+# Argo CD then saw as a permanent diff.)
+#
+# Only images from the debug repository are verified: a copy pod's app containers carry the app's own image, which this
+# policy ignores (matchImageReferences, and the filter in the validation). A debug container with any other image is
+# already refused by tower-breakglass-debug-container.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: tower-breakglass-debug-image
+  annotations:
+    policies.kyverno.io/title: Tower break-glass debug image signature
+    policies.kyverno.io/description: A break-glass debug container's image carries the signature of tower's debug-image workflow.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 20
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: ephemeral-container-or-copy-pod
+      expression: >-
+        (has(request.subResource) && request.subResource == 'ephemeralcontainers') ||
+        (has(object.metadata.labels) && 'hangar.io/breakglass-copy' in object.metadata.labels)
+  matchImageReferences:
+    - glob: "@@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/tower-debug*"
+  attestors:
+    - name: github
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subjectRegExp: '^https://@@SCM_HOST_RE@@/@@SCM_OWNER@@/tower/\.github/workflows/debug-image\.yml@refs/heads/main$'
+  validations:
+    - expression: >-
+        images.containers.filter(i, i.startsWith('@@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/tower-debug'))
+          .map(image, verifyImageSignatures(image, [attestors.github])).all(n, n > 0)
+      message: The break-glass debug image is not signed by tower's debug-image workflow (cosign keyless, GitHub OIDC).
+    - expression: >-
+        !has(images.ephemeralContainers) ||
+        images.ephemeralContainers.filter(i, i.startsWith('@@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/tower-debug'))
+          .map(image, verifyImageSignatures(image, [attestors.github])).all(n, n > 0)
+      message: The break-glass debug image is not signed by tower's debug-image workflow (cosign keyless, GitHub OIDC).

@@ -1,0 +1,60 @@
+# Cluster-side pieces Traefik (<gateway namespace>/traefik, --providers.kubernetesgateway) needs
+# before the HTTPRoutes in this directory can attach: RBAC for its ServiceAccount, the
+# `traefik` GatewayClass, and the `kiac` Gateway every HTTPRoute's parentRef points at.
+# Gateway API CRDs (standard channel v1.5.1) must already be installed - Traefik v3.7
+# watches v1 TLSRoute, which is only in the standard channel from v1.5.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: traefik-gateway
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, services, endpoints, secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gatewayclasses, gateways, httproutes, grpcroutes, tlsroutes, referencegrants, backendtlspolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gatewayclasses/status, gateways/status, httproutes/status, grpcroutes/status, tlsroutes/status]
+    verbs: [update, patch]
+  - apiGroups: [traefik.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: traefik-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-gateway
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: @@GATEWAY_NAMESPACE@@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: traefik
+spec:
+  controllerName: traefik.io/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: @@GATEWAY_NAME@@
+  namespace: @@GATEWAY_NAMESPACE@@
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: web
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All

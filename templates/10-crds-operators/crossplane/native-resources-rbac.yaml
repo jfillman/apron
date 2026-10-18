@@ -1,0 +1,130 @@
+# Crossplane's own controller ServiceAccount has no built-in RBAC for native
+# resource kinds a Composition composes directly (only for Crossplane's own
+# API types) - each one needs an explicit grant here, aggregated into the
+# controller's role via the rbac.crossplane.io/aggregate-to-crossplane label.
+# This ClusterRole existed live on the dev cluster already (argoproj.io/batch, for
+# the ai-rollout Application Composition's Rollout/AnalysisTemplate/Job) but
+# was never captured in git - recreated here from live state.
+#
+# monitoring.coreos.com (PrometheusRule) was added for the SLO Composition's
+# original hand-rolled revision, which composed a PrometheusRule directly.
+# That revision switched to wrapping Sloth (see service-catalog-design.md
+# Item 4) - the SLO Composition now composes a `sloth.slok.dev/v1
+# PrometheusServiceLevel` instead, and Sloth's OWN controller (its own
+# ServiceAccount/RBAC, installed via 10-crds-operators/sloth/) creates the
+# actual PrometheusRule, not Crossplane. Left the monitoring.coreos.com grant
+# in place regardless (harmless, and nothing else currently needs it removed)
+# and added sloth.slok.dev for the new PrometheusServiceLevel type Crossplane's
+# controller now composes directly (ConfigMap needed no such grant either way
+# - already covered by Crossplane's own core-API-group role).
+#
+# secrets.idp.io (InfisicalProject) added for the SecretStore Composition
+# (service-catalog-design.md Item 8) - same gap, same fix: composed directly, not a
+# Crossplane-owned API type. external-secrets.io/ClusterSecretStore is NOT here,
+# deliberately - that Composition wraps it in a provider-kubernetes Object instead
+# of composing it directly (Crossplane v2 rejects composing a cluster-scoped native
+# resource from this namespaced XR) - see
+# 10-crds-operators/crossplane/provider-kubernetes-config.yaml for that RBAC
+# instead. objects.kubernetes.m.crossplane.io itself needs no entry here - it's a
+# Crossplane-provider-installed type, already covered by the package manager's own
+# aggregate-to-crossplane wiring (confirmed live:
+# crossplane:provider:provider-kubernetes-*:aggregate-to-edit already carries that
+# label).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane:native-resources:aggregate-to-crossplane
+  labels:
+    rbac.crossplane.io/aggregate-to-crossplane: "true"
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+rules:
+#@if isControlPlane
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "rollouts/status", "analysistemplates", "analysistemplates/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@end
+#@if not isControlPlane
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "rollouts/status"]
+    verbs: ["get", "list", "watch"]
+#@end
+  - apiGroups: ["batch"]
+    resources: ["jobs", "jobs/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@if isControlPlane
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["prometheusrules", "prometheusrules/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@end
+  - apiGroups: ["sloth.slok.dev"]
+    resources: ["prometheusservicelevels", "prometheusservicelevels/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@if isControlPlane
+  - apiGroups: ["secrets.idp.io"]
+    resources:
+      ["infisicalprojects", "infisicalprojects/status", "infisicalenvironments", "infisicalenvironments/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@end
+  # postgresql.cnpg.io (Cluster) and networking.k8s.io (NetworkPolicy) for the PostgreSQL
+  # component Composition (airframe compositions/postgresql, service-catalog-design.md Round
+  # 2026-09-24): it composes a CloudNativePG Cluster directly, plus a NetworkPolicy that lets
+  # the operator's namespace reach the instance pods. Same gap, same fix as every grant above.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters", "clusters/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # rabbitmq.com for the RabbitMQ component Composition (airframe compositions/rabbitmq,
+  # service-catalog-design.md Round 2026-09-25): broker mode composes a RabbitmqCluster + Vhosts,
+  # attach mode a User + Permission. Same gap, same fix as every grant above.
+  - apiGroups: ["rabbitmq.com"]
+    resources:
+      ["rabbitmqclusters", "rabbitmqclusters/status", "vhosts", "vhosts/status", "users", "users/status", "permissions", "permissions/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # mongodbcommunity.mongodb.com for the MongoDB component Composition (airframe
+  # compositions/mongodb, SP-3): composes a MongoDBCommunity replica set directly (via MongoDB
+  # Controllers for Kubernetes' own CRD). Same gap, same fix as every grant above - found live
+  # via a real RoleBasedAccessControl/ComposeResources error on a scratch XR, not guessed ahead
+  # of time.
+  - apiGroups: ["mongodbcommunity.mongodb.com"]
+    resources: ["mongodbcommunity", "mongodbcommunity/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # rbac.authorization.k8s.io (Role/RoleBinding only, never ClusterRole/ClusterRoleBinding) for the
+  # same MongoDB Composition: its database-pod ServiceAccounts (mongodb-kubernetes-appdb,
+  # mongodb-kubernetes-database-pods) only exist in the operator's own namespace by default, and
+  # this operator watches cluster-wide (mongodb-kubernetes Application, watchNamespace: "*"), so the
+  # Composition renders a matching namespace-scoped Role/RoleBinding per app namespace, copied
+  # verbatim from the operator's own identically-named Role (get on Secrets, patch/delete/get on
+  # Pods) - a narrow grant with no `escalate`/`bind` verb, so Kubernetes' own RBAC escalation check
+  # still prevents Crossplane from creating a Role with more power than its own ServiceAccount
+  # already has. Confirmed with the user before applying (a more sensitive class of grant than the
+  # native-resource entries above it - RBAC-management permissions, not just app data). Found live
+  # via a real RoleBasedAccessControl/ComposeResources error, not guessed ahead of time.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # "" (core)/pods, patch+delete specifically - Kubernetes' RBAC escalation check blocked the grant
+  # directly above this one: Crossplane cannot create the mongodb-kubernetes-appdb Role (which
+  # grants patch/delete/get on Pods) unless its own ServiceAccount already holds those verbs itself,
+  # cluster-wide. Confirmed with the user before applying - broader than every grant above it
+  # (Crossplane's controller can now patch/delete any Pod in any namespace, not just create bounded
+  # Role objects), but Crossplane is already a highly-privileged cluster component managing
+  # Deployments/StatefulSets/Secrets cluster-wide for every other component in this file. Found live
+  # via the real Kubernetes RBAC escalation error message, not guessed ahead of time.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch", "delete"]
+  # "" (core)/persistentvolumeclaims for the Dex component Composition (airframe
+  # compositions/dex, SP-4): server mode composes a PersistentVolumeClaim directly for the
+  # sqlite storage file - Deployment/Service/ConfigMap needed no grant (already covered by
+  # Crossplane's own core-API-group role, same as every prior component's ConfigMap), but PVC
+  # is not in that built-in role. Same gap, same fix as every grant above. Found live via a
+  # real RoleBasedAccessControl/ComposeResources error, not guessed ahead of time. Confirmed
+  # with the user before applying, given the blast radius (cluster-wide PVC create/delete).
+#@if components.dex
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumeclaims/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+#@end

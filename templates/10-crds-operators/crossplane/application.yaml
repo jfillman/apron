@@ -1,0 +1,51 @@
+# ArgoCD Application for Crossplane itself. A default install except provider.defaultActivations: [] (see below
+# and managed-resource-activation.yaml). project: default for now — moves to a
+# real cluster-admin-scoped AppProject once the argocd-platform/argocd-apps split
+# happens (gitops-strategy.md §4, deferred with 01-argocd-platform/).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: https://charts.crossplane.io/stable
+    chart: crossplane
+    targetRevision: 2.3.4
+    helm:
+      releaseName: crossplane
+      # No catch-all activation policy: with the chart default, the init container (re)creates a
+      # ManagedResourceActivationPolicy "default" activating "*" on every start, so any provider added would turn
+      # every one of its kinds into a CRD (provider-aws-ec2: 208). managed-resource-activation.yaml lists what is
+      # active instead. Must be a values block: `--set provider.defaultActivations={}` still renders the flag.
+      valuesObject:
+        provider:
+          defaultActivations: []
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+  # The chart generates its own webhook TLS materials (self-signed CA/client/server
+  # certs) via Helm template functions at render time - every `helm template` produces
+  # NEW random cert bytes, so these three will always diff against whatever's live.
+  # Ignoring, not syncing - a real sync here would regenerate and could break the
+  # webhook's live cert chain. Found live during Phase 1 adoption, not assumed upfront.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: crossplane-root-ca
+      jsonPointers: ["/data"]
+    - group: ""
+      kind: Secret
+      name: crossplane-tls-client
+      jsonPointers: ["/data"]
+    - group: ""
+      kind: Secret
+      name: crossplane-tls-server
+      jsonPointers: ["/data"]

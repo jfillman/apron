@@ -1,0 +1,36 @@
+# Directory-source Application syncing this folder's own vendored-install.yaml
+# (tektoncd/operator v0.81.0, vendored - not tracked as an upstream `latest` URL, same
+# reasoning as 01-argocd-platform/install.yaml's own vendoring) and tektonconfig.yaml
+# (the TektonConfig CR that actually triggers installing Pipelines/Triggers/Chains/
+# Dashboard/PaC - see that file's own header for what it configures and why).
+#
+# ServerSideApply=true - same annotation-size-limit bug 01-argocd-platform/README.md,
+# external-secrets/application.yaml, and kube-prometheus-stack/application.yaml all
+# already document hitting on their own large CRDs; the operator's own CRDs
+# (tektonconfigs.operator.tekton.dev etc.) are large enough to hit it too, confirmed live
+# during this directory's own throwaway-cluster verification.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tekton-operator
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: glidepath
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 50-glidepath/tekton-operator
+    directory:
+      exclude: "{application.yaml,README.md}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tekton-operator
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

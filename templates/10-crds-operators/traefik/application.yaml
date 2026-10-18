@@ -1,0 +1,30 @@
+# Traefik, the one Gateway API controller on every Apron cluster (--providers.kubernetesgateway), for the
+# @@GATEWAY_NAME@@ Gateway in @@GATEWAY_NAMESPACE@@ that every HTTPRoute attaches to. traefik.yaml is the
+# Deployment/Service (pinned traefik:v3.7.6; Service type @@TRAEFIK_SERVICE_TYPE@@ - fixed NodePorts on kind/kiac,
+# which a kind runtime maps to host 80/443; a LoadBalancer on an existing cluster); gateway.yaml is its
+# ClusterRole/Binding, the `traefik` GatewayClass and the Gateway. Requires the gateway-api Application's CRDs first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/traefik
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: @@GATEWAY_NAMESPACE@@
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

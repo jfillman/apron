@@ -1,0 +1,59 @@
+# DeploymentRuntimeConfig for the AWS cloud-target providers (provider-family-aws and every
+# provider-aws-* in providers.yaml). It is provider-cloud-runtime.yaml plus a projected
+# ServiceAccount token for AWS STS, so the Azure providers don't get one.
+#
+# Credentials (2026-10-16): web identity federation, the IRSA pattern without EKS. the dev cluster signs
+# ServiceAccount tokens as <issuer> dev cluster (00-bootstrap/cluster-identity/
+# README.md), an IAM OIDC provider in account <aws account> trusts that issuer, and the role
+# hangar-crossplane-the dev cluster accepts audience sts.amazonaws.com from
+# system:serviceaccount:crossplane-system:provider-aws-* (StringLike, because Crossplane's provider
+# ServiceAccount names carry a revision hash). provider-aws-config.yaml points the
+# ClusterProviderConfig at /var/run/secrets/aws/token; the kubelet refreshes the token and the
+# provider reads the file on every STS call. Don't set AWS_WEB_IDENTITY_TOKEN_FILE here:
+# provider-upjet-aws v2.9.0 refuses to start with it set and AWS_ROLE_ARN unset.
+#
+# The selector is there only because the CRD schema requires one: Crossplane replaces it with the
+# provider's own pkg.crossplane.io labels, as the live Deployments show (see
+# provider-cloud-runtime.yaml). Args and resources are the same as that file's, for the same reasons.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-aws-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          hangar.io/origin: cloud-targets
+      template:
+        metadata:
+          labels:
+            hangar.io/origin: cloud-targets
+        spec:
+          containers:
+            - name: package-runtime
+              args:
+                - --max-reconcile-rate=2
+                - --poll=10m
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              volumeMounts:
+                - name: aws-web-identity
+                  mountPath: /var/run/secrets/aws
+                  readOnly: true
+          volumes:
+            - name: aws-web-identity
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: sts.amazonaws.com
+                      expirationSeconds: 3600
+                      path: token

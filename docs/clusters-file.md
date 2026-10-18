@@ -1,8 +1,8 @@
 # The fleet's `clusters.yaml`
 
 One record per cluster, at the root of the fleet's hub cluster repo (the cluster with the `control-plane` role;
-`gitops-cluster-dev` today), next to `cluster-defaults.yaml`. Every product that needs to know about clusters reads it,
-so a cluster is declared once ([Glidepath ADR-0024](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0024-cluster-taxonomy-zone-roles-tier.md)).
+its repo), next to `cluster-defaults.yaml`. Every product that needs to know about clusters reads it,
+so a cluster is declared once ([Glidepath ADR-0024](https://github.com/<owner>/glidepath/blob/main/docs/admin/adr/0024-cluster-taxonomy-zone-roles-tier.md)).
 
 | Reader | How | What it reads |
 |---|---|---|
@@ -13,24 +13,27 @@ Each reader ignores keys it does not know, so a fleet running only Glidepath, or
 shared fields and its product's section. Neither product reads the other's objects.
 
 ```yaml
+scm: { owner: <owner> }                  # required: Airframe copies it into every record as scmOwner
 clusters:
-  - name: kind-dev                       # the cluster's identity, used everywhere (secrets projects, XRs, Tower)
+  - name: hangar-dev                     # the cluster's identity, used everywhere (secrets projects, XRs, Tower)
     zone: lower                          # lower | upper
     roles: [control-plane, workloads]    # control-plane | workloads | platform-services
-    tenantsRepo: gitops-cluster-dev-tenants
-    aliases: [kiac-dev]                  # other names it answers to
-    airframe: { cicdReady: true, infisicalHost: true }
-  - name: kind-prod
+    tenantsRepo: gitops-cluster-hangar-dev-tenants
+    serviceAccountIssuer: https://hangarplatform.dev/oidc/hangar-dev
+    airframe: { cicdReady: false, infisicalHost: true }
+  - name: hangar-prod
     zone: upper
     roles: [workloads, platform-services]
-    airframe: { crossplaneReady: true }
-    glidepath: { relaySecretName: cluster-kind-prod-relay-token }
+    tenantsRepo: gitops-cluster-hangar-prod-tenants
+    serviceAccountIssuer: https://hangarplatform.dev/oidc/hangar-prod
+    airframe: { crossplaneReady: false }
+    glidepath: { relaySecretName: cluster-hangar-prod-relay-token }
 ```
 
 ## Shared fields
 
-- **`name`**: the cluster's identity. Choose one that will outlive the tool running the cluster: `kind-dev` runs on
-  kiac now and keeps its name, because the name keys its Infisical projects, ClusterSecretStores and every
+- **`name`**: the cluster's identity. Choose one that will outlive the tool running the cluster: the name keys its
+  Infisical projects, ClusterSecretStores and every
   Bootstrap XR's `devCluster`.
 - **`zone`**: `upper` means nothing below it holds a write credential to it, and changes reach it only through a
   reviewed merge its own Argo CD syncs. `lower` clusters may be written to by pipelines. The control-plane cluster
@@ -41,7 +44,7 @@ clusters:
 - **`aliases`**: other names the cluster answers to. Each gets its own registry ConfigMap (annotated
   `hangar.io/alias-of`).
 - **`serviceAccountIssuer`**: the cluster's public ServiceAccount token issuer, set with `components.clusterIdentity`
-  ([cluster-identity.md](cluster-identity.md)), for example `https://hangarplatform.dev/oidc/kiac-dev`. It must be
+  ([cluster-identity.md](cluster-identity.md)), for example `https://hangarplatform.dev/oidc/<name>`. It must be
   an https URL. Rendered into the record as `serviceAccountIssuer`; cloud deploy roles that trust the cluster's
   tokens are built from it. Leave it out for a cluster still on the Kubernetes default issuer.
 
@@ -75,11 +78,11 @@ Facts about a service the whole fleet shares go at the top level of the file, ne
 
 ## Adding a cluster
 
-`hack/customize-cluster.sh` prints the record for a new cluster. Add it to the hub's `clusters.yaml` in a PR, then
+`apron fleet add --from <cluster repo> --fleet <hub repo>/clusters.yaml` writes or updates the record. Commit it in a PR, then
 sync the hub's `cluster-registry` Application (manual by design) and let the control plane sync.
 
 A cluster that composes SecretStores (any cluster with Crossplane and the catalog) also needs its own
-`00-bootstrap/cluster-registry` Application reading the hub's `clusters.yaml` (kind-prod's is the example): Crossplane
+`00-bootstrap/cluster-registry` Application reading the hub's `clusters.yaml` (Apron renders it on every cluster with the service catalog): Crossplane
 looks the record up on the local cluster only.
 
 Move values between files in two steps when an Argo CD Application's own spec changes in the same change: add the new

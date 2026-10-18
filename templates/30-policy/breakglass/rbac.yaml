@@ -1,0 +1,53 @@
+# Tower break-glass on Flight (phase 3, 2026-10-11): the same shape as the control-plane cluster's repo's
+# 00-bootstrap/backstage-ingestor-rbac/breakglass-rbac.yaml, for Backstage's identity here (backstage/backstage-ingestor).
+#
+# Backstage holds none of the debug verbs between sessions. For an approved session it creates a RoleBinding in the
+# app's namespace binding one of the two debug ClusterRoles below to itself, with a cleanup TTL, and deletes it when the
+# session ends. Its standing right is only that: create/delete RoleBindings that reference these two roles (`bind`
+# restricted by resourceNames). The ValidatingAdmissionPolicies in policies.yaml (wave -1, before this file) keep that
+# right from widening: name, namespace, subject, role, TTL and a named approver other than the requester.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-debug-live
+rules:
+  # Live mode: add an ephemeral debug container to the running pod and attach to it; at the end, restart the pod
+  # directly if Argo CD does not manage it (tower-breakglass-pod-delete limits that to pods carrying a debug container).
+  - apiGroups: [""]
+    # `patch` (gaps phase C, G14, 2026-10-11): before adding a debug container with process access, Backstage
+    # annotates the pod hangar.io/breakglass-process-access: <session id>; tower-breakglass-pod-annotate (policies.yaml)
+    # narrows this patch to that one annotation.
+    resources: ["pods"]
+    verbs: ["get", "list", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/ephemeralcontainers"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-debug-copy
+rules:
+  # Copy mode: create a copy of the pod that takes no traffic, attach to it, delete it at the end.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tower-breakglass-binder
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames: ["tower-breakglass-debug-live", "tower-breakglass-debug-copy"]

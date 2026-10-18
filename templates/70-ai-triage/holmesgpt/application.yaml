@@ -1,0 +1,141 @@
+# HolmesGPT, installed per cluster (2026-08-18, AI-triage redesign) - resolves the
+# "explicitly not resolved" locality question from the multi-cluster architecture
+# session (idp_session_multicluster_architecture): Holmes needs live in-cluster access
+# to actually diagnose anything, so it runs where the workload does, same reasoning
+# that already kept AppProject/SecretStore per-cluster rather than shared. Not a
+# subchart/dependency of anything else - own top-level directory (30-ai-triage,
+# between service-catalog and observability) since more agentic workflows are
+# expected here over time, not just this one.
+#
+# Version pinned to v0.38.0 - same version the original Phase 2 the dev cluster proof used
+# (idp_session_phase2_holmesgpt), for a clean before/after comparison if one's ever
+# needed. Release name is exactly "holmesgpt" deliberately -
+# diagnosis-holmes-dispatch's own HOLMES_URL default
+# (http://holmesgpt-holmes.holmesgpt.svc.cluster.local/api/chat) assumes the chart's
+# own <release>-holmes Service naming convention, confirmed live via `helm template`
+# before writing this file - not guessed from the chart's docs.
+#
+# k8sRBAC deliberately NOT set (stays at the chart's own default, false) - a real,
+# confusing gotcha caught live: this flag's name suggests "grant k8s RBAC," but
+# reading templates/toolset-config.yaml + templates/holmesgpt-service-account.yaml
+# directly shows the opposite - k8sRBAC: true is for an entirely separate, unrelated
+# MCP-based Kubernetes mechanism (templates/mcp-servers/kubernetes{,-remediation}/,
+# never configured here), and setting it disables BOTH the legacy in-process
+# kubernetes/core|logs toolsets (an explicit $rbacOverrides block forces them to
+# enabled: false, silently overriding the toolsets: block below) AND the broad
+# ClusterRole/ClusterRoleBinding (pods/logs/events/argoproj.io rollouts+analysisruns/
+# etc - exactly what this mechanism needs) that only renders `{{- if and
+# .Values.createServiceAccount (not .Values.k8sRBAC) }}`. First live diagnosis run
+# had zero k8s access as a result (confirmed in Holmes' own logs and its analysis
+# text, which correctly self-reported the limitation) - it still produced a correct
+# diagnosis from GitHub evidence alone, but that's not something to rely on for an
+# app-logic bug rather than a GitOps config one. Leaving k8sRBAC unset restores both
+# the toolsets AND the ClusterRole this mechanism actually needs. crdPermissions.argo/
+# crossplane stay at their chart defaults (true) - directly relevant to what this
+# cluster's own AI-triage mechanism watches, and only take effect via that same
+# ClusterRole.
+#
+# Two secrets this Application does NOT create (cluster-admin/user action, never
+# templated here - see feedback_credential_handling in memory: credentials are never
+# pasted into a commit or a chat transcript):
+#   - holmesgpt-secrets (key ANTHROPIC_API_KEY) - Holmes' own standing LLM credential.
+#   - github-mcp-token (key token) - a GitHub PAT with write access to
+#     gitops-checkout-api (and any other gitops-<app> repo this cluster's diagnosis
+#     Jobs might target), used by Holmes' own github MCP addon to open fix PRs.
+#     Deliberately a plain PAT, not this platform's GitHub App credential
+#     (provider-github-creds/github-app-creds on the dev cluster) - different shape
+#     (app-installation vs PAT) and a different concern (Holmes' own MCP toolset vs.
+#     Crossplane's provider-github), not worth conflating for a first per-cluster
+#     install.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: holmesgpt
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: ai-triage
+spec:
+  project: default
+  source:
+    repoURL: https://robusta-charts.storage.googleapis.com
+    chart: holmes
+    targetRevision: 0.38.0
+    helm:
+      releaseName: holmesgpt
+      valuesObject:
+        crdPermissions:
+          argo: true
+          flux: false
+          kafka: false
+          keda: false
+          crossplane: true
+          istio: false
+          gatewayApi: false
+          velero: false
+          externalSecrets: false
+        extraEnvVarsSecrets:
+          - holmesgpt-secrets
+        # Real gotcha, caught live: an ANTHROPIC_API_KEY env var alone (via
+        # extraEnvVarsSecrets above) does NOT register a usable model - Holmes'
+        # own /api/model reported only the built-in "Robusta" hosted model until
+        # this modelList entry was added. envRef:ANTHROPIC_API_KEY is the chart's
+        # own documented sugar (rewritten at render time to litellm's
+        # {{ env.ANTHROPIC_API_KEY }} templating) - the underlying Secret is the
+        # same one extraEnvVarsSecrets already mounts, just needs to be wired to
+        # an explicit model entry.
+        #
+        # Second and third real gotchas, both hit live in sequence: "claude-3-5-
+        # sonnet-latest" is a litellm-only alias, not a real Anthropic API model ID -
+        # the direct Anthropic API (no separate gateway involved) 404'd on it
+        # ("not_found_error: model: claude-3-5-sonnet-latest"). Switched to a real,
+        # dated snapshot (claude-3-5-sonnet-20241022) next - same 404, this one
+        # genuinely real but ~2 years old by 2026-08 and evidently retired from
+        # Anthropic's catalog by now (litellm itself doesn't validate/reject model
+        # strings for the direct anthropic/ provider - confirmed from the traceback,
+        # it passes them straight through to POST api.anthropic.com/v1/messages,
+        # which is what actually 404'd both times). Pinned to the current model
+        # family instead (see this session's own environment: Claude 5).
+        modelList:
+          claude:
+            model: anthropic/claude-sonnet-5
+            api_key: envRef:ANTHROPIC_API_KEY
+        toolsets:
+          kubernetes/core:
+            enabled: true
+          kubernetes/logs:
+            enabled: true
+          robusta:
+            enabled: false
+          internet:
+            enabled: true
+          prometheus/metrics:
+            enabled: true
+          skills:
+            enabled: true
+          connectivity_check:
+            enabled: true
+          bash:
+            enabled: true
+            config:
+              builtin_allowlist: "extended"
+        mcpAddons:
+          github:
+            enabled: true
+            auth:
+              secretName: github-mcp-token
+              secretKey: token
+            config:
+              toolsets: "repos,issues,pull_requests,actions,context"
+        resources:
+          requests:
+            cpu: @@AI_TRIAGE_CPU_REQUEST@@
+            memory: @@AI_TRIAGE_MEMORY_REQUEST@@
+          limits:
+            memory: @@AI_TRIAGE_MEMORY_LIMIT@@
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: holmesgpt
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

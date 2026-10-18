@@ -1,0 +1,11 @@
+# runtimes/existing.yaml - a cluster that already exists (the primary path: EKS, AKS, a lab cluster, ...). `apron up`
+# creates nothing: it checks the context is reachable and onboards it. The context must equal the cluster's name
+# (the one-name rule); `apron up --rename-context` renames runtime.existing.context to it.
+runtime:
+  type: existing
+  nodeExec: ""                  # only needed for apron identity on a self-managed control plane
+  existing:
+    context: ""                 # the kubeconfig context to adopt; empty = the cluster's name
+traefik:
+  serviceType: LoadBalancer
+  fixedNodePorts: false

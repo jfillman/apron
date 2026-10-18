@@ -1,0 +1,39 @@
+# infisical-shared-k8s-auth - split out of infisical-secretstore-operator/ 2026-09-18
+# specifically to decommission that operator (Deployment/CRDs/RBAC/InfisicalProject
+# reconcile loop) without taking down the two genuinely shared objects it used to
+# carry alongside its own operator-specific manifests: the token-reviewer
+# ServiceAccount/Secret (every IdentityKubernetesAuth resource on this cluster reads
+# its JWT from here, provider-infisical's included - not tied to the old operator's
+# own lifecycle) and the cross-cluster Infisical NodePort (the prod cluster's own SEPARATE
+# infisical-secretstore-operator instance still needs this - not touched by this
+# decommission, per the prod cluster's repo's own copy of that operator).
+#
+# ServerSideApply: adopts the already-live ServiceAccount/ClusterRoleBinding/Secret/
+# Service cleanly (same objects, same names/namespace, just tracked under a new
+# Application from here on) - no delete/recreate, no token rotation, no NodePort
+# reassignment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infisical-shared-k8s-auth
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/infisical-shared-k8s-auth
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: infisical
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

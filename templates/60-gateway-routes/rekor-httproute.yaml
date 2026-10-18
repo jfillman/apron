@@ -1,0 +1,24 @@
+# Rekor's API on the dev gateway (2026-10-11), for Tower's break-glass recordings (gaps phase B, G5): Backstage on
+# the prod cluster anchors each recording's SHA-256 in the platform's transparency log at session end, and anyone can verify a
+# recording against the log without Backstage. Reached from the prod cluster as http://<service>.<domain>:8080 through the
+# Backstage Deployment's hostAliases, the same path <service>.<domain> takes. Rekor itself needs no credential to
+# append or read; the entry is bound to the backend's anchor key, whose public half is in the entry.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rekor
+  namespace: rekor-system
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - rekor.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: rekor-server
+          port: 80

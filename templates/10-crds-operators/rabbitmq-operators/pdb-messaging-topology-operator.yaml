@@ -1,0 +1,12 @@
+# Keeps one topology operator replica (and so its admission webhook) up through voluntary disruptions
+# (airframe review C8; see messaging-topology-operator.yaml's replicas comment).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: messaging-topology-operator
+  namespace: rabbitmq-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: messaging-topology-operator

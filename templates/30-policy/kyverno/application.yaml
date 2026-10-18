@@ -1,0 +1,86 @@
+# Kyverno CE - the policy engine backing 30-policy/kyverno-policies/. Installed for real
+# 2026-08-24, the direct answer to a real gap found the same day: Testkube CE's single
+# shared `testkube` namespace (see the control-plane cluster's repo/50-glidepath/testkube/
+# application.yaml, ADR-0007 in platform-cicd) means Kubernetes RBAC alone can't stop
+# one tenant's TestWorkflow from referencing another tenant's placeholder Secret by
+# name - RBAC gates who may read/write a Secret OBJECT, not which Secret names a pod
+# spec may mount, and that gap needed an admission-time policy to actually close. See
+# kyverno-policies/testkube-secret-usage.yaml for the policy itself.
+#
+# Chart pinned to 3.9.0 (appVersion v1.19.0, 2026-08-20) - the first stable release with
+# the new ValidatingPolicy CRD (policies.kyverno.io/v1) generally available. The older
+# ClusterPolicy + validate.cel shape is being deprecated in favor of ValidatingPolicy
+# (JMESPath ClusterPolicy itself is slated for removal in Kyverno 1.20, ~October 2026) -
+# since this is a fresh install, there's no migration debt to inherit by building
+# straight on the new CRD from day one.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno
+    targetRevision: "3.9.0"
+#@if not isControlPlane
+    helm:
+      valuesObject:
+        backgroundController:
+          enabled: false
+        reportsController:
+          enabled: false
+        # CPU requests are reservations, and the prod cluster's one node already has ~99% of its CPU reserved (2026-10-11:
+        # the admission controller sat Pending on "Insufficient cpu" at 100m). Kyverno idles between admissions, so
+        # 20m each is honest; no CPU limit, so a burst of admissions is not throttled.
+        cleanupController:
+          enabled: true
+          replicas: 1
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 256Mi }
+        admissionController:
+          replicas: 1
+          container:
+            resources:
+              requests: { cpu: 20m, memory: 128Mi }
+              limits: { memory: 512Mi }
+        features:
+          ttlController:
+            reconciliationInterval: 1m
+#@end
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Kyverno ships several large CRDs (ClusterPolicy, ValidatingPolicy, etc) - same
+      # class of issue Testkube's own testworkflows CRD hit (see that Application's own
+      # header): client-side apply's last-applied-configuration annotation blows past
+      # the 262144-byte per-object annotation cap. Applying it here preemptively rather
+      # than waiting to rediscover the same failure live.
+      - ServerSideApply=true
+  # The 11 new policies.kyverno.io CRDs (MutatingPolicy, ValidatingPolicy, etc - the
+  # CEL-based CRDs this chart version introduces, see header comment above) render with
+  # an explicit `metadata.labels: {}` in this chart. Kubernetes silently drops an
+  # empty map on storage rather than persisting it, so live always comes back with no
+  # `labels` key at all - a permanent, unfixable-by-syncing diff confirmed live via
+  # `argocd app diff --core` (188 self-heal attempts recorded, StuckDriftLoop, before
+  # this was added). The pre-existing Kyverno CRDs (ClusterPolicy etc) don't render
+  # this empty block and aren't listed here, so a real future label diff on those still
+  # surfaces normally.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /metadata/labels
+        - /metadata/annotations
+      managedFieldsManagers:
+        - kube-apiserver

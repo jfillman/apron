@@ -1,0 +1,179 @@
+# Live-verified 2026-08-16 against a real throwaway kind cluster before ever touching
+# the dev cluster - see this directory's own README for the full verification writeup.
+#
+# targetNamespace: tekton-pipelines - the operator installs EVERY component
+# (Pipelines/Triggers/Chains/Dashboard/PaC) into this ONE namespace, confirmed live, not
+# each component's own conventional namespace (tekton-chains/pipelines-as-code) a
+# raw-manifest install (kind-observe's) uses. platform-cicd's own
+# charts/platform-cicd-control-plane and charts/platform-cicd-catalog both consume this
+# same value via tektonChainsNamespace (hack/values-<cluster>.yaml) - keep both in sync if
+# this ever changes.
+#
+# dashboard.readonly: true - the operator's own default is false (write-enabled).
+# platform-cicd's own bootstrap.sh deliberately installs Tekton Dashboard's read-only
+# variant everywhere else, specifically to avoid a standing bypass around the "no
+# elevated identity anywhere" posture (see hack/bootstrap.sh's own Dashboard comment) -
+# this makes the operator match that same posture explicitly rather than silently
+# installing the wrong mode.
+#
+# result.disabled: false - Tekton Results ENABLED 2026-09-17 for long-term pipeline data
+# retention. Grafana/DORA-exporter/CDEvents track metrics and events, not the actual
+# PipelineRun/TaskRun objects (full spec+status+step logs) - those previously only lived
+# in etcd until pipelinerun-pruner-cronjob (glidepath-control-plane chart) deleted
+# everything past the newest-per-pipeline after 24h, with no durable archive at all.
+#
+# is_external_db: false (unchanged) - no general-purpose Postgres provisioning path
+# exists in this stack (Crossplane here only manages GitHub repos), so the operator's own
+# auto-managed internal Postgres+PVC is used rather than standing up a dedicated one.
+#
+# secret_name: tekton-results-s3 (this directory's own tekton-results-s3-secret.yaml) -
+# S3 log/result storage reuses the existing observability MinIO instance (a
+# `tekton-results` bucket added to 40-observability/minio/create-buckets-job.yaml's
+# existing thanos/loki/tempo bucket job) rather than a dedicated MinIO, matching how the
+# other observability components already share that one instance.
+#
+# watcher.completed_run_grace_period: "1h" - the Results watcher archives-then-deletes
+# each completed run's CR within an hour of completion, well ahead of the separate
+# pipelinerun-pruner-cronjob's 24h RETENTION_HOURS. This makes Results the primary, fast
+# cleanup path (freeing etcd/pod-count pressure, a documented recurring capacity issue on
+# this cluster) with the pruner becoming a no-op safety net rather than racing Results for
+# the same objects. watcher.disable_storing_incomplete_runs: true - only finished runs
+# are archived.
+#
+# Three SEPARATE flags are all required for logs to actually reach the S3 bucket, not
+# just the confusingly-similarly-named result.logs_api: (1) result.logs_api: true enables
+# the API server's log-retrieval endpoints, (2) result.logs_type: S3 picks the storage
+# backend (with neither, DB records for PipelineRun/TaskRun objects archive fine, but
+# zero log objects ever reach the bucket - confirmed live), and (3) watcher.logs_api:
+# true - a DIFFERENT field on the watcher's own config, not inherited from result.logs_api
+# - actually makes the watcher push step logs to the API at all (confirmed live: the
+# watcher's own startup log prints "logs disable in watcher" verbatim when this is unset,
+# regardless of the other two).
+#
+# result.options.deployments.tekton-results-api - even with all three flags above
+# correct, every log upload failed live with "operation error S3: UploadPart, compute
+# input header checksum failed, unseekable stream is not supported without TLS and
+# trailing checksum": aws-sdk-go-v2 (which the API server's S3 client is built on)
+# defaults to a trailing-checksum multipart upload that requires TLS, and MinIO here is
+# plain HTTP (matching how Loki/Tempo/Thanos already talk to it). Fixed via the
+# operator's documented deployment-override mechanism (tektoncd/operator's
+# TektonConfig.md), setting AWS_REQUEST_CHECKSUM_CALCULATION/
+# AWS_RESPONSE_CHECKSUM_VALIDATION=when_required on the `api` container - a real,
+# documented aws-sdk-go-v2 behavior change (config v1.27+/SDK v1.30+ default to
+# when_supported), not a MinIO-specific issue.
+#
+# No HTTPRoute for the Results API - confirmed live it's TLS-only on its single port
+# (gRPC+REST share one socket; upstream install docs require generating a TLS cert as a
+# hard prerequisite), and kiac's Gateway has only a plain HTTP/80 listener on either
+# cluster today. A plain HTTPRoute (like tekton-dashboard-ui's, which backends to a
+# plain-HTTP port) can't front a TLS-only backend - Traefik would send cleartext to a TLS
+# socket and every request would fail the handshake. Exposing this needs a real Gateway
+# TLS/passthrough listener, out of scope here - access via `tkn results` CLI or
+# `kubectl port-forward` for now. See docs/admin/tekton-results.md (glidepath) for the
+# full writeup.
+#
+# platforms.kubernetes.pipelinesAsCode.enable: false (was true) - flipped 2026-08-23,
+# same pass as pipelines-as-code-vendored.yaml (this directory) - the operator's own
+# TektonTrigger-readiness reconcile loop never gets far enough to install PAC itself on
+# a truly clean install of this exact vendored build (confirmed live: PAC's Repository
+# CRD never existed until installed standalone), so PAC is now managed outside the
+# operator entirely. See that file's own header for the full mechanism and the real fix
+# once available (bump the vendored operator release, delete that file, flip this back
+# to true).
+#
+# scheduler/tektonpruner: NOT in profile: all's bundle (TektonScheduler/TektonPruner are
+# newer, opt-in components - Kueue-based multi-cluster pipeline scheduling and an
+# event-based PipelineRun/TaskRun pruner respectively), but v0.81.0's TektonConfig CRD
+# marks their sub-fields structurally `-required-` regardless of profile, confirmed live:
+# a spec missing them renders fine on a from-scratch install (defaulted by the operator's
+# own webhook) but fails real schema validation the moment anything re-applies the CR
+# ("spec.scheduler.disabled: Required value" etc.) - hit live on the dev cluster, not on the
+# throwaway cluster this design was first proven against, because that one only ever went
+# through the simpler from-scratch install path once. Both disabled - this platform
+# already has its own pipelinerun-pruner-cronjob (platform-cicd's own chart) and has no
+# multi-cluster Tekton scheduling need.
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  targetNamespace: tekton-pipelines
+  profile: all
+  dashboard:
+    readonly: true
+  result:
+    disabled: false
+    is_external_db: false
+    logs_api: true
+    logs_type: S3
+    secret_name: tekton-results-s3
+    watcher:
+      completed_run_grace_period: "1h0m0s"
+      disable_storing_incomplete_runs: true
+      logs_api: true
+      # 2026-10-12: archive step logs with the container runtime's per-line RFC3339 timestamps (the watcher reads
+      # pods with timestamps=true, the same prefix Tower's live log view already gets from the Kubernetes API). Tower
+      # parses the prefix out of archived logs so finished runs show the same time column as running ones. Only runs
+      # archived after this took effect carry it. Tekton Results watcher flag -logs_timestamps.
+      logs_timestamps: true
+    options:
+      deployments:
+        tekton-results-api:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: api
+                    # 2026-10-08: the API restarted 88 times. It had no requests (BestEffort), so a Backstage build
+                    # saturating the node starved it, /healthz missed its 1s timeout three times and the kubelet killed
+                    # it (exit 2). While it was down the relay refused connections and Tower silently showed no archived
+                    # runs. Requests give it a guaranteed CPU share. (Its probes stay 1s/3 misses: the operator's deployment override applies resources and env but ignores livenessProbe/readinessProbe - verified live 2026-10-08.)
+                    resources:
+                      requests: { cpu: 250m, memory: 128Mi }
+                      limits: { memory: 512Mi }
+                    env:
+                      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+                        value: when_required
+                      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+                        value: when_required
+  # pipeline.coschedule: disabled (2026-10-09, glidepath pipeline-performance report item 6). The operator default
+  # `workspaces` runs Tekton's Affinity Assistant: every PipelineRun with a PVC workspace (build, test) first creates
+  # a StatefulSet and a placeholder pod, and the first TaskRun waits for it (10-25 s per run measured on this
+  # cluster). Its only job is to put every TaskRun sharing a PVC on one node, which a single-node cluster does
+  # anyway. On a multi-node cluster with node-pinned storage (local-path), the PV's own node affinity still pulls
+  # every consumer to one node; with network-attached ReadWriteOnce storage switch to `pipelineruns`, which pins a
+  # whole PipelineRun to one node (and also allows more than one PVC workspace per TaskRun).
+  pipeline:
+    coschedule: disabled
+    # Default requests for every Tekton container that sets none (2026-10-09, glidepath
+    # docs/admin/pipeline-performance.md "Step resources"). Without any request a step pod is BestEffort: the
+    # kubelet puts every BestEffort pod in one cgroup with the minimum CPU weight, so under load all pipeline
+    # steps together got less CPU than any single pod with a request (the Semgrep scan step ranged 5-239 s on
+    # a few files). A small request moves each pod into the Burstable class with a weight that tracks its
+    # request. Requests only - no limits, nothing gets throttled or OOM-killed by this. Kept small because
+    # requests add up per container and a pod's steps run one at a time: an 8-step debrief reserves 200m.
+    # The CPU-heavy steps (builds, tests, scans) set larger requests in their own Task definitions.
+    options:
+      configMaps:
+        config-defaults:
+          # metadata: {} is what the operator's webhook defaults it to; without it Argo CD
+          # reports the TektonConfig OutOfSync forever (seen live 2026-10-09).
+          metadata: {}
+          data:
+            default-container-resource-requirements: |
+              default:
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
+  platforms:
+    kubernetes:
+      pipelinesAsCode:
+        enable: false
+  scheduler:
+    disabled: true
+    multi-cluster-disabled: true
+    multi-cluster-role: Hub
+    config.yaml: {}
+  tektonpruner:
+    disabled: true
+    global-config: {}

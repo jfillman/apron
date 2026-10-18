@@ -1,0 +1,68 @@
+# ADR-0021 (glidepath docs/admin/adr/0021-rollout-facts-and-release-record.md): the Argo
+# Rollouts notifications engine reports each tracked Rollout's phase to glidepath's
+# argocd-outcome-relay on the dev cluster, which turns it into the release CDEvents. Replaces
+# the PreSync/PostSync/SyncFail hook Jobs (still running in parallel during phase 1; the relay
+# is in FACTS_MODE=shadow so nothing is reported twice).
+#
+# What phase 0 found (glidepath .../0021-phase0-findings.md), and why this file looks as it does:
+#  - Every trigger requires observedGeneration == generation. Without it the engine sent
+#    Healthy facts carrying the NEW release-id and the OLD pod hash before the controller had
+#    seen the update.
+#  - Delivery is at-most-once and a failure is silent (no error, marked notified, never
+#    redelivered). fact-heartbeat re-sends current state once per 15 minutes (the controller's
+#    own resync), so a lost fact is a late fact. notification-prune.yaml bounds the state the
+#    engine keeps for that.
+#  - Subscription is by label (hangar.io/release-tracked=true, rendered by airframe-application
+#    from releaseTracking.releaseId), so no per-app annotation is needed.
+#
+# The webhook URL is the dev node's LAN address: pods here do not resolve <domain>
+# (see reference: the same address is hostAliased in four other places). It drifts when the dev
+# VM's address changes; refresh-kiac-hosts.sh is the place that already tracks it. A real
+# cluster uses a real hostname.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argo-rollouts-notification-configmap
+  namespace: argo-rollouts
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: release-facts
+data:
+  service.webhook.glidepath-relay: |
+    url: @@RELAY_URL@@
+    headers:
+    - name: Authorization
+      value: Bearer $relay-token
+    - name: Content-Type
+      value: application/json
+  template.fact: |
+    webhook:
+      glidepath-relay:
+        method: POST
+        path: /facts/@@CLUSTER_NAME@@
+        body: |
+          {"ns":{{toJson .rollout.metadata.namespace}},"name":{{toJson .rollout.metadata.name}},"uid":{{toJson .rollout.metadata.uid}},"generation":{{.rollout.metadata.generation}},"annotations":{"hangar.io/release-id":{{toJson (index .rollout.metadata.annotations "hangar.io/release-id")}},"hangar.io/app-namespace":{{toJson (index .rollout.metadata.annotations "hangar.io/app-namespace")}}},"status":{"phase":{{toJson .rollout.status.phase}},"message":{{toJson .rollout.status.message}},"abort":{{toJson .rollout.status.abort}},"currentPodHash":{{toJson .rollout.status.currentPodHash}},"currentStepIndex":{{toJson .rollout.status.currentStepIndex}},"observedGeneration":{{toJson .rollout.status.observedGeneration}}}}
+  trigger.fact-progressing: |
+    - when: rollout.status.phase == 'Progressing' && rollout.status.observedGeneration == string(rollout.metadata.generation)
+      oncePer: string(rollout.metadata.generation) + "/" + rollout.status.phase
+      send: [fact]
+  trigger.fact-paused: |
+    - when: rollout.status.phase == 'Paused' && rollout.status.observedGeneration == string(rollout.metadata.generation)
+      oncePer: string(rollout.metadata.generation) + "/" + string(rollout.status.currentStepIndex)
+      send: [fact]
+  trigger.fact-healthy: |
+    - when: rollout.status.phase == 'Healthy' && rollout.status.observedGeneration == string(rollout.metadata.generation)
+      oncePer: string(rollout.metadata.generation) + "/" + rollout.status.currentPodHash
+      send: [fact]
+  trigger.fact-degraded: |
+    - when: rollout.status.phase == 'Degraded' && rollout.status.observedGeneration == string(rollout.metadata.generation)
+      oncePer: string(rollout.metadata.generation) + "/" + rollout.status.message
+      send: [fact]
+  trigger.fact-heartbeat: |
+    - when: rollout.status.observedGeneration == string(rollout.metadata.generation)
+      oncePer: string(time.Now().Unix() / 900)
+      send: [fact]
+  subscriptions: |
+    - selector: hangar.io/release-tracked=true
+      triggers: [fact-progressing, fact-paused, fact-healthy, fact-degraded, fact-heartbeat]
+      recipients: ["glidepath-relay:"]

@@ -1,0 +1,42 @@
+# gitops-strategy.md §6: every app onboarded via the tenant-onboarding ApplicationSet
+# gets its own AppProject - sourceRepos scoped to idp-service-catalog + this app's own
+# gitopsRepoUrl only, destinations scoped to this app's own app-<appName>-* namespaces
+# on this cluster only. This IS the real enforcement boundary (a throwaway Application
+# pointed outside sourceRepos gets hard-rejected by ArgoCD at the API level, already
+# live-tested in platform-cicd for the analogous single-project case) - not just
+# documentation of intent.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ .Values.appName }}
+  namespace: argocd-apps
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+    hangar.io/app: {{ .Values.appName }}
+spec:
+  description: "Per-app AppProject for {{ .Values.appName }}, gitops-strategy.md §6"
+  sourceRepos:
+    - {{ .Values.idpServiceCatalogRepoUrl }}
+    {{- /* No gitops repo (a function): nothing to allow, and a null entry is invalid. */}}
+    {{- if .Values.gitopsRepoUrl }}
+    - {{ .Values.gitopsRepoUrl }}
+    {{- end }}
+    {{- range .Values.allowedChartRepos }}
+    - {{ . }}
+    {{- end }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "app-{{ .Values.appName }}-*"
+  # An AppProject with no clusterResourceWhitelist implicitly denies EVERY
+  # cluster-scoped resource, including the Namespace the tenant-onboarding
+  # Application's CreateNamespace=true sync option needs to create - a real bug
+  # found live 2026-08-15 (first time an ApplicationEnvironment-driven deploy ever
+  # exercised this path for a namespace that didn't already exist by hand; no prior
+  # verification pass got this far). Narrowly scoped to just Namespace, not a
+  # wildcard - this project never needs any other cluster-scoped resource through
+  # this AppProject (§ "What's deliberately NOT in this chart" in
+  # service-catalog-design.md already rules that out for idp-application itself).
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

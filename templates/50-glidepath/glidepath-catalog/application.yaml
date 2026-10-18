@@ -1,0 +1,76 @@
+# Git HEAD source (not a version-pinned tag) - matches how
+# tenant-onboarding-applicationset.yaml's own source 0 already tracks
+# platformCicdRepoUrl at `main`.
+#
+# tektonChainsNamespace: tekton-pipelines - must match tekton-operator/tektonconfig.yaml's
+# own spec.targetNamespace exactly, or verify-image-provenance.yaml/
+# verify-sast-attestation.yaml's cosign identity-regexp check fails every real build (see
+# tekton-operator/README.md). Set here AND in platform-cicd-control-plane/
+# values-<cluster>.yaml - same value, two charts, kept in sync deliberately.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: glidepath-catalog
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: glidepath
+spec:
+  project: default
+  sources:
+    - repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/glidepath.git
+      targetRevision: @@GLIDEPATH_VERSION@@
+      path: charts/glidepath-catalog
+      helm:
+        releaseName: glidepath-catalog
+        valuesObject:
+          tektonChainsNamespace: tekton-pipelines
+          # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
+          # for images signed before the switch (glidepath docs/admin/image-signing.md).
+          sigstoreIssuers:
+            - @@ISSUER@@
+            - https://kubernetes.default.svc.cluster.local
+          # Backstage runs on the prod cluster, a different cluster from this one - not an
+          # in-cluster Service DNS name. <service>.<domain> isn't real DNS either
+          # (only resolves on a developer's own laptop via refresh-kiac-hosts.sh); reaching
+          # it from a pod here also requires the hostAliases entry glidepath-app's own
+          # backstageHostAliasIP value renders (see that value's own comment) - both must
+          # point at the same current Backstage host IP, kept in sync manually.
+          #
+          # Port 80, NOT 7007: kiac's Gateway (<gateway namespace>/kiac, see
+          # the prod cluster's repo/60-backstage/backstage/httproute.yaml) only has an
+          # HTTP listener on port 80 - port 7007 is Backstage's own Service port,
+          # reachable only from inside the prod cluster, never exposed on the node IP directly.
+          # Confirmed live: curl -H "Host: <service>.<domain>" http://<ip>:80/
+          # returns 200; :7007 gets connection refused.
+          #
+          # 2026-09-23/24: Backstage now lives on the prod cluster (a separate host, <hub address> -
+          # the prod cluster is gone), not behind the laptop's SSH tunnel. :1880 is that tunnel's
+          # loopback-only listener on the developer's Mac, which no pod can reach (every
+          # notify-backstage call timed out: "Failed to connect ... port 1880"). The
+          # Gateway's own port 80 on the host IS reachable directly from this cluster's pods
+          # (confirmed live: curl -H "Host: <service>.<domain>" http://<hub address>/
+          # from a the dev cluster pod -> 401 from Backstage's auth, i.e. reached), so no port here.
+          valuesValidatorRepository: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/airframe-validate
+          backstageBaseUrl: "@@TOWER_BASE_URL@@"
+          # Needed by deliver-onboarding-files.yaml (bakes hostAliases into a newly-
+          # onboarded or resynced app's git-rooted .tekton/*.yaml PipelineRun) - same value
+          # as glidepath-app's own backstageHostAliasIP, kept in sync manually alongside
+          # backstageBaseUrl above whenever the prod cluster restarts.
+          backstageHostAliasIP: "@@TOWER_HOST_ALIAS_IP@@"
+        valueFiles:
+          # defaultChart: the values gate runs airframe-validate at this cluster's default chart tag (ADR-0023 slice 1).
+          - $clustercfg/cluster-defaults.yaml
+    - repoURL: @@REPO_URL@@
+      targetRevision: main
+      ref: clustercfg
+      directory:
+        exclude: "*"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-catalog
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

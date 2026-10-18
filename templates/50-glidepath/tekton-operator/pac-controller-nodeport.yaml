@@ -1,0 +1,23 @@
+# Exposes the Pipelines-as-Code controller's webhook listener on the the dev cluster node IP
+# (<node address>:30860) for the laptop's cloudflared tunnel (pac-webhook.hangarplatform.dev).
+# Replaces a launchd `kubectl port-forward`, which macOS Local Network privacy blocks
+# ("no route to host") whenever launchd respawns it. A separate Service with the same
+# selector as the operator-owned pipelines-as-code-controller Service, so it never fights
+# the Tekton operator's ownership (same pattern as infisical-nodeport.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipelines-as-code-controller-nodeport
+  namespace: tekton-pipelines
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/part-of: pipelines-as-code
+  ports:
+    - name: http-listener
+      port: 8080
+      targetPort: 8082
+      nodePort: 30860

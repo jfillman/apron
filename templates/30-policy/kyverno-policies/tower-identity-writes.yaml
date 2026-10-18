@@ -1,0 +1,138 @@
+# Tower's write verbs on the dev cluster, held to what Tower actually does (2026-10-11; spec
+# SPEC-tower-cluster-credentials.md section 3.5, phase 0).
+#
+# Backstage's identity (backstage-system/backstage-ingestor) holds create+patch on pipelineruns and create+delete on
+# rolebindings cluster-wide. Unguarded, that is cluster-admin: a PipelineRun in argocd naming
+# argocd-application-controller (bound to */*/*) with an inline taskSpec has Tekton start a pod holding that token, and
+# any RoleBinding anywhere can be deleted.
+#
+# - tower-pipelinerun-shape: Backstage's PipelineRuns are Glidepath's own shape (every TriggerTemplate and run on this
+#   cluster, checked 2026-10-11): an app -cicd namespace, a cluster-resolver pipelineRef into platform-catalog, SA
+#   pipeline-runner, no inline spec, no per-task overrides, a podTemplate of hostAliases only, and emptyDir or
+#   volumeClaimTemplate workspaces. An update (Cancel) may change spec.status and nothing else.
+# - tower-rolebinding-delete: Backstage may delete only tower-breakglass-* RoleBindings (tower-breakglass.yaml guards
+#   their creation).
+#
+# Same conventions as tower-breakglass.yaml: compiled to a native ValidatingAdmissionPolicy (vpol-<name>), failurePolicy
+# Fail, matchConditions keep each policy to Backstage's own requests, every optional field read behind has().
+# Phase 3 of the spec (2026-10-12) added the federated writer identity, hangar:the prod cluster:tower-actor; phase 4 removed the
+# old backstage-system/backstage-ingestor ServiceAccount, so it is the only username left.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-pipelinerun-shape
+  annotations:
+    policies.kyverno.io/title: Tower PipelineRun shape
+    policies.kyverno.io/description: Backstage may only start Glidepath-shaped PipelineRuns in app -cicd namespaces, and only cancel them.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pipelineruns"]
+  matchConditions:
+    - name: backstage
+      expression: >-
+        has(request.userInfo.username) &&
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+  variables:
+    - name: isCreate
+      expression: request.operation == 'CREATE'
+    - name: ref
+      expression: "has(object.spec.pipelineRef) ? object.spec.pipelineRef : {}"
+    - name: refParams
+      expression: "has(variables.ref.params) ? variables.ref.params : []"
+  validations:
+    - expression: request.namespace.matches('^app-[a-z0-9-]+-cicd$')
+      message: Backstage may only start or cancel PipelineRuns in an app's -cicd namespace.
+    - expression: "!variables.isCreate || !has(object.spec.pipelineSpec)"
+      message: No inline pipelineSpec.
+    - expression: >-
+        !variables.isCreate || (
+          has(variables.ref.resolver) && variables.ref.resolver == 'cluster' &&
+          size(variables.refParams) == 3 &&
+          variables.refParams.exists(p, p.name == 'kind' && p.value == 'pipeline') &&
+          variables.refParams.exists(p, p.name == 'name') &&
+          variables.refParams.exists(p, p.name == 'namespace' && p.value == 'platform-catalog')
+        )
+      message: pipelineRef must be the cluster resolver for a Pipeline in platform-catalog.
+    - expression: "!variables.isCreate || !has(object.spec.taskRunSpecs)"
+      message: No per-task overrides (taskRunSpecs).
+    - expression: >-
+        !variables.isCreate || (
+          has(object.spec.taskRunTemplate) && has(object.spec.taskRunTemplate.serviceAccountName) &&
+          object.spec.taskRunTemplate.serviceAccountName == 'pipeline-runner'
+        )
+      message: taskRunTemplate.serviceAccountName must be pipeline-runner.
+    - expression: >-
+        !variables.isCreate || !has(object.spec.taskRunTemplate) ||
+        !has(object.spec.taskRunTemplate.podTemplate) ||
+        object.spec.taskRunTemplate.podTemplate.all(k, k == 'hostAliases')
+      message: taskRunTemplate.podTemplate may only set hostAliases.
+    - expression: >-
+        !variables.isCreate || !has(object.spec.workspaces) ||
+        object.spec.workspaces.all(w, w.all(k, k in ['name', 'subPath', 'emptyDir', 'volumeClaimTemplate']))
+      message: Workspaces may only be emptyDir or volumeClaimTemplate.
+    - expression: >-
+        !variables.isCreate || !has(object.metadata.annotations) ||
+        object.metadata.annotations.all(k, !k.startsWith('pipelinesascode.tekton.dev/'))
+      message: A run Backstage starts must not carry Pipelines-as-Code annotations (it would report status for a trigger it is not).
+    - expression: >-
+        variables.isCreate || (
+          object.spec.all(k, k == 'status' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+          oldObject.spec.all(k, k == 'status' || k in object.spec)
+        )
+      message: Backstage may only change spec.status on an existing PipelineRun.
+    - expression: >-
+        variables.isCreate || !has(object.spec.status) ||
+        (has(oldObject.spec.status) && object.spec.status == oldObject.spec.status) ||
+        object.spec.status in ['Cancelled', 'CancelledRunFinally', 'StoppedRunFinally']
+      message: spec.status may only be set to Cancelled, CancelledRunFinally or StoppedRunFinally.
+    - expression: >-
+        variables.isCreate || (
+          has(object.metadata.labels) == has(oldObject.metadata.labels) &&
+          (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels) &&
+          has(object.metadata.annotations) == has(oldObject.metadata.annotations) &&
+          (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
+        )
+      message: Backstage may not change an existing PipelineRun's labels or annotations.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: tower-rolebinding-delete
+  annotations:
+    policies.kyverno.io/title: Tower RoleBinding deletes
+    policies.kyverno.io/description: Backstage may only delete tower-breakglass-* RoleBindings.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["rolebindings"]
+  matchConditions:
+    - name: backstage
+      expression: >-
+        has(request.userInfo.username) &&
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+  validations:
+    - expression: oldObject != null && oldObject.metadata.name.startsWith('tower-breakglass-')
+      message: Backstage may only delete RoleBindings named tower-breakglass-*.

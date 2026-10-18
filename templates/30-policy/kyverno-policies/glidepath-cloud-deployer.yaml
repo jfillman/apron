@@ -1,0 +1,206 @@
+# Who may run as glidepath-cloud-deployer (2026-10-16; SPEC-glidepath-deployer-federation.md phase 3).
+#
+# glidepath-cloud-deployer is the one ServiceAccount an app's AWS deploy role trusts
+# (system:serviceaccount:app-<app>-cicd:glidepath-cloud-deployer, Airframe AwsLambdaTarget). Any pod running as it can
+# project a token AWS accepts. Kubernetes does not limit which ServiceAccount a pod in the same namespace uses, and
+# pipeline-runner (every pipeline Task, including the ones that run the app's own code) may create PipelineRuns. So
+# without these policies, a test step could start a run whose inline Task holds that token.
+#
+# Labels can't carry the decision: a PipelineRun's labels are copied onto its TaskRuns and pods, so tekton.dev/task
+# can be forged by an inline taskSpec. Instead, the decision rests on who creates the object (request.userInfo,
+# which a client can't forge) and on the PipelineRun's shape:
+#
+# - glidepath-cloud-deployer-pods: a pod as that ServiceAccount must be created by Tekton's controller (a TaskRun's
+#   pod) or the Job controller (the target's bootstrap Job).
+# - glidepath-cloud-deployer-taskruns: a TaskRun as it must come from Tekton's controller, i.e. from a PipelineRun.
+#   Others may update one only without changing its spec (cancelling it aside): Chains and Results add finalizers and
+#   annotations to every TaskRun, and refusing them left the deploy TaskRun unsigned and missing from Results.
+# - glidepath-cloud-deployer-pipelineruns: a PipelineRun naming it must run the catalog's deploy Pipeline (cluster
+#   resolver, platform-catalog, no inline spec); only deploy-aws-lambda and deploy-aws-ecs may get it, with no other override; the
+#   run-wide default stays pipeline-runner; and the run-wide podTemplate may set hostAliases only, so no env (a
+#   BASH_ENV alone would run code inside the deploy steps that hold the token) and no volumes reach that Task.
+#   The deploy Pipeline and its Tasks come from platform-catalog, which an app repository cannot change.
+# - glidepath-cloud-deployer-jobs: a Job as it must be composed by Crossplane (the AwsLambdaTarget bootstrap Job).
+#   Others may update one only without changing its spec (the garbage collector adds a finalizer to delete it).
+#
+# Matched by ServiceAccount name in every namespace, so a new app is covered without an edit here. has()-guarded match
+# conditions: these fail closed, and a CEL error in a match condition would refuse every object of that kind.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: glidepath-cloud-deployer-pods
+  annotations:
+    policies.kyverno.io/title: glidepath-cloud-deployer pods
+    policies.kyverno.io/description: Only Tekton's controller and the Job controller may create a pod running as glidepath-cloud-deployer.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+    # No pod-controller autogen: Kyverno would copy this rule onto Jobs (and Deployments, ...) with the same
+    # creator check, refusing the Crossplane-composed bootstrap Job that glidepath-cloud-deployer-jobs allows.
+    # With it off, Kyverno also generates a native ValidatingAdmissionPolicy for this one (it refuses to while
+    # pod-controller autogen is on).
+    podControllers:
+      controllers: []
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: runs-as-cloud-deployer
+      expression: >-
+        has(object.spec.serviceAccountName) && object.spec.serviceAccountName == 'glidepath-cloud-deployer'
+  validations:
+    - expression: >-
+        has(request.userInfo.username) && request.userInfo.username in [
+          'system:serviceaccount:tekton-pipelines:tekton-pipelines-controller',
+          'system:serviceaccount:kube-system:job-controller'
+        ]
+      message: Only a Glidepath deploy TaskRun or an AwsLambdaTarget bootstrap Job may run as glidepath-cloud-deployer.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: glidepath-cloud-deployer-taskruns
+  annotations:
+    policies.kyverno.io/title: glidepath-cloud-deployer TaskRuns
+    policies.kyverno.io/description: A TaskRun may run as glidepath-cloud-deployer only when Tekton created it from a PipelineRun.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["taskruns"]
+  matchConditions:
+    - name: runs-as-cloud-deployer
+      expression: >-
+        has(object.spec.serviceAccountName) && object.spec.serviceAccountName == 'glidepath-cloud-deployer'
+  validations:
+    - expression: >-
+        (has(request.userInfo.username) &&
+         request.userInfo.username == 'system:serviceaccount:tekton-pipelines:tekton-pipelines-controller') ||
+        (request.operation == 'UPDATE' &&
+         object.spec.all(k, k in ['status', 'statusMessage'] || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+         oldObject.spec.all(k, k in ['status', 'statusMessage'] || k in object.spec))
+      message: >-
+        A TaskRun as glidepath-cloud-deployer comes only from a deploy PipelineRun, never directly, and only Tekton may
+        change its spec.
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: glidepath-cloud-deployer-pipelineruns
+  annotations:
+    policies.kyverno.io/title: glidepath-cloud-deployer PipelineRuns
+    policies.kyverno.io/description: A PipelineRun may hand glidepath-cloud-deployer only to the catalog deploy Pipeline's deploy-aws-lambda and deploy-aws-ecs tasks.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pipelineruns"]
+  matchConditions:
+    - name: names-cloud-deployer
+      expression: >-
+        (has(object.spec.taskRunTemplate) && has(object.spec.taskRunTemplate.serviceAccountName) &&
+         object.spec.taskRunTemplate.serviceAccountName == 'glidepath-cloud-deployer') ||
+        (has(object.spec.taskRunSpecs) &&
+         object.spec.taskRunSpecs.exists(s, has(s.serviceAccountName) && s.serviceAccountName == 'glidepath-cloud-deployer'))
+  variables:
+    - name: ref
+      expression: "has(object.spec.pipelineRef) ? object.spec.pipelineRef : {}"
+    - name: refParams
+      expression: "has(variables.ref.params) ? variables.ref.params : []"
+    - name: deployerSpecs
+      expression: >-
+        has(object.spec.taskRunSpecs) ?
+          object.spec.taskRunSpecs.filter(s, has(s.serviceAccountName) && s.serviceAccountName == 'glidepath-cloud-deployer') : []
+  validations:
+    - expression: "!has(object.spec.pipelineSpec)"
+      message: A run that names glidepath-cloud-deployer may not carry an inline pipelineSpec.
+    - expression: >-
+        has(variables.ref.resolver) && variables.ref.resolver == 'cluster' &&
+        size(variables.refParams) == 3 &&
+        variables.refParams.exists(p, p.name == 'kind' && p.value == 'pipeline') &&
+        variables.refParams.exists(p, p.name == 'name' && p.value == 'deploy') &&
+        variables.refParams.exists(p, p.name == 'namespace' && p.value == 'platform-catalog')
+      message: Only the catalog's deploy Pipeline (cluster resolver, platform-catalog) may run with glidepath-cloud-deployer.
+    - expression: >-
+        !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.serviceAccountName) ||
+        object.spec.taskRunTemplate.serviceAccountName != 'glidepath-cloud-deployer'
+      message: glidepath-cloud-deployer may not be the run-wide ServiceAccount (taskRunTemplate); name it for deploy-aws-lambda or deploy-aws-ecs only.
+    - expression: >-
+        variables.deployerSpecs.all(s,
+          has(s.pipelineTaskName) && s.pipelineTaskName in ['deploy-aws-lambda', 'deploy-aws-ecs'] &&
+          s.all(k, k in ['pipelineTaskName', 'serviceAccountName']))
+      message: Only deploy-aws-lambda and deploy-aws-ecs may run as glidepath-cloud-deployer, with no other override (podTemplate, stepSpecs, ...).
+    - expression: >-
+        !has(object.spec.taskRunSpecs) ||
+        object.spec.taskRunSpecs.all(s, !has(s.pipelineTaskName) || !(s.pipelineTaskName in ['deploy-aws-lambda', 'deploy-aws-ecs']) ||
+          s.all(k, k in ['pipelineTaskName', 'serviceAccountName']))
+      message: deploy-aws-lambda and deploy-aws-ecs may carry no override besides their ServiceAccount.
+    - expression: >-
+        !has(object.spec.taskRunTemplate) || !has(object.spec.taskRunTemplate.podTemplate) ||
+        object.spec.taskRunTemplate.podTemplate.all(k, k == 'hostAliases')
+      message: In a run with glidepath-cloud-deployer, taskRunTemplate.podTemplate may only set hostAliases (no env or volumes reach the deploy Task).
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: glidepath-cloud-deployer-jobs
+  annotations:
+    policies.kyverno.io/title: glidepath-cloud-deployer Jobs
+    policies.kyverno.io/description: Only Crossplane (the AwsLambdaTarget bootstrap Job) may create a Job running as glidepath-cloud-deployer.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["jobs"]
+  matchConditions:
+    - name: runs-as-cloud-deployer
+      expression: >-
+        has(object.spec.template.spec.serviceAccountName) &&
+        object.spec.template.spec.serviceAccountName == 'glidepath-cloud-deployer'
+  validations:
+    - expression: >-
+        (has(request.userInfo.username) &&
+         request.userInfo.username == 'system:serviceaccount:crossplane-system:crossplane') ||
+        (request.operation == 'UPDATE' && object.spec == oldObject.spec)
+      message: >-
+        Only an AwsLambdaTarget bootstrap Job, composed by Crossplane, may run as glidepath-cloud-deployer, and only
+        Crossplane may change its spec.
