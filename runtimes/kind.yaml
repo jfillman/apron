@@ -6,7 +6,7 @@ runtime:
   nodeExec: docker exec -i      # + <node>; e.g. "podman exec -i" or "ssh <host> podman exec -i" for apron identity
   kind:
     config: hack/kind-config.yaml
-    podSubnet: 192.168.0.0/16
+    podSubnet: 10.244.0.0/16     # never a LAN range: 192.168.0.0/16 swallowed a hub at 192.168.1.x
     maxPods: 250
     hostHttpPort: 80
     hostHttpsPort: 443
