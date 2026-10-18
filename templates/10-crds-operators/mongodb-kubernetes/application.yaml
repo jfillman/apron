@@ -71,6 +71,22 @@ metadata:
     hangar.io/subcomponent: crds-operators
 spec:
   project: default
+#@if isControlPlane
+  # The control plane has no namespace/ source (MANIFEST): this cluster's own Namespace handling
+  # differs, and a source pointing at a folder that isn't rendered fails with "app path does not exist".
+  source:
+    repoURL: https://mongodb.github.io/helm-charts
+    chart: mongodb-kubernetes
+    targetRevision: 1.12.0
+    helm:
+      releaseName: mongodb-kubernetes
+      valuesObject:
+        operator:
+          watchedResources:
+            - mongodbcommunity
+          watchNamespace: "*"
+#@end
+#@if not isControlPlane
   sources:
     - repoURL: @@REPO_URL@@
       targetRevision: main
@@ -85,6 +101,7 @@ spec:
             watchedResources:
               - mongodbcommunity
             watchNamespace: "*"
+#@end
   destination:
     server: https://kubernetes.default.svc
     namespace: mongodb-kubernetes-system
