@@ -29,12 +29,17 @@ metadata:
 spec:
   # Kept under AppProject's 255-byte description limit (hit live, first pass was too
   # long) - full rationale lives in this file's own header comment instead.
-  description: "XR onboarding (service-catalog-design.md §0): renders @@TENANTS_REPO_NAME@@/tenants/<app>/xr-requests/
-    into app-<appName>-@@XR_NAMESPACE_SUFFIX@@."
+  description: "Bootstrap-tier XR onboarding (service-catalog-design.md §0): renders
+    @@TENANTS_REPO_NAME@@/tenants/<app>/xr-requests/ into <type>-<appName>-@@XR_NAMESPACE_SUFFIX@@."
   sourceRepos:
     - @@TENANTS_REPO_URL@@
+  # infra-*-cicd added 2026-10-17: applicationset.yaml now takes the prefix from the tenant's
+  # platformIdentity.type, so infra tenants (InfraService) land in their own infra-<name>-cicd
+  # control-plane namespace instead of a stray app-<name>-cicd one.
   destinations:
     - namespace: "app-*-@@XR_NAMESPACE_SUFFIX@@"
+      server: https://kubernetes.default.svc
+    - namespace: "infra-*-@@XR_NAMESPACE_SUFFIX@@"
       server: https://kubernetes.default.svc
   # Same gap ../tenant-appprojects/chart/templates/appproject.yaml already documents
   # hitting live: an AppProject with no clusterResourceWhitelist implicitly denies every

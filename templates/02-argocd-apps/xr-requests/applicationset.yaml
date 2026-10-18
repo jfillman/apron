@@ -26,12 +26,44 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
+  # Destination namespace prefix (2026-10-17): the XRs belong in the tenant's own control-plane
+  # namespace, which glidepath's tenant-onboarding ApplicationSet names
+  # <platformIdentity.type>-<appName>-cicd. Until this date the prefix here was a hardcoded `app-`,
+  # so the two infra tenants (skyport-auth, skyport-broker) got a second, stray app-<name>-cicd
+  # namespace holding only their XRs while their real control-plane namespace was
+  # infra-<name>-cicd. The prefix is now read from tenants/<app>/identity.yaml.
+  #
+  # Why a merge generator and what it is keyed on: the directories generator stays the BASE (see the
+  # header - a brand-new app has no identity.yaml yet, TektonCICD writes it), and a files generator
+  # on identity.yaml is merged in where the file exists. Argo CD's merge generator cannot key on a
+  # nested value with goTemplate (documented restriction, and the key lookup in merge.go is a plain
+  # top-level map index), and the two generators' `path` maps differ (the files one adds filename
+  # keys). So both generators emit an identical top-level `values` map, {app: <dir name>}, and
+  # the merge keys on the whole `values` key - json.Marshal of a map is key-sorted, so equal maps
+  # give equal keys. pathParamPrefix keeps the files generator's path out of the base's `.path`.
+  # No identity.yaml (a brand-new app tenant) -> no merge match -> the `dig` default `app` below.
+  # A brand-new INFRA tenant must commit identity.yaml with its first xr-requests/ file, or its
+  # first sync goes to app-<name>-cicd (airframe docs/user/quickstart-broker.md says so).
   generators:
-    - git:
-        repoURL: @@TENANTS_REPO_URL@@
-        revision: main
-        directories:
-          - path: "tenants/*"
+    - merge:
+        mergeKeys:
+          - values
+        generators:
+          - git:
+              repoURL: @@TENANTS_REPO_URL@@
+              revision: main
+              directories:
+                - path: "tenants/*"
+              values:
+                app: "{{.path.basename}}"
+          - git:
+              repoURL: @@TENANTS_REPO_URL@@
+              revision: main
+              pathParamPrefix: identity
+              files:
+                - path: "tenants/*/identity.yaml"
+              values:
+                app: "{{.identity.path.basename}}"
   template:
     metadata:
       name: "{{.path.basename}}-xr-requests"
@@ -67,7 +99,10 @@ spec:
           include: "xr-requests/*.yaml"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "app-{{.path.basename}}-@@XR_NAMESPACE_SUFFIX@@"
+        # app-<name>-<suffix> or infra-<name>-<suffix> (see the generator comment). An XR file that sets its
+        # own metadata.namespace wins over this - Tower's create form writes one - so it must match.
+        # appproject.yaml only allows these two prefixes, so any other type fails the sync.
+        namespace: '{{ dig "platformIdentity" "type" "app" . }}-{{.path.basename}}-@@XR_NAMESPACE_SUFFIX@@'
       syncPolicy:
         automated:
           prune: true
