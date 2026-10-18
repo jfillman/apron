@@ -18714,11 +18714,15 @@ metadata:
     app.kubernetes.io/part-of: argo-rollouts
   name: argo-rollouts-config
 ---
+# Apron: shipped empty upstream. Where notifications are on (not the control plane), the ExternalSecret in
+# notifications-external-secret.yaml owns it instead; two owners made Argo CD and ESO fight over it.
+#@if isControlPlane
 apiVersion: v1
 kind: Secret
 metadata:
   name: argo-rollouts-notification-secret
 ---
+#@end
 apiVersion: v1
 kind: Service
 metadata:
