@@ -11,6 +11,7 @@ runtime:
     kernel: full
     cpus: 10
     cpMemory: 32G               # --cp-memory, not --memory (worker-only, ignored with --workers 0)
+    maxPods: 250                # kubelet default is 110; set on each node after create (apron up/resume), as kind's config does
 traefik:
   serviceType: NodePort
   fixedNodePorts: true
