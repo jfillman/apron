@@ -1,0 +1,12 @@
+site_name: 'Apron'
+site_description: 'Ground infrastructure a cluster needs before a Hangar can run on it'
+
+nav:
+  - Home: index.md
+  - The apron CLI: cli.md
+  - After apron up: after-up.md
+  - The fleet file (clusters.yaml): clusters-file.md
+  - Cluster identity: cluster-identity.md
+
+plugins:
+  - techdocs-core

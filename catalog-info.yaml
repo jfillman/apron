@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: apron
+  description: >-
+    Deploys Hangar onto a Kubernetes cluster: renders the cluster's GitOps repo from a small cluster.yaml, then
+    onboards it (Argo CD, the root app-of-apps, the secrets a person plants). See docs/ for the CLI, the fleet file
+    and cluster identity.
+  annotations:
+    github.com/project-slug: jfillman/apron
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: tool
+  owner: crossfader@gmail.com
+  lifecycle: experimental
+  system: hangar
