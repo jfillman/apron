@@ -5,7 +5,7 @@
 # no-hardcoded-cluster-names branches: cut new tags from them and set those tags here before rebuilding.
 versions:
   airframe:
-    catalog: v0.3.156 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions
+    catalog: v0.3.157 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions
     clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
     analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
     defaultChart: v0.3.154 # cluster-defaults.yaml defaultChart: the app chart every environment renders
