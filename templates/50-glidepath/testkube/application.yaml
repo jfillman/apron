@@ -46,7 +46,7 @@ spec:
   source:
     repoURL: https://kubeshop.github.io/helm-charts
     chart: testkube
-    targetRevision: "2.12.2"
+    targetRevision: "2.14.1"
     helm:
       releaseName: testkube
       valuesObject:
@@ -97,6 +97,14 @@ spec:
       # generates, which duplicates that CRD's large OpenAPI schema. Server-side apply
       # doesn't use that annotation at all.
       - ServerSideApply=true
+    # The registry-credentials ClusterExternalSecret (glidepath-control-plane,
+    # templates/secretstore/) selects namespaces carrying this label, so a TestWorkflow
+    # pod can run inside a private app image: Glidepath's run-testworkflow Task adds
+    # registry-credentials to every applied workflow's imagePullSecrets. Argo CD applies
+    # managedNamespaceMetadata on every sync, so the already-existing namespace gets it.
+    managedNamespaceMetadata:
+      labels:
+        hangar.io/managed-secrets: "true"
   ignoreDifferences:
     - group: apps
       kind: StatefulSet
