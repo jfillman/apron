@@ -1,0 +1,43 @@
+# 50-glidepath/check-rides/application.yaml
+#
+# Syncs the check-rides repository into Testkube's shared namespace: templates/ (the
+# TestWorkflowTemplates that define the standard a release must pass, owned by SDETs and
+# product owners) and apps/<app>/ (each app's TestWorkflow that uses one, owned by the
+# team and an SDET). Glidepath's test stage runs <app>-check-ride from here for a
+# `role: check-ride` step and never applies it itself, so what runs is what both owners
+# reviewed. Glidepath test framework, phase 2 (hangar library, "A test contract for
+# Glidepath, and a QA gate that reads it").
+#
+# Admission: the testkube-secret-usage ValidatingPolicy (30-policy) lets a workflow
+# applied by this Application reference only the Secret of the app in its hangar.io/app
+# label; the repo's own CI keeps that label equal to the apps/<app>/ folder.
+#
+# Private repo: the argocd-repo-creds for this SCM owner cover it, the same as every
+# other git source here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: check-rides
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: glidepath
+spec:
+  project: default
+  source:
+    repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/check-rides.git
+    targetRevision: main
+    path: .
+    directory:
+      recurse: true
+      include: "{templates/*.yaml,apps/*/*.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: testkube
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # A removed apps/<app>/ folder removes that app's check ride.
+      prune: true
+    syncOptions:
+      - ServerSideApply=true
