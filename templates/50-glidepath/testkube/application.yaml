@@ -46,7 +46,15 @@ spec:
   source:
     repoURL: https://kubeshop.github.io/helm-charts
     chart: testkube
-    targetRevision: "2.14.1"
+    # 2.13.1, not newer: from chart 2.13.2 the bundled MinIO Deployment hardcodes
+    # `command: ["minio"]`, which replaces the image entrypoint - and it is silo's
+    # entrypoint (docker-entrypoint.sh) that maps the legacy `minio` name to the `silo`
+    # binary. Live on hangar-dev with 2.14.1 (2026-10-19): CrashLoopBackOff, `exec:
+    # "minio": executable file not found in $PATH`. Moving past 2.13.1 needs either an
+    # image that ships a `minio` binary, the chart's MinIO disabled in favour of the
+    # cluster's own (40-observability/minio), or a command override the chart does not
+    # offer. 2.13.1 also matches the testkube CLI in Glidepath's toolbox image.
+    targetRevision: "2.13.1"
     helm:
       releaseName: testkube
       valuesObject:
