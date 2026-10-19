@@ -107,6 +107,22 @@ spec:
         automated:
           prune: true
           selfHeal: true
+#@if isControlPlane
+        # The same labels tenant onboarding puts on app-<name>-cicd (glidepath-control-plane's
+        # tenant-onboarding-applicationset.yaml): this ApplicationSet often creates the namespace first, when an
+        # app's XR requests land before its tenant onboarding, and then the namespace had none of them - no
+        # registry-credentials (the ClusterExternalSecret selects hangar.io/managed-secrets) and no Pod Security
+        # level for the builds. Keep the two lists identical.
+        managedNamespaceMetadata:
+          labels:
+            hangar.io/managed-secrets: "true"
+            pod-security.kubernetes.io/enforce: baseline
+            pod-security.kubernetes.io/enforce-version: latest
+            pod-security.kubernetes.io/warn: baseline
+            pod-security.kubernetes.io/warn-version: latest
+            pod-security.kubernetes.io/audit: baseline
+            pod-security.kubernetes.io/audit-version: latest
+#@end
         syncOptions:
           - CreateNamespace=true
           # Server-side apply (airframe review A2, 2026-10-09): with client-side apply Argo CD never
