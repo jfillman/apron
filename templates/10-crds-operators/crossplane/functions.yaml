@@ -113,6 +113,6 @@ spec:
   # multi-arch manifest (amd64 + arm64, skopeo-verified).
   # 2026-10-09: v0.1.6 -> v0.1.7 (airframe#79). Server mode runs Dex v2.46.0, the first stable
   # release with client_credentials, instead of the floating :master tag.
-  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.7
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.8
 
 #@end
