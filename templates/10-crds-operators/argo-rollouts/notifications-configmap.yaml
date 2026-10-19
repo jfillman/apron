@@ -9,7 +9,7 @@
 #    Healthy facts carrying the NEW release-id and the OLD pod hash before the controller had
 #    seen the update.
 #  - Delivery is at-most-once and a failure is silent (no error, marked notified, never
-#    redelivered). fact-heartbeat re-sends current state once per 15 minutes (the controller's
+#    redelivered). fact-heartbeat re-sends current state once per 15-minute window (the controller's
 #    own resync), so a lost fact is a late fact. notification-prune.yaml bounds the state the
 #    engine keeps for that.
 #  - Subscription is by label (hangar.io/release-tracked=true, rendered by airframe-application
@@ -60,7 +60,11 @@ data:
       send: [fact]
   trigger.fact-heartbeat: |
     - when: rollout.status.observedGeneration == string(rollout.metadata.generation)
-      oncePer: string(time.Now().Unix() / 900)
+      # int(): expr's / is float division, so without it the key changed every second
+      # (1.99158e+06...) and every reconcile re-sent the heartbeat. 2026-10-19: hundreds of POSTs a minute
+      # at each 15-minute mark ran the dev Mac's launchd relays out of file descriptors, which cut
+      # Backstage off from hangar-dev (and dropped every hangar-dev scaffolder template).
+      oncePer: string(int(time.Now().Unix() / 900))
       send: [fact]
   subscriptions: |
     - selector: hangar.io/release-tracked=true
