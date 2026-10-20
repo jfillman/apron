@@ -236,6 +236,38 @@ subjects:
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
 ---
+# Testkube API proxy (Glidepath test framework, phase 4, 2026-10-19): Tower's Pipelines tab
+# lists an app's test runs and downloads their JUnit reports from Testkube's own list API
+# (/v1/test-workflow-executions?tagSelector=app=<name>, /artifacts/...), read through the
+# API server's services/proxy exactly like Rekor above - the standalone agent has no
+# dashboard, and this pod has no route into the testkube namespace. Read only: the
+# resourceName names the one Service and port the backend reaches, in both forms the
+# authorizer may check (see the Rekor Role above for why both).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-ingestor-testkube-proxy
+  namespace: testkube
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["testkube-api-server", "testkube-api-server:8088"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-ingestor-testkube-proxy
+  namespace: testkube
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-ingestor-testkube-proxy
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:hangar-prod:backstage-ingestor
+---
 # Prometheus query proxy (2026-09-24 bug: "the workload performance metrics/graphs
 # are not working for ground and preview envs"). Tower's Topology-tab
 # Performance panel, the canary AnalysisRun charts and the SLO views all query
