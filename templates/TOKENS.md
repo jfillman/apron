@@ -90,6 +90,8 @@ the render with `file:line`.
 | `@@XR_NAMESPACE_SUFFIX@@` | derived: `cicd` on the control plane, `xrs` elsewhere (xr-requests target namespaces) |
 | `@@XR_APP_NAMESPACE@@` | derived: `argocd` on the control plane, `argocd-apps` elsewhere |
 | `@@AWS_ACCOUNT_ID@@` | `aws.accountId` (only with `components.cloudTargets`) |
+| `@@RELEASE_SIGNERS@@` | `releaseSigning.signers`, a list of emails allowed to gitsign a released commit, rendered as a YAML flow list (`[]` when unset: every gitsign check fails closed until an admin fills it) - Glidepath's `releaseSigning.defaults.allowedCommitSigners` |
+| `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |
 
 ## Generated per cluster (cluster.yaml `generated:`)
 
