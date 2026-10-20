@@ -67,6 +67,9 @@ def tokens(v):
         "TOWER_BASE_URL": g("tower.baseUrl", ""),
         "TOWER_HOST_ALIAS_IP": g("tower.hostAliasIP", ""),
         "AWS_ACCOUNT_ID": g("aws.accountId", ""),
+        # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
+        "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
+        "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
