@@ -33,6 +33,12 @@ spec:
           # values.yaml still calls it that too, a deferred naming-convention item, not
           # something this repoint changes.
           platformCicdRepoUrl: https://@@SCM_HOST@@/@@SCM_OWNER@@/glidepath.git
+          # Tower's URL and host alias, forwarded to every app's glidepath-app: the trigger-made PipelineRuns
+          # (release-progress/-outcome/-rollback, promote, rollback, bypass-check) post to Backstage from their
+          # stage-finish step and need the same hostAliases entry the catalog bakes into PaC .tekton files. Must
+          # equal glidepath-catalog's backstageBaseUrl/backstageHostAliasIP. Empty = Tower's hostname is real DNS.
+          backstageBaseUrl: "@@TOWER_BASE_URL@@"
+          backstageHostAliasIP: "@@TOWER_HOST_ALIAS_IP@@"
         valueFiles:
           # $-ref resolves relative to that source's checkout ROOT.
           - $clustercfg/50-glidepath/glidepath-control-plane/values.yaml
