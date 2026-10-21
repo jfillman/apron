@@ -28,7 +28,8 @@ spec:
           # Release-signing policy (glidepath docs/admin/commit-signing.md, ADR-0027): who may gitsign the commit a
           # release promotes, and whether a commit GitHub's merge button made counts. Admin-owned here, never in an
           # app's cicd.yaml. Signers and mergers come from cluster.yaml releaseSigning.signers / .mergers. The
-          # GitHub-merge path stays off until an app gets an apps.<name>.githubMerge.enabled: true entry below.
+          # GitHub-merge path is on only for the apps in cluster.yaml releaseSigning.githubMergeApps (apps below), in
+          # merger mode with 0 approvals: one person merges.
           releaseSigning:
             defaults:
               allowedCommitSigners: @@RELEASE_SIGNERS@@
@@ -37,7 +38,16 @@ spec:
                 mode: merger
                 allowedMergers: @@RELEASE_MERGERS@@
                 requiredApprovals: 0
-            apps: {}
+            apps: @@RELEASE_SIGNING_APPS@@
+#@if itsm.provider == 'webhook'
+          # Change management (glidepath docs/admin/change-management.md) from cluster.yaml itsm: the webhook provider
+          # (the lab points it at the throwaway mock, glidepath hack/lab/itsm-mock.yaml). A real install sets provider
+          # servicenow in the chart values and enables the control plane's itsm.credentials.
+          itsm:
+            provider: @@ITSM_PROVIDER@@
+            webhook:
+              url: @@ITSM_WEBHOOK_URL@@
+#@end
           # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
           # for images signed before the switch (glidepath docs/admin/image-signing.md).
           sigstoreIssuers:

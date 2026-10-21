@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL"}
+MAY_BE_EMPTY = {"TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
 
 
 def tokens(v):
@@ -70,6 +70,13 @@ def tokens(v):
         # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
         "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
         "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),
+        # Apps whose GitHub-merge path is on, as a YAML flow map ("{}" when unset).
+        "RELEASE_SIGNING_APPS": json.dumps(
+            {a: {"githubMerge": {"enabled": True}} for a in (g("releaseSigning.githubMergeApps", None) or [])}
+        ),
+        # Glidepath's change-management gate (glidepath docs/admin/change-management.md); rendered only when set.
+        "ITSM_PROVIDER": g("itsm.provider", ""),
+        "ITSM_WEBHOOK_URL": g("itsm.webhookUrl", ""),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
