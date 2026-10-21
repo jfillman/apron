@@ -1,0 +1,48 @@
+# Raises fs.inotify.max_user_instances / max_user_watches on every node. A kind or kiac node is a container on a
+# VM whose kernel defaults to 128 inotify instances per user, and most pods on the node run as the same few UIDs:
+# with Crossplane providers, Argo CD, Tekton and the operators all watching files, the next watcher fails with
+# "failed to create fsnotify watcher: too many open files" (seen on hangar-dev provider-kubernetes, 2026-10-20).
+# These sysctls are not namespaced, so a privileged pod sets them for the whole VM kernel. The VM forgets them on
+# restart, so the initContainer re-applies them whenever the pod starts, like binfmt. A value already higher is
+# left alone. The main container is a placeholder so the DaemonSet reports Ready.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-sysctls
+  namespace: kube-system
+  labels:
+    app: node-sysctls
+spec:
+  selector:
+    matchLabels:
+      app: node-sysctls
+  template:
+    metadata:
+      labels:
+        app: node-sysctls
+    spec:
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: sysctls
+          image: docker.io/library/busybox:1.36.1
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              raise() { cur=$(cat "/proc/sys/$1"); if [ "$cur" -lt "$2" ]; then echo "$2" > "/proc/sys/$1"; fi; echo "$1=$(cat /proc/sys/$1)"; }
+              raise fs/inotify/max_user_instances 8192
+              raise fs/inotify/max_user_watches 524288
+          securityContext:
+            privileged: true
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

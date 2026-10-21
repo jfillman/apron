@@ -1,0 +1,23 @@
+# Raises the node kernel's inotify limits (daemonset.yaml). Directory-source, same pattern as 00-bootstrap/binfmt.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: node-sysctls
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: node-sysctls
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 00-bootstrap/node-sysctls
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      selfHeal: true
