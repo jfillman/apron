@@ -113,6 +113,8 @@ spec:
   # multi-arch manifest (amd64 + arm64, skopeo-verified).
   # 2026-10-09: v0.1.6 -> v0.1.7 (airframe#79). Server mode runs Dex v2.46.0, the first stable
   # release with client_credentials, instead of the floating :master tag.
-  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.8
+  # 2026-10-21: v0.1.8 -> v0.1.9 (airframe#118). The attach Usage names its composed credentials Secret as `by`:
+  # Crossplane refuses a cross-namespace `of` without one, so every attacher of skyport-auth was Synced=False.
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.9
 
 #@end
