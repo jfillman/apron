@@ -41,9 +41,19 @@ spec:
   # keys). So both generators emit an identical top-level `values` map, {app: <dir name>}, and
   # the merge keys on the whole `values` key - json.Marshal of a map is key-sorted, so equal maps
   # give equal keys. pathParamPrefix keeps the files generator's path out of the base's `.path`.
-  # No identity.yaml (a brand-new app tenant) -> no merge match -> the `dig` default `app` below.
-  # A brand-new INFRA tenant must commit identity.yaml with its first xr-requests/ file, or its
-  # first sync goes to app-<name>-cicd (airframe docs/user/quickstart-broker.md says so).
+  # No identity.yaml (a brand-new tenant) -> no merge match -> the prefix comes from the third
+  # generator below.
+  #
+  # The third generator (2026-10-21) reads the request itself: a files generator over
+  # tenants/*/xr-requests/*.yaml, kept to `kind: InfraService` by its selector (Argo CD matches a
+  # goTemplate selector against the flattened params, so a file's top-level `kind` is a plain key),
+  # merges `kind: InfraService` into that tenant's params. A brand-new InfraService then lands in
+  # infra-<name>-cicd on its first sync. Before this, identity.yaml (written by TektonCICD, i.e.
+  # only once the XR exists) was the only source, so a new InfraService synced to app-<name>-cicd,
+  # failed on its own metadata.namespace (infra-<name>-cicd did not exist) and never got an XR:
+  # skyport-auth, 2026-10-21. One InfraService request per tenant, so the merge has one match; the
+  # other request files (secretstore, ApplicationEnvironment) are filtered out by the selector.
+  # Its params (kind, metadata, spec of the file) are not used by the template except `kind`.
   generators:
     - merge:
         mergeKeys:
@@ -64,6 +74,17 @@ spec:
                 - path: "tenants/*/identity.yaml"
               values:
                 app: "{{.identity.path.basename}}"
+          - git:
+              repoURL: @@TENANTS_REPO_URL@@
+              revision: main
+              pathParamPrefix: request
+              files:
+                - path: "tenants/*/xr-requests/*.yaml"
+              values:
+                app: "{{ index .request.path.segments 1 }}"
+            selector:
+              matchLabels:
+                kind: InfraService
   template:
     metadata:
       name: "{{.path.basename}}-xr-requests"
@@ -99,10 +120,11 @@ spec:
           include: "xr-requests/*.yaml"
       destination:
         server: https://kubernetes.default.svc
-        # app-<name>-<suffix> or infra-<name>-<suffix> (see the generator comment). An XR file that sets its
+        # app-<name>-<suffix> or infra-<name>-<suffix> (see the generator comment): identity.yaml's type when it
+        # exists, else infra for a tenant whose request is an InfraService, else app. An XR file that sets its
         # own metadata.namespace wins over this - Tower's create form writes one - so it must match.
         # appproject.yaml only allows these two prefixes, so any other type fails the sync.
-        namespace: '{{ dig "platformIdentity" "type" "app" . }}-{{.path.basename}}-@@XR_NAMESPACE_SUFFIX@@'
+        namespace: '{{ dig "platformIdentity" "type" (ternary "infra" "app" (eq (dig "kind" "" .) "InfraService")) . }}-{{.path.basename}}-@@XR_NAMESPACE_SUFFIX@@'
       syncPolicy:
         automated:
           prune: true
