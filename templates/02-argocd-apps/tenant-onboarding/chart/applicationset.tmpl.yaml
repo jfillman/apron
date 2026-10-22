@@ -141,7 +141,9 @@ spec:
             exclude: "*"
       destination:
         server: https://kubernetes.default.svc
-        namespace: "app-{{.appName}}-{{.env}}"
+        # <type>-<app>-<env>: an InfraService's environment is infra-<name>-<env> (airframe's ApplicationEnvironment
+        # writes `type: infra` into its per-env identity.yaml; an app's has none, so `app`). 2026-10-21.
+        namespace: '{{ dig "type" "app" . }}-{{.appName}}-{{.env}}'
       syncPolicy:
         automated:
           # prune (2026-10-10): a resource the chart stops rendering is deleted, so git is the whole truth. Without it,

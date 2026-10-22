@@ -27,7 +27,8 @@ spec:
     {{- end }}
   destinations:
     - server: https://kubernetes.default.svc
-      namespace: "app-{{ .Values.appName }}-*"
+      # <type>-<appName>-*: infra- for an InfraService (2026-10-21), whose environments are infra-<name>-<env>.
+      namespace: "{{ .Values.type | default "app" }}-{{ .Values.appName }}-*"
   # An AppProject with no clusterResourceWhitelist implicitly denies EVERY
   # cluster-scoped resource, including the Namespace the tenant-onboarding
   # Application's CreateNamespace=true sync option needs to create - a real bug
