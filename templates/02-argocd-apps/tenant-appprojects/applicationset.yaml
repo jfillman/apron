@@ -101,6 +101,8 @@ spec:
             # would otherwise render as the literal, truthy string "<no value>".
             gitopsRepoUrl: '{{default "" .platformIdentity.gitopsRepoUrl}}'
             appRepoUrl: "{{.platformIdentity.appRepoUrl}}"
+            # app or infra: the prefix of every namespace this tenant deploys into (AppProject destinations).
+            type: '{{ dig "platformIdentity" "type" "app" . }}'
             idpServiceCatalogRepoUrl: "https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git"
       destination:
         server: https://kubernetes.default.svc
