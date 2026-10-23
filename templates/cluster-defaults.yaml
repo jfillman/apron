@@ -22,6 +22,6 @@ observability:
 #@if components.observability
   namespace: observability
 #@end
-#@if components.observability and observability.full and components.certManager
+#@if components.observability and (observability.full or observability.tracing) and components.certManager
   instrumentation: observability/hangar
 #@end

@@ -1,5 +1,5 @@
-# Depends on minio/ (the `tempo` bucket) and kube-prometheus-stack/ (metricsGenerator's
-# remoteWriteUrl target) both being up first.
+# Depends on minio/ (the `tempo` bucket, observability.full only; tracing alone stores on the PVC) and
+# kube-prometheus-stack/ (metricsGenerator's remoteWriteUrl target) both being up first.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -20,6 +20,7 @@ spec:
         tempo:
           storage:
             trace:
+#@if observability.full
               backend: s3
               s3:
                 bucket: tempo
@@ -28,6 +29,15 @@ spec:
                 secret_key: minioadmin123
                 insecure: true
                 forcepathstyle: true
+#@end
+#@if not observability.full
+              # Tracing without the full stack has no MinIO: blocks on the PVC below, kept for retention.
+              backend: local
+              local:
+                path: /var/tempo/traces
+              wal:
+                path: /var/tempo/wal
+#@end
           # Tempo can receive OTLP directly - no collector hop strictly required, but
           # the OTel Collector goes through it anyway so the app has one export target
           # for traces+metrics+logs.

@@ -93,11 +93,13 @@ spec:
               endpoint: tempo.observability.svc.cluster.local:4317
               tls:
                 insecure: true
+#@if observability.full
             otlphttp/loki:
               # Loki's native OTLP log-ingestion endpoint
               endpoint: http://loki-gateway.observability.svc.cluster.local/otlp
               tls:
                 insecure: true
+#@end
             prometheus:
               endpoint: 0.0.0.0:8889
               # Keeps resource attributes (service.name etc.) as labels on the
@@ -111,10 +113,12 @@ spec:
                 receivers: [otlp]
                 processors: [memory_limiter, k8sattributes, batch]
                 exporters: [otlp/tempo, spanmetrics]
+#@if observability.full
               logs:
                 receivers: [otlp]
                 processors: [memory_limiter, k8sattributes, batch]
                 exporters: [otlphttp/loki]
+#@end
               metrics:
                 receivers: [otlp, spanmetrics]
                 processors: [memory_limiter, k8sattributes, batch]

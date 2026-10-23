@@ -21,7 +21,7 @@
 10-crds-operators/cert-manager/         components.certManager
 10-crds-operators/cloudnative-pg/       components.cloudnativePg
 10-crds-operators/metrics-server/       components.metricsServer
-10-crds-operators/opentelemetry-operator/   components.observability and observability.full and components.certManager
+10-crds-operators/opentelemetry-operator/   components.observability and (observability.full or observability.tracing) and components.certManager
 10-crds-operators/mongodb-kubernetes/   components.mongodb
 10-crds-operators/mongodb-kubernetes/namespace/   components.mongodb and not isControlPlane
 10-crds-operators/rabbitmq-operators/   components.rabbitmq
@@ -60,13 +60,14 @@
 30-policy/kyverno-policies/tower-identity-writes.yaml                 components.policy and components.towerAccessHub
 30-policy/breakglass/                   components.policy and components.towerAccess
 
-# 40 observability: Prometheus everywhere; the rest of the stack only with observability.full
+# 40 observability: Prometheus everywhere; traces (collector, Tempo, auto-instrumentation) with observability.full or
+# observability.tracing; the rest of the stack only with observability.full
 40-observability/                       components.observability
 40-observability/loki/                  components.observability and observability.full
 40-observability/minio/                 components.observability and observability.full
-40-observability/otel-collector/        components.observability and observability.full
-40-observability/otel-instrumentation/  components.observability and observability.full and components.certManager
-40-observability/tempo/                 components.observability and observability.full
+40-observability/otel-collector/        components.observability and (observability.full or observability.tracing)
+40-observability/otel-instrumentation/  components.observability and (observability.full or observability.tracing) and components.certManager
+40-observability/tempo/                 components.observability and (observability.full or observability.tracing)
 40-observability/thanos/                components.observability and observability.full
 40-observability/minio/create-breakglass-bucket-job.yaml          components.observability and observability.full and components.towerAccessHub
 40-observability/minio/create-breakglass-locked-bucket-job.yaml   components.observability and observability.full and components.towerAccessHub
