@@ -5,10 +5,10 @@
 # no-hardcoded-cluster-names branches: cut new tags from them and set those tags here before rebuilding.
 versions:
   airframe:
-    catalog: v0.3.162 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions
+    catalog: v0.3.163 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions
     clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
     analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
-    defaultChart: v0.3.159 # cluster-defaults.yaml defaultChart: the app chart every environment renders
+    defaultChart: v0.3.163 # cluster-defaults.yaml defaultChart: the app chart every environment renders
   glidepath: main # 50-glidepath: control plane, catalog, Rekor values (a tag once one is cut)
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
