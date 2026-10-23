@@ -52,9 +52,10 @@ spec:
             serviceMonitorSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
             # Tempo's metrics-generator remote-writes span/service-graph metrics in -
-            # Prometheus doesn't accept remote-write by default.
-            enableFeatures:
-              - remote-write-receiver
+            # Prometheus doesn't accept remote-write by default. Prometheus 3 dropped the old
+            # `remote-write-receiver` feature flag (it now answers 404 "needs to be enabled with
+            # --web.enable-remote-write-receiver"; every Tempo sample failed on hangar-dev, 2026-10-23).
+            enableRemoteWriteReceiver: true
           # Exposes the sidecar's gRPC port so Thanos Query can find it.
           thanosService:
             enabled: @@OBSERVABILITY_FULL@@
