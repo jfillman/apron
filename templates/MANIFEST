@@ -21,6 +21,7 @@
 10-crds-operators/cert-manager/         components.certManager
 10-crds-operators/cloudnative-pg/       components.cloudnativePg
 10-crds-operators/metrics-server/       components.metricsServer
+10-crds-operators/opentelemetry-operator/   components.observability and observability.full and components.certManager
 10-crds-operators/mongodb-kubernetes/   components.mongodb
 10-crds-operators/mongodb-kubernetes/namespace/   components.mongodb and not isControlPlane
 10-crds-operators/rabbitmq-operators/   components.rabbitmq
@@ -64,6 +65,7 @@
 40-observability/loki/                  components.observability and observability.full
 40-observability/minio/                 components.observability and observability.full
 40-observability/otel-collector/        components.observability and observability.full
+40-observability/otel-instrumentation/  components.observability and observability.full and components.certManager
 40-observability/tempo/                 components.observability and observability.full
 40-observability/thanos/                components.observability and observability.full
 40-observability/minio/create-breakglass-bucket-job.yaml          components.observability and observability.full and components.towerAccessHub

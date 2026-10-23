@@ -1,0 +1,34 @@
+# The Instrumentation beside this file (instrumentation.yaml), applied from this cluster repo once the
+# OpenTelemetry Operator (10-crds-operators/opentelemetry-operator/) has installed its CRD. SkipDryRunOnMissingResource
+# lets the first sync start before the CRD exists; Argo CD retries until it does.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-instrumentation
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 40-observability/otel-instrumentation
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m
+    syncOptions:
+      - SkipDryRunOnMissingResource=true

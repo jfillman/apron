@@ -32,7 +32,7 @@ components:
   towerAccess: false            # Tower's cluster-scoped grants where Tower runs (the prod profile)
   towerAccessHub: true          # what lets Tower on another cluster read/act on this one (trust file + RBAC)
 observability:
-  full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector, Grafana
+  full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector + Operator (auto-instrumentation), Grafana
 aiTriage:
   cpuRequest: 250m
   memoryRequest: 1024Mi

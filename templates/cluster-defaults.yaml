@@ -11,3 +11,17 @@ defaultChart:
   repoURL: https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git
   path: charts/airframe-application
   targetRevision: @@AIRFRAME_CHART_VERSION@@
+
+# observability: this cluster's observability facts, passed to every environment as airframe-application's
+# platform-owned `observability` values (Glidepath's control plane forwards it to Ground environments and previews;
+# the tenant-onboarding ApplicationSet sets the same for Flight environments). namespace is where Prometheus runs:
+# the app's NetworkPolicy admits it on the scrape port. instrumentation names the OpenTelemetry Operator
+# Instrumentation (40-observability/otel-instrumentation/) that the app's pods are injected with for their runtime.
+# Needs airframe-application with the `observability` key (Airframe v0.3.163+): an older chart refuses it.
+observability:
+#@if components.observability
+  namespace: observability
+#@end
+#@if components.observability and observability.full and components.certManager
+  instrumentation: observability/hangar
+#@end

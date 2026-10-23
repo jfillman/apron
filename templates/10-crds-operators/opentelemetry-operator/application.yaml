@@ -1,0 +1,50 @@
+# The OpenTelemetry Operator: auto-instrumentation for apps. A pod annotated
+# instrumentation.opentelemetry.io/inject-<nodejs|java|python> (airframe-application renders it from the
+# platform-owned `observability` values) gets the language agent at admission, configured by the Instrumentation in
+# 40-observability/otel-instrumentation/. No collectors are run by the operator: the gateway collector stays the
+# opentelemetry-collector chart in 40-observability/otel-collector/.
+#
+# The pod webhook only sees namespaces labelled hangar.io/component=application (every Flight, Ground and preview
+# environment namespace airframe-application renders) and fails open: if the operator is down, pods still start,
+# just uninstrumented, and no other namespace waits on the webhook's timeout.
+# The webhook certificate comes from cert-manager (a self-signed Issuer the chart creates), so Argo CD sees no
+# per-render diff the way the chart's autoGenerateCert would produce.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opentelemetry-operator
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-operator
+    targetRevision: 0.126.2
+    helm:
+      releaseName: opentelemetry-operator
+      valuesObject:
+        manager:
+          collectorImage:
+            repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+        admissionWebhooks:
+          certManager:
+            enabled: true
+          autoGenerateCert:
+            enabled: false
+          pods:
+            failurePolicy: Ignore
+            namespaceSelector:
+              matchLabels:
+                hangar.io/component: application
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: opentelemetry-operator-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
