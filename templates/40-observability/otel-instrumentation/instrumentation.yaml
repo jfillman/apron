@@ -31,6 +31,16 @@ spec:
     argument: "1"
   defaults:
     useLabelsForResourceAttributes: true
+  # Agent images pinned here, not left to the operator's defaulting webhook: an Instrumentation applied before that
+  # webhook serves (both land in the same Argo CD wave on a fresh cluster) keeps empty images, and every injected pod
+  # is then refused ("initContainers[0].image: Required value"; seen live on hangar-dev 2026-10-23). These are the
+  # defaults of operator 0.161.0 (its versions.txt); bump them with the operator chart.
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:0.78.0
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.32.0
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.66b1
   resource:
     resourceAttributes:
       k8s.cluster.name: @@CLUSTER_NAME@@
