@@ -50,10 +50,15 @@ spec:
               service_graphs:
                 wait: 10s
                 max_items: 10000
-          global_overrides:
-            metrics_generator_processors:
-              - span-metrics
-              - service-graphs
+          # Turns the processors on for every tenant. Chart 1.24 reads tempo.overrides.defaults (the new overrides
+          # format); the old tempo.global_overrides key was silently ignored, so no service-graph or span metric was
+          # ever generated (found 2026-10-23: spans reached Tempo, traces_service_graph_* stayed empty).
+          overrides:
+            defaults:
+              metrics_generator:
+                processors:
+                  - span-metrics
+                  - service-graphs
         persistence:
           enabled: true
           size: 10Gi
