@@ -34,12 +34,13 @@ defaults to it.
 - A **profile** says *what* the cluster runs. `profiles/dev.yaml` is the lower zone: the CI/CD control plane
   (Glidepath, Bootstrap-tier Crossplane, the full service catalog), workloads, the fleet's Infisical server, full
   observability, Autopilot and AI triage. `profiles/prod.yaml` is the upper zone: workloads and platform services, an
-  Infisical consumer, the Attached-tier catalog plus Dex, Prometheus only, and `towerAccess`. Tower itself (Backstage)
+  Infisical consumer, the Attached-tier catalog plus Dex, Prometheus and tracing, and `towerAccess`. Tower itself (Backstage)
   is an Airframe app (`app-backstage-<env>`), not a cluster component: `towerAccess` holds only its cluster-scoped
   grants, and `65-backstage` stays in the templates off by default, for reference.
 - Observability reaches apps through `cluster-defaults.yaml`'s `observability` block: every environment's
-  NetworkPolicy admits Prometheus, and with full observability the OpenTelemetry Operator auto-instruments Node.js,
-  Java and Python apps (picked from the app's Airframe kind) into the gateway collector, then Tempo and Prometheus.
+  NetworkPolicy admits Prometheus, and with `observability.tracing` (both profiles; implied by `observability.full`)
+  the OpenTelemetry Operator auto-instruments Node.js, Java and Python apps (picked from the app's Airframe kind) into
+  the gateway collector, then Tempo (MinIO-backed with the full stack, local disk without) and Prometheus.
 - A **runtime** says *how* the cluster comes to exist: `existing` (any cluster, Traefik as a LoadBalancer), `kiac`
   (single-node VM, Cilium, Traefik on NodePorts 30080/30443; never `--gateway`) or `kind` (Calico v3.29.1, host 80/443
   mapped to Traefik's NodePorts). Defaults live in `runtimes/*.yaml`. Every runtime gets the same Traefik Gateway
