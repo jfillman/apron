@@ -1,6 +1,6 @@
 # Rendered by chart/templates/render.yaml (ADR-0023 slice 1): this file is read raw with .Files.Get, so ArgoCD's
-# own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ placeholders are substituted,
-# from the cluster's one default chart in cluster-defaults.yaml at the repo root. An environment's identity.yaml may
+# own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ and __OBS_*__ placeholders are
+# substituted, from the cluster's one default chart and its observability facts in cluster-defaults.yaml at the repo root. An environment's identity.yaml may
 # carry its own `chart` ({repoURL, path | chart, targetRevision}, written fully resolved by Glidepath from cicd.yaml's
 # deploy.chart / environments[].chart, ADR-0023 slice 4); each field it does not set falls back to the default.
 # Not named applicationset.yaml: the root Application applies every **/applicationset.yaml raw.
@@ -117,6 +117,14 @@ spec:
               namespace:
                 labels:
                   hangar.io/managed-secrets: "true"
+              # The cluster's observability facts (cluster-defaults.yaml, substituted by templates/render.yaml) and
+              # the app's runtime (identity.yaml, written by Airframe's ApplicationEnvironment): Prometheus ingress
+              # and OpenTelemetry auto-instrumentation. Empty fields turn each part off. A per-environment chart
+              # (identity.yaml chart) must be an airframe-application with this key (v0.3.163+).
+              observability:
+                namespace: "__OBS_NAMESPACE__"
+                instrumentation: "__OBS_INSTRUMENTATION__"
+                runtime: '{{ dig "runtime" "" . }}'
             # D9/AF-5 release-file split (hangar/docs/autopilot/release-file-split.md):
             # base < values < release, last wins. Both base.yaml and release.yaml are
             # optional until an app opts in (base: shared by every Flight env on this
@@ -181,6 +189,14 @@ spec:
               namespace:
                 labels:
                   hangar.io/managed-secrets: "true"
+              # The cluster's observability facts (cluster-defaults.yaml, substituted by templates/render.yaml) and
+              # the app's runtime (identity.yaml, written by Airframe's ApplicationEnvironment): Prometheus ingress
+              # and OpenTelemetry auto-instrumentation. Empty fields turn each part off. A per-environment chart
+              # (identity.yaml chart) must be an airframe-application with this key (v0.3.163+).
+              observability:
+                namespace: "__OBS_NAMESPACE__"
+                instrumentation: "__OBS_INSTRUMENTATION__"
+                runtime: '{{ dig "runtime" "" . }}'
             ignoreMissingValueFiles: true
             valueFiles:
               - $appsrc/@@CLUSTER_NAME@@/base.yaml

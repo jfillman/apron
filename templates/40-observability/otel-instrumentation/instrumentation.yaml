@@ -1,0 +1,36 @@
+# The cluster's one Instrumentation: what the OpenTelemetry Operator injects into a pod annotated
+# instrumentation.opentelemetry.io/inject-<runtime>: "observability/hangar" (airframe-application renders that from
+# its platform-owned `observability` values; cluster-defaults.yaml names this object). Every runtime exports
+# OTLP over HTTP to the gateway collector (40-observability/otel-collector/), which sends traces to Tempo (whose
+# service-graph processor turns them into who-calls-whom metrics) and re-exposes metrics for Prometheus.
+#
+# service.name and service.version come from the pod's app.kubernetes.io/name and /version labels
+# (useLabelsForResourceAttributes): an Argo Rollout's pods are owned by a hashed ReplicaSet, so the operator's
+# owner-based default would name the service after the ReplicaSet.
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: hangar
+  namespace: observability
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+spec:
+  exporter:
+    endpoint: http://otel-collector-opentelemetry-collector.observability.svc.cluster.local:4318
+  env:
+    # One protocol for every runtime, matching the endpoint's port (the Java and Python agents default to it already).
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: http/protobuf
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    # Every trace, so a low-traffic edge still shows in the service graph. Lower the ratio if load says so.
+    type: parentbased_traceidratio
+    argument: "1"
+  defaults:
+    useLabelsForResourceAttributes: true
+  resource:
+    resourceAttributes:
+      k8s.cluster.name: @@CLUSTER_NAME@@
