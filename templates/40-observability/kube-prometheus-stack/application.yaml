@@ -56,6 +56,10 @@ spec:
             # `remote-write-receiver` feature flag (it now answers 404 "needs to be enabled with
             # --web.enable-remote-write-receiver"; every Tempo sample failed on hangar-dev, 2026-10-23).
             enableRemoteWriteReceiver: true
+            # Every series says which cluster it came from, so a shared query layer (the hub's Thanos, which also
+            # receives other clusters' trace metrics) can tell them apart: Tower Airspace scopes each query with it.
+            externalLabels:
+              cluster: @@CLUSTER_NAME@@
 #@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane
             # Trace metrics to the hub's Thanos (observability.remoteWrite): only the service-graph and span-metric
             # series, for Airspace and the api-compat check's "in use?" lookup, with history this Prometheus doesn't
@@ -63,8 +67,6 @@ spec:
             # hub's name, 10 minutes, rotated by the kubelet, read on every send): no stored credential. The hub
             # trusts this cluster's issuer for this one ServiceAccount (its 00-bootstrap/cluster-identity) and lets
             # it write to the receive only (its 40-observability/thanos-receive-access).
-            externalLabels:
-              cluster: @@CLUSTER_NAME@@
             remoteWrite:
               - name: hub-thanos
                 url: @@HUB_API_SERVER@@/api/v1/namespaces/observability/services/http:thanos-receive:19291/proxy/api/v1/receive
