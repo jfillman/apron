@@ -56,11 +56,69 @@ spec:
             # `remote-write-receiver` feature flag (it now answers 404 "needs to be enabled with
             # --web.enable-remote-write-receiver"; every Tempo sample failed on hangar-dev, 2026-10-23).
             enableRemoteWriteReceiver: true
+#@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane
+            # Trace metrics to the hub's Thanos (observability.remoteWrite): only the service-graph and span-metric
+            # series, for Airspace and the api-compat check's "in use?" lookup, with history this Prometheus doesn't
+            # keep. Through the hub API server's service proxy, authenticated by a projected token (audience = the
+            # hub's name, 10 minutes, rotated by the kubelet, read on every send): no stored credential. The hub
+            # trusts this cluster's issuer for this one ServiceAccount (its 00-bootstrap/cluster-identity) and lets
+            # it write to the receive only (its 40-observability/thanos-receive-access).
+            externalLabels:
+              cluster: @@CLUSTER_NAME@@
+            remoteWrite:
+              - name: hub-thanos
+                url: @@HUB_API_SERVER@@/api/v1/namespaces/observability/services/http:thanos-receive:19291/proxy/api/v1/receive
+                authorization:
+                  type: Bearer
+                  credentialsFile: /var/run/secrets/hub/token
+                tlsConfig:
+                  ca:
+                    secret:
+                      name: hub-ca
+                      key: ca.crt
+                writeRelabelConfigs:
+                  - sourceLabels: [__name__]
+                    regex: "traces_service_graph_.*|traces_span_metrics_.*"
+                    action: keep
+                queueConfig:
+                  capacity: 10000
+                  maxShards: 2
+                  maxSamplesPerSend: 2000
+            volumes:
+              - name: hub-token
+                projected:
+                  sources:
+                    - serviceAccountToken:
+                        path: token
+                        audience: @@HUB_NAME@@
+                        expirationSeconds: 600
+            volumeMounts:
+              - name: hub-token
+                mountPath: /var/run/secrets/hub
+                readOnly: true
+#@end
+#@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane and fleet.hubAddress
+            hostAliases:
+              - ip: "@@HUB_ADDRESS@@"
+                hostnames: ["@@HUB_API_HOST@@"]
+#@end
           # Exposes the sidecar's gRPC port so Thanos Query can find it.
           thanosService:
             enabled: @@OBSERVABILITY_FULL@@
           thanosServiceMonitor:
             enabled: @@OBSERVABILITY_FULL@@
+#@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane
+        # The hub API server's CA for the remote write's TLS (fleet.hubCaData; public, a Secret only because the
+        # remote-write TLS config reads its CA from one).
+        extraManifests:
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: hub-ca
+            type: Opaque
+            data:
+              ca.crt: @@HUB_CA_DATA@@
+#@end
         alertmanager:
           enabled: true
         grafana:

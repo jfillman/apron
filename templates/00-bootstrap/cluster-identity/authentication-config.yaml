@@ -9,10 +9,17 @@ jwt:
     audiences:
     - @@CLUSTER_NAME@@
   claimValidationRules:
-  - expression: claims["kubernetes.io"].namespace == "@@TOWER_NAMESPACE@@"
-    message: only @@TOWER_CLUSTER@@'s @@TOWER_NAMESPACE@@ namespace
-  - expression: claims["kubernetes.io"].serviceaccount.name in ["backstage-ingestor", "tower-actor"]
-    message: only the listed ServiceAccounts
+  # Who on @@TOWER_CLUSTER@@ may present a token here: Tower's two ServiceAccounts, and, on a hub that receives its
+  # trace metrics (observability.receive), its Prometheus - which can only reach the Thanos Receive service proxy
+  # (40-observability/thanos-receive-access).
+  - expression: >-
+      (claims["kubernetes.io"].namespace == "@@TOWER_NAMESPACE@@"
+      && claims["kubernetes.io"].serviceaccount.name in ["backstage-ingestor", "tower-actor"])
+#@if components.observability and observability.full and observability.receive and tower.cluster
+      || (claims["kubernetes.io"].namespace == "observability"
+      && claims["kubernetes.io"].serviceaccount.name == "kube-prometheus-stack-prometheus")
+#@end
+    message: only @@TOWER_CLUSTER@@'s listed ServiceAccounts
   - expression: int(claims.exp) - int(claims.iat) <= 600
     message: tokens longer than 600s are refused
   claimMappings:

@@ -48,6 +48,17 @@ spec:
             webhook:
               url: @@ITSM_WEBHOOK_URL@@
 #@end
+#@if components.observability and observability.full and observability.receive and tower.cluster
+          # The api-compat check's "in use?" lookup (glidepath docs/admin/api-compat.md): this hub's Thanos Query
+          # holds its own Prometheus and, through Thanos Receive, the tower cluster's trace metrics, with a longer
+          # history than either Prometheus keeps. In-cluster, so the pipeline pods need no credentials.
+          apiCompat:
+            usage:
+              @@CLUSTER_NAME@@:
+                url: http://thanos-query-frontend.observability.svc.cluster.local:9090
+              @@TOWER_CLUSTER@@:
+                url: http://thanos-query-frontend.observability.svc.cluster.local:9090
+#@end
           # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
           # for images signed before the switch (glidepath docs/admin/image-signing.md).
           sigstoreIssuers:

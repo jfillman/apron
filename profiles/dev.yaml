@@ -34,6 +34,7 @@ components:
 observability:
   full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector, Grafana
   tracing: true                 # OTel collector + Operator (auto-instrumentation) + Tempo; implied by full
+  receive: true                 # Thanos Receive for tower.cluster's trace metrics (its observability.remoteWrite)
 aiTriage:
   cpuRequest: 250m
   memoryRequest: 1024Mi

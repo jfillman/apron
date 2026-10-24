@@ -1,0 +1,33 @@
+# The service proxy to the receive's remote-write port, and only that: a request to
+# /api/v1/namespaces/observability/services/http:thanos-receive:19291/proxy/api/v1/receive is authorized as
+# `create` (POST) on services/proxy with resource name "http:thanos-receive:19291".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: thanos-receive-remote-write
+  namespace: observability
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["http:thanos-receive:19291", "thanos-receive:19291"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: thanos-receive-remote-write
+  namespace: observability
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: thanos-receive-remote-write
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: hangar:@@TOWER_CLUSTER@@:kube-prometheus-stack-prometheus

@@ -71,8 +71,28 @@ spec:
             size: 5Gi
         # Sidecar pattern, not remote-write/receive - matches the common
         # "Prometheus Operator + Thanos" reference architecture.
+#@if not (components.observability and observability.full and observability.receive and tower.cluster)
         receive:
           enabled: false
+#@end
+#@if components.observability and observability.full and observability.receive and tower.cluster
+        # The tower cluster's trace metrics, remote-written through this API server's service proxy (its Prometheus
+        # authenticates with a projected token this cluster trusts: 00-bootstrap/cluster-identity and
+        # 40-observability/thanos-receive-access). Blocks go to the same bucket, so Query and the store gateway keep
+        # them past the receive's own retention. The chart adds the receive to Query's endpoints.
+        receive:
+          enabled: true
+          mode: standalone
+          replicationFactor: 1
+          tsdbRetention: 2d
+          persistence:
+            enabled: true
+            size: 5Gi
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+#@end
         ruler:
           enabled: false
   destination:
