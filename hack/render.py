@@ -59,6 +59,11 @@ def tokens(v):
         "HUB_NAME": g("fleet.hub", ""),
         "HUB_DOMAIN": g("fleet.hubDomain", ""),
         "HUB_ADDRESS": g("fleet.hubAddress", ""),
+        # The hub's API server, as this cluster reaches it (fleet.hubApiServer), its host for hostAliases, and its CA
+        # (fleet.hubCaData, base64 PEM - public): where observability.remoteWrite sends trace metrics.
+        "HUB_API_SERVER": g("fleet.hubApiServer", ""),
+        "HUB_API_HOST": (g("fleet.hubApiServer", "") or "").split("://")[-1].split("/")[0].rsplit(":", 1)[0],
+        "HUB_CA_DATA": g("fleet.hubCaData", ""),
         "RELAY_URL": g("fleet.relayUrl") or (f"http://{g('fleet.hubAddress') or g('fleet.hubDomain')}:30880"
                                              if (g("fleet.hubAddress") or g("fleet.hubDomain")) else ""),
         "TOWER_CLUSTER": g("tower.cluster", ""),

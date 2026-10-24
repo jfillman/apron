@@ -32,6 +32,7 @@ components:
 observability:
   full: false                   # no Thanos, Loki, MinIO or Grafana
   tracing: true                 # OTel collector + Operator (auto-instrumentation) + Tempo on local disk (user decision 2026-10-23)
+  remoteWrite: true             # send trace metrics to the hub's Thanos (needs fleet.hubApiServer + fleet.hubCaData)
 aiTriage:
   cpuRequest: 10m
   memoryRequest: 100Mi

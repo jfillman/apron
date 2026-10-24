@@ -1,0 +1,27 @@
+# What the tower cluster's Prometheus may do here: write to Thanos Receive through this API server's service proxy,
+# nothing else. Its token is authenticated by 00-bootstrap/cluster-identity's authentication config (the tower
+# cluster's issuer, audience = this cluster's name, 10-minute tokens), and mapped to the user
+# hangar:<tower cluster>:kube-prometheus-stack-prometheus that rbac.yaml binds.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: thanos-receive-access
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: observability
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 40-observability/thanos-receive-access
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -51,6 +51,15 @@ Every Apron cluster's issuer is `https://<issuerBase>/oidc/<name>` (one-name rul
 (`tower.cluster`) for `backstage-ingestor` and `tower-actor` in Tower's namespace (`app-backstage-<env>`). That
 directory has no `application.yaml`, so Argo CD never syncs it.
 
+A hub that receives the tower cluster's trace metrics (`observability.receive`, dev profile) also accepts that
+cluster's `observability/kube-prometheus-stack-prometheus` ServiceAccount, with the same audience and 10-minute limit.
+Its user, `hangar:<tower cluster>:kube-prometheus-stack-prometheus`, is bound to one thing:
+`create` on the `services/proxy` of `thanos-receive:19291` (`40-observability/thanos-receive-access`). On the tower
+cluster, `observability.remoteWrite` (prod profile) sends only the `traces_service_graph_*` and
+`traces_span_metrics_*` series there, with a projected token read on every send; it needs `fleet.hubApiServer` and
+`fleet.hubCaData` (the hub API server's CA, base64 PEM) in `cluster.yaml`. After adding the subject, run
+`hack/cluster-identity.sh trust` on the hub again with the re-rendered file.
+
 The flags are set on the running node after `apron up`, the same way for every runtime: `apron identity` wraps
 `hack/cluster-identity.sh publish`, `issuer` and `trust` with the context, issuer and node derived from the name (kiac
 can't pass API-server flags at create time, so one path for every runtime). Publish the keys first.

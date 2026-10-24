@@ -69,6 +69,7 @@
 40-observability/otel-instrumentation/  components.observability and (observability.full or observability.tracing) and components.certManager
 40-observability/tempo/                 components.observability and (observability.full or observability.tracing)
 40-observability/thanos/                components.observability and observability.full
+40-observability/thanos-receive-access/  components.observability and observability.full and observability.receive and tower.cluster
 40-observability/minio/create-breakglass-bucket-job.yaml          components.observability and observability.full and components.towerAccessHub
 40-observability/minio/create-breakglass-locked-bucket-job.yaml   components.observability and observability.full and components.towerAccessHub
 
