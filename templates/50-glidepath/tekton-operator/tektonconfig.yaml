@@ -116,6 +116,14 @@ spec:
       # parses the prefix out of archived logs so finished runs show the same time column as running ones. Only runs
       # archived after this took effect carry it. Tekton Results watcher flag -logs_timestamps.
       logs_timestamps: true
+      # 2026-10-25: the watcher streams a finished TaskRun's step logs to the API on a background goroutine, and gives
+      # it dynamic_reconcile_timeout (default 30s) before it cancels the stream ("Leaving sendLogs thread only after
+      # timeout"). The Log record already exists by then, so the watcher never retries: the log is lost for good. On
+      # this single-node cluster a burst of release-gate pipelines (10+ at once per PR) plus etcd stalls pushed 53 of
+      # 56 lost logs over that 30s (6 h of watcher logs, 2026-10-25). update_log_timeout, the API's own bound on one
+      # upload, is already 300s, so the background wait now matches it. Tower and glidepath-api show these as
+      # "no logs archived" (glidepath docs/admin/tekton-results.md).
+      dynamic_reconcile_timeout: "5m0s"
     options:
       deployments:
         tekton-results-api:
