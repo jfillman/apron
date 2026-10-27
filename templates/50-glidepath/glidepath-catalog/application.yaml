@@ -39,6 +39,10 @@ spec:
                 allowedMergers: @@RELEASE_MERGERS@@
                 requiredApprovals: 0
             apps: @@RELEASE_SIGNING_APPS@@
+          # Ground and Flight registries, and promotion (glidepath ADR-0029, docs/admin/registries.md), from cluster.yaml
+          # registries / promotion. Admin-owned. pinDigest needs every cluster's defaultChart at airframe v0.3.166+.
+          registries: @@GLIDEPATH_REGISTRIES@@
+          promotion: @@GLIDEPATH_PROMOTION@@
 #@if itsm.provider == 'webhook'
           # Change management (glidepath docs/admin/change-management.md) from cluster.yaml itsm: the webhook provider
           # (the lab points it at the throwaway mock, glidepath hack/lab/itsm-mock.yaml). A real install sets provider

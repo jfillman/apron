@@ -82,6 +82,16 @@ def tokens(v):
         # Glidepath's change-management gate (glidepath docs/admin/change-management.md); rendered only when set.
         "ITSM_PROVIDER": g("itsm.provider", ""),
         "ITSM_WEBHOOK_URL": g("itsm.webhookUrl", ""),
+        # Glidepath's Ground/Flight registries and promotion (glidepath ADR-0029), YAML flow maps. Unset = the catalog
+        # chart's defaults: ghcr.io under the GitHub owner for both, promotion and digest pinning off.
+        "GLIDEPATH_REGISTRIES": json.dumps({
+            zone: {"host": g(f"registries.{zone}.host", "") or "ghcr.io", "namespace": g(f"registries.{zone}.namespace", "") or ""}
+            for zone in ("ground", "flight")
+        }),
+        "GLIDEPATH_PROMOTION": json.dumps({
+            "enabled": bool(g("promotion.enabled", False)),
+            "pinDigest": bool(g("promotion.pinDigest", False)),
+        }),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
