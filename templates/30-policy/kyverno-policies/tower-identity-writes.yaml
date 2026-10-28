@@ -43,7 +43,7 @@ spec:
     - name: backstage
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor', 'system:serviceaccount:platform-system:glidepath-api']
   variables:
     - name: isCreate
       expression: request.operation == 'CREATE'
