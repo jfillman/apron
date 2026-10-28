@@ -1,8 +1,9 @@
 # The fan-out gateway all app telemetry flows through - one OTLP endpoint for apps to
-# talk to, exported to Tempo (traces), Loki (logs), and re-exposed for Prometheus/Thanos
-# to scrape (metrics). Depends on tempo/ and loki/ (the exporters' endpoints) being up
-# first - metrics export doesn't need kube-prometheus-stack up first (Prometheus pulls,
-# it doesn't need to exist before the collector starts exposing :8889).
+# talk to, exported to Tempo (traces, unless observability.tempo is false), Loki (logs), and
+# re-exposed for Prometheus/Thanos to scrape (metrics, including the span metrics and the
+# service graph this collector derives from the traces). Depends on tempo/ and loki/ (the
+# exporters' endpoints) being up first - metrics export doesn't need kube-prometheus-stack up
+# first (Prometheus pulls, it doesn't need to exist before the collector starts exposing :8889).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -59,6 +60,29 @@ spec:
             memory_limiter:
               check_interval: 5s
               limit_mib: 400
+            # Kubelet probes and Prometheus scrapes are not traffic: without this they were most of every app's
+            # "Ingress" in Tower's Airspace (flight-api-dev, 7d: 61k of 75k calls) and showed up as operations
+            # (`GET /**` was the 404'd /metrics scrape). Dropped before the connectors, so neither the span
+            # metrics nor the service graph count them, and Tempo doesn't store them. Child spans of a dropped
+            # probe (Spring's health check pinging the database) are kept.
+            filter/probes:
+              error_mode: ignore
+              traces:
+                span:
+                  - kind == SPAN_KIND_SERVER and IsMatch(attributes["url.path"], "^(/healthz|/actuator/health.*|/metrics)$")
+                  - kind == SPAN_KIND_SERVER and IsMatch(attributes["http.target"], "^(/healthz|/actuator/health.*|/metrics)$")
+                  - kind == SPAN_KIND_SERVER and IsMatch(attributes["http.route"], "^(/healthz|/actuator/health.*|/metrics)$")
+            # Names a database edge after the host the client connected to (postgresql-rw, redis-master, mongodb),
+            # as Tempo's service graph did, rather than the database name (CNPG's is "app" for every app); Tower
+            # maps those Service names to the app's components. Read by service_graph's database_name_attributes.
+            transform/db-peer:
+              error_mode: ignore
+              trace_statements:
+                - context: span
+                  statements:
+                    - set(attributes["hangar.db.peer"], attributes["server.address"]) where attributes["db.system"] != nil and attributes["server.address"] != nil
+                    - set(attributes["hangar.db.peer"], attributes["net.peer.name"]) where attributes["db.system"] != nil and attributes["hangar.db.peer"] == nil and attributes["net.peer.name"] != nil
+                    - replace_pattern(attributes["hangar.db.peer"], "^([a-z][a-z0-9-]*)\\..*$", "$$1")
             batch:
               timeout: 5s
               send_batch_size: 1024
@@ -88,11 +112,28 @@ spec:
                 - name: platform.chain_id
                 - name: governance.stub
               metrics_flush_interval: 15s
+            # Who calls whom, for Tower's Airspace and Grafana's service graph: traces_service_graph_request_total,
+            # _failed_total and the _server_seconds/_client_seconds histograms, labelled client, server and
+            # connection_type ("" for RPC, messaging_system, database, virtual_node for a peer that sends no
+            # spans, and client "user" for a request with no traced caller) - the same series Tempo's
+            # metrics-generator wrote, so Tower reads either. Computed here so a cluster needs no Tempo for it
+            # (hangar-prod runs without one); Tempo's own service-graphs processor is off so edges aren't counted
+            # twice. One collector replica sees both sides of every edge; the store waits 10s for the other side
+            # (Tempo's setting) because the SDKs and the batch processor each hold spans up to 5s.
+            service_graph:
+              latency_histogram_buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s]
+              database_name_attributes: [hangar.db.peer, db.name, db.namespace]
+              store:
+                ttl: 10s
+                max_items: 10000
+              metrics_flush_interval: 15s
           exporters:
+#@if observability.tempo != false
             otlp/tempo:
               endpoint: tempo.observability.svc.cluster.local:4317
               tls:
                 insecure: true
+#@end
 #@if observability.full
             otlphttp/loki:
               # Loki's native OTLP log-ingestion endpoint
@@ -111,8 +152,13 @@ spec:
             pipelines:
               traces:
                 receivers: [otlp]
-                processors: [memory_limiter, k8sattributes, batch]
-                exporters: [otlp/tempo, spanmetrics]
+                processors: [memory_limiter, filter/probes, transform/db-peer, k8sattributes, batch]
+#@if observability.tempo != false
+                exporters: [otlp/tempo, spanmetrics, service_graph]
+#@end
+#@if observability.tempo == false
+                exporters: [spanmetrics, service_graph]
+#@end
 #@if observability.full
               logs:
                 receivers: [otlp]
@@ -120,7 +166,7 @@ spec:
                 exporters: [otlphttp/loki]
 #@end
               metrics:
-                receivers: [otlp, spanmetrics]
+                receivers: [otlp, spanmetrics, service_graph]
                 processors: [memory_limiter, k8sattributes, batch]
                 exporters: [prometheus]
         resources:

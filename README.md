@@ -40,7 +40,9 @@ defaults to it.
 - Observability reaches apps through `cluster-defaults.yaml`'s `observability` block: every environment's
   NetworkPolicy admits Prometheus, and with `observability.tracing` (both profiles; implied by `observability.full`)
   the OpenTelemetry Operator auto-instruments Node.js, Java and Python apps (picked from the app's Airframe kind) into
-  the gateway collector, then Tempo (MinIO-backed with the full stack, local disk without) and Prometheus.
+  the gateway collector. The collector drops probe and `/metrics` spans, derives span metrics and the service graph
+  (`traces_service_graph_*`, Tower's Airspace edges) for Prometheus, and sends traces to Tempo (MinIO-backed with the
+  full stack, local disk without) unless `observability.tempo: false` (the prod profile: no trace store).
 - A **runtime** says *how* the cluster comes to exist: `existing` (any cluster, Traefik as a LoadBalancer), `kiac`
   (single-node VM, Cilium, Traefik on NodePorts 30080/30443; never `--gateway`) or `kind` (Calico v3.29.1, host 80/443
   mapped to Traefik's NodePorts). Defaults live in `runtimes/*.yaml`. Every runtime gets the same Traefik Gateway
