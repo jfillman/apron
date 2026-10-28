@@ -1,7 +1,8 @@
 # Rendered by chart/templates/render.yaml (ADR-0023 slice 1): this file is read raw with .Files.Get, so ArgoCD's
 # own {{ }} templating below needs no Helm escaping. Only the __DEFAULT_CHART_*__ and __OBS_*__ placeholders are
-# substituted, from the cluster's one default chart and its observability facts in cluster-defaults.yaml at the repo root. An environment's identity.yaml may
-# carry its own `chart` ({repoURL, path | chart, targetRevision}, written fully resolved by Glidepath from cicd.yaml's
+# substituted, from the cluster's one default chart and its observability facts in cluster-defaults.yaml at the repo root,
+# and the __SERVICE_NAMESPACE_*__ / __DESTINATION_*__ ones, from the one namespace pattern in render.yaml. An
+# environment's identity.yaml may carry its own `chart` ({repoURL, path | chart, targetRevision}, written fully resolved by Glidepath from cicd.yaml's
 # deploy.chart / environments[].chart, ADR-0023 slice 4); each field it does not set falls back to the default.
 # Not named applicationset.yaml: the root Application applies every **/applicationset.yaml raw.
 # The real §5 two-source Application, one per (app, env) - generated from
@@ -125,6 +126,11 @@ spec:
                 namespace: "__OBS_NAMESPACE__"
                 instrumentation: "__OBS_INSTRUMENTATION__"
                 runtime: '{{ dig "runtime" "" . }}'
+              # The platform's namespace convention (render.yaml; the same pattern names destination.namespace below and
+              # Glidepath's glidepath-app.envNamespacePattern), which airframe-application's env[].fromService fills in to
+              # reach another app's Service. Platform-owned, like envName. A per-environment chart (identity.yaml chart)
+              # must be an airframe-application with this key (the release after v0.3.167): an older chart refuses it.
+              serviceNamespacePattern: "__SERVICE_NAMESPACE_PATTERN__"
             # D9/AF-5 release-file split (hangar/docs/autopilot/release-file-split.md):
             # base < values < release, last wins. Both base.yaml and release.yaml are
             # optional until an app opts in (base: shared by every Flight env on this
@@ -151,7 +157,8 @@ spec:
         server: https://kubernetes.default.svc
         # <type>-<app>-<env>: an InfraService's environment is infra-<name>-<env> (airframe's ApplicationEnvironment
         # writes `type: infra` into its per-env identity.yaml; an app's has none, so `app`). 2026-10-21.
-        namespace: '{{ dig "type" "app" . }}-{{.appName}}-{{.env}}'
+        # Rendered from the namespace pattern in render.yaml, the same one passed as serviceNamespacePattern above.
+        namespace: '__DESTINATION_NAMESPACE__'
       syncPolicy:
         automated:
           # prune (2026-10-10): a resource the chart stops rendering is deleted, so git is the whole truth. Without it,
@@ -197,6 +204,11 @@ spec:
                 namespace: "__OBS_NAMESPACE__"
                 instrumentation: "__OBS_INSTRUMENTATION__"
                 runtime: '{{ dig "runtime" "" . }}'
+              # The platform's namespace convention (render.yaml; the same pattern names destination.namespace below and
+              # Glidepath's glidepath-app.envNamespacePattern), which airframe-application's env[].fromService fills in to
+              # reach another app's Service. Platform-owned, like envName. A per-environment chart (identity.yaml chart)
+              # must be an airframe-application with this key (the release after v0.3.167): an older chart refuses it.
+              serviceNamespacePattern: "__SERVICE_NAMESPACE_PATTERN__"
             ignoreMissingValueFiles: true
             valueFiles:
               - $appsrc/@@CLUSTER_NAME@@/base.yaml

@@ -1,5 +1,13 @@
 {{- $c := required "defaultChart must be set (cluster-defaults.yaml)" .Values.defaultChart -}}
+{{- /* The environment-namespace convention, written once: each Flight environment's destination namespace is this
+pattern filled in with the identity's type (app unless identity.yaml says infra), appName and env, and it is passed
+verbatim to airframe-application as serviceNamespacePattern for env[].fromService. Glidepath names Ground and preview
+namespaces with the same pattern (glidepath-app.envNamespacePattern): change both together. */ -}}
+{{- $nsPattern := "{type}-{app}-{env}" -}}
+{{- $destNamespace := $nsPattern | replace "{type}" `{{ dig "type" "app" . }}` | replace "{app}" "{{.appName}}" | replace "{env}" "{{.env}}" -}}
 {{- .Files.Get "applicationset.tmpl.yaml"
+  | replace "__SERVICE_NAMESPACE_PATTERN__" $nsPattern
+  | replace "__DESTINATION_NAMESPACE__" $destNamespace
   | replace "__DEFAULT_CHART_REPO_URL__" (required "defaultChart.repoURL" $c.repoURL)
   | replace "__DEFAULT_CHART_PATH__" (required "defaultChart.path" $c.path)
   | replace "__DEFAULT_CHART_TARGET_REVISION__" (required "defaultChart.targetRevision" $c.targetRevision)
