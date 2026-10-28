@@ -64,11 +64,14 @@ spec:
             # "Ingress" in Tower's Airspace (flight-api-dev, 7d: 61k of 75k calls) and showed up as operations
             # (`GET /**` was the 404'd /metrics scrape). Dropped before the connectors, so neither the span
             # metrics nor the service graph count them, and Tempo doesn't store them. Child spans of a dropped
-            # probe (Spring's health check pinging the database) are kept.
+            # probe (Spring's health check pinging the database) are kept. Matched by the caller's user agent
+            # (the chart's probes hit `/`, which is also a real page) and by the probe/scrape paths.
             filter/probes:
               error_mode: ignore
               traces:
                 span:
+                  - kind == SPAN_KIND_SERVER and IsMatch(attributes["user_agent.original"], "^(kube-probe|Prometheus)/")
+                  - kind == SPAN_KIND_SERVER and IsMatch(attributes["http.user_agent"], "^(kube-probe|Prometheus)/")
                   - kind == SPAN_KIND_SERVER and IsMatch(attributes["url.path"], "^(/healthz|/actuator/health.*|/metrics)$")
                   - kind == SPAN_KIND_SERVER and IsMatch(attributes["http.target"], "^(/healthz|/actuator/health.*|/metrics)$")
                   - kind == SPAN_KIND_SERVER and IsMatch(attributes["http.route"], "^(/healthz|/actuator/health.*|/metrics)$")
@@ -123,6 +126,9 @@ spec:
             service_graph:
               latency_histogram_buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2500ms, 5s, 10s]
               database_name_attributes: [hangar.db.peer, db.name, db.namespace]
+              # A call to something that sends no spans (Dex, an external API) is named after its host instead of
+              # "unknown": the connector's defaults, then server.address / net.peer.name.
+              virtual_node_peer_attributes: [peer.service.name, peer.service, db.name, db.namespace, db.system, db.system.name, server.address, net.peer.name]
               store:
                 ttl: 10s
                 max_items: 10000
