@@ -31,7 +31,8 @@ components:
   towerAccessHub: false
 observability:
   full: false                   # no Thanos, Loki, MinIO or Grafana
-  tracing: true                 # OTel collector + Operator (auto-instrumentation) + Tempo on local disk (user decision 2026-10-23)
+  tracing: true                 # OTel collector + Operator (auto-instrumentation); the collector derives span metrics and the service graph
+  tempo: false                  # no trace store: Tempo was off since the 2026-10-25 load spiral; edges come from the collector (user decision 2026-10-28)
   remoteWrite: true             # send trace metrics to the hub's Thanos (needs fleet.hubApiServer + fleet.hubCaData)
 aiTriage:
   cpuRequest: 10m

@@ -48,18 +48,15 @@ spec:
                   endpoint: 0.0.0.0:4317
                 http:
                   endpoint: 0.0.0.0:4318
-          # Powers the "Traces -> Metrics" link and the service graph in Grafana:
-          # Tempo derives RED metrics + service-graph edges from spans and
-          # remote-writes them.
+          # Powers the "Traces -> Metrics" link in Grafana: Tempo derives RED metrics from spans and remote-writes
+          # them. The service graph (traces_service_graph_*) comes from the OTel collector's service_graph connector
+          # instead, so clusters without Tempo have it too; generating it here as well would count every edge twice.
           metricsGenerator:
             enabled: true
             remoteWriteUrl: "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write"
             processor:
               span_metrics:
                 enable_target_info: true
-              service_graphs:
-                wait: 10s
-                max_items: 10000
           # Turns the processors on for every tenant. Chart 1.24 reads tempo.overrides.defaults (the new overrides
           # format); the old tempo.global_overrides key was silently ignored, so no service-graph or span metric was
           # ever generated (found 2026-10-23: spans reached Tempo, traces_service_graph_* stayed empty).
@@ -68,7 +65,6 @@ spec:
               metrics_generator:
                 processors:
                   - span-metrics
-                  - service-graphs
         persistence:
           enabled: true
           size: 10Gi
