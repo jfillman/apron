@@ -1,0 +1,23 @@
+# The AgentRun reaper's backstop (Autopilot decision D20): reaper.yaml holds its service account, its Role on
+# agentruns in autopilot-runs, the script and the CronJob. A directory source of this folder, everything but this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autopilot-agentrun-reaper
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-reaper
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 55-autopilot/agentrun-reaper
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      selfHeal: true
