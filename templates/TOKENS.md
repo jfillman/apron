@@ -98,6 +98,7 @@ the render with `file:line`.
 | `@@ITSM_PROVIDER@@` | `itsm.provider` - Glidepath's change-management gate; the catalog's `itsm:` block renders only for `webhook` (optional) |
 | `@@GLIDEPATH_REGISTRIES@@` | `registries.{ground,flight}.{host,namespace}`, Glidepath's Ground and Flight registries (ADR-0029), a YAML flow map; host defaults to `ghcr.io`, namespace to `""` (the GitHub owner) |
 | `@@GLIDEPATH_PROMOTION@@` | `promotion.enabled` / `promotion.pinDigest` (both default `false`), Glidepath's promotion switches (ADR-0029), a YAML flow map; includes `promoter: {repo}` when `promotion.promoter.repo` is set |
+| `@@GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP@@` | `releaseGuardrailOverridesByApp`, `{<app>: {<gate>: {required: false}}}`: gates that still run for that app but do not hold its release (glidepath release-guardrails.md "One app only"), a YAML flow map (`{}` when unset) |
 | `@@GLIDEPATH_PROMOTER_REPO@@` | `promotion.promoter.repo`, the Flight promoter's dispatch repo (ADR-0029 phase 2; optional, the control plane's `promoter` block renders only when set) |
 | `@@FLIGHT_PREFIX@@` | `registries.flight.{host,namespace}` as `<host>/<namespace>/`, the Flight images' prefix for upper-cluster admission (ADR-0029 phase 4; empty when no Flight namespace) |
 | `@@FLIGHT_PROMOTER_SUBJECT_RE@@` | `promotion.promoter.repo`, as the promoter workflow's keyless identity regexp (`^https://github\.com/<repo>/\.github/workflows/promote\.yaml@refs/heads/main$`; empty when unset) |

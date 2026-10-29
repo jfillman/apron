@@ -95,6 +95,9 @@ def tokens(v):
             **({"promoter": {"repo": g("promotion.promoter.repo")}} if g("promotion.promoter.repo", "") else {}),
         }),
         "GLIDEPATH_PROMOTER_REPO": g("promotion.promoter.repo", ""),
+        # Glidepath's per-app guardrail overrides ({app: {gate: {required: false}}}), a YAML flow map ("{}" when unset);
+        # the catalog chart validates it (sast/provenance/image-promotion never advisory).
+        "GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP": json.dumps(g("releaseGuardrailOverridesByApp", None) or {}),
         **flight_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),

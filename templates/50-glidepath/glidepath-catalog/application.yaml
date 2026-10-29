@@ -43,6 +43,9 @@ spec:
           # registries / promotion. Admin-owned. enabled needs glidepath#171 (the fan-in); pinDigest needs every cluster's defaultChart at airframe v0.3.166+.
           registries: @@GLIDEPATH_REGISTRIES@@
           promotion: @@GLIDEPATH_PROMOTION@@
+          # Gates that run and report for one app but do not hold its release (glidepath docs/admin/release-guardrails.md,
+          # "One app only"), from cluster.yaml releaseGuardrailOverridesByApp. Admin-owned.
+          releaseGuardrailOverridesByApp: @@GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP@@
 #@if itsm.provider == 'webhook'
           # Change management (glidepath docs/admin/change-management.md) from cluster.yaml itsm: the webhook provider
           # (the lab points it at the throwaway mock, glidepath hack/lab/itsm-mock.yaml). A real install sets provider
