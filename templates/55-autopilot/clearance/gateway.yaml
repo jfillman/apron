@@ -35,8 +35,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.0 = autopilot 1b77d49 with clearance v0.5.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.0@sha256:8f9c71f020c68e05c337ef5afb15c4b87e401f0a27723f5b7a2fbb3522ef2a03
+          # gateway-v0.3.1 = autopilot 63397b7 with clearance v0.6.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.1@sha256:e2438d7cba4b9d38fcbd19b29db9d3a258c5e44433e7deccf4348e86f4fc2d7d
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
@@ -61,9 +61,9 @@ spec:
             # The model proxy (port 8081, Service model-proxy): runs' model calls, decided and charged here.
             - {name: MODEL_KEY_FILE, value: /etc/clearance-model/anthropic-api-key}
             - {name: MODEL_ROUTES, value: "claude-sonnet-5-5=claude-sonnet-5-5"}
-            # The event trigger bridge (glidepath-api /v1/events -> triggered runs). Off until triage-agent's runtime
-            # image is in the gateway image (gateway-v0.3.1).
-            - {name: EVENTS_ENABLED, value: "0"}
+            # The event trigger bridge: glidepath-api /v1/events as this identity (a glidepath-api reader) -> each
+            # matching Glidepath event trigger's run (agents/triage-agent.yaml: a failed gate-api pipeline run).
+            - {name: EVENTS_ENABLED, value: "1"}
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10
