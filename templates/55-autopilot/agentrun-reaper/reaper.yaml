@@ -1,0 +1,172 @@
+# The AgentRun reaper's backstop (Autopilot decision D20): every 10 minutes, delete each AgentRun in autopilot-runs
+# whose deadline, min(spec.expiresAt, creation + max TTL), passed more than RETENTION_MINUTES ago. It needs neither
+# Clearance nor function-agentrun. Clearance (AP-A2) deletes a run as soon as it has recorded the run's evidence; this
+# catches every run Clearance never deletes (Clearance down or absent, a run created by hand) and, by deleting the XR,
+# the Objects Crossplane can lose track of under API-server timeouts (found in the AP-A3 copy-test: an untracked run
+# namespace and endless Sandbox re-creation until the AgentRun was deleted).
+#
+# Its one permission: list and delete AgentRuns in autopilot-runs. It can end only what Clearance's Role can, and it
+# judges a run due from immutable fields alone. MAX_TTL_MINUTES matches the AgentRun Composition's max_ttl_minutes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentrun-reaper
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentrun-reaper
+  namespace: autopilot-runs
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+rules:
+  - apiGroups: ["catalog.hangar.io"]
+    resources: ["agentruns"]
+    verbs: ["list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentrun-reaper
+  namespace: autopilot-runs
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agentrun-reaper}
+subjects:
+  - {kind: ServiceAccount, name: agentrun-reaper, namespace: autopilot-system}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentrun-reaper
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+data:
+  reap.py: |
+    """Delete AgentRuns whose deadline passed more than RETENTION_MINUTES ago (Autopilot decision D20).
+
+    The deadline is min(spec.expiresAt, creationTimestamp + MAX_TTL_MINUTES): both are immutable, so the rule holds when
+    status is stale (function down) or Crossplane lost track of a run's Objects. Every run is torn down by its deadline
+    (a freeze hold never outlasts expiresAt), so a reaped run has no live pod. Deleting the XR cascades to its Objects
+    through their owner references, including Objects Crossplane no longer lists in resourceRefs.
+
+    Standard library only; talks to the API server with the pod's projected token. Exits 1 if any call failed.
+    """
+
+    import json
+    import os
+    import ssl
+    import sys
+    import urllib.error
+    import urllib.request
+    from datetime import datetime, timedelta, timezone
+
+    SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+    API = "https://kubernetes.default.svc"
+    NS = os.environ.get("RUNS_NAMESPACE", "autopilot-runs")
+    RETENTION = timedelta(minutes=int(os.environ.get("RETENTION_MINUTES", "60")))
+    MAX_TTL = timedelta(minutes=int(os.environ.get("MAX_TTL_MINUTES", "240")))
+    PATH = f"/apis/catalog.hangar.io/v1alpha1/namespaces/{NS}/agentruns"
+
+
+    def ts(s):
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+    def deadline(run):
+        created = ts(run["metadata"]["creationTimestamp"])
+        cap = created + MAX_TTL
+        try:
+            return min(ts(run["spec"]["expiresAt"]), cap)
+        except (KeyError, ValueError):
+            return cap
+
+
+    def due(runs, now):
+        return [r for r in runs if now >= deadline(r) + RETENTION and not r["metadata"].get("deletionTimestamp")]
+
+
+    def call(method, path, body=None):
+        with open(f"{SA}/token") as f:
+            token = f.read().strip()
+        req = urllib.request.Request(API + path, method=method, data=json.dumps(body).encode() if body else None,
+                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+            return json.load(r)
+
+
+    def main():
+        now = datetime.now(timezone.utc)
+        runs = call("GET", PATH)["items"]
+        failed = 0
+        for r in due(runs, now):
+            name, uid = r["metadata"]["name"], r["metadata"]["uid"]
+            phase = (r.get("status") or {}).get("phase", "-")
+            # Preconditions: delete exactly the object judged due, never a re-created run of the same name.
+            body = {"kind": "DeleteOptions", "apiVersion": "v1", "propagationPolicy": "Background",
+                    "preconditions": {"uid": uid}}
+            try:
+                call("DELETE", f"{PATH}/{name}", body)
+                print(f"reaped {NS}/{name} phase={phase} deadline={deadline(r).isoformat()}")
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    continue
+                failed += 1
+                print(f"FAILED {NS}/{name}: HTTP {e.code} {e.read()[:300]!r}", file=sys.stderr)
+        print(f"{len(runs)} runs, {len(due(runs, now))} due, {failed} failed")
+        return 1 if failed else 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agentrun-reaper
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels: {hangar.io/component: autopilot, hangar.io/subcomponent: agentrun-reaper}
+        spec:
+          serviceAccountName: agentrun-reaper
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: reap
+              # Multi-arch index digest (linux/amd64 + linux/arm64 among others), checked 2026-10-29.
+              image: docker.io/library/python:3.13.18-alpine@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+              command: ["python3", "-I", "/reaper/reap.py"]
+              env:
+                - {name: RUNS_NAMESPACE, value: autopilot-runs}
+                - {name: RETENTION_MINUTES, value: "60"}
+                - {name: MAX_TTL_MINUTES, value: "240"}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 64Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - {name: reaper, mountPath: /reaper, readOnly: true}
+          volumes:
+            - name: reaper
+              configMap: {name: agentrun-reaper}
