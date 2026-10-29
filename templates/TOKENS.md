@@ -97,7 +97,8 @@ the render with `file:line`.
 | `@@RELEASE_SIGNING_APPS@@` | `releaseSigning.githubMergeApps`, the apps whose GitHub-merge path is on, rendered as a YAML flow map `{<app>: {githubMerge: {enabled: true}}}` (`{}` when unset) - Glidepath's `releaseSigning.apps` |
 | `@@ITSM_PROVIDER@@` | `itsm.provider` - Glidepath's change-management gate; the catalog's `itsm:` block renders only for `webhook` (optional) |
 | `@@GLIDEPATH_REGISTRIES@@` | `registries.{ground,flight}.{host,namespace}`, Glidepath's Ground and Flight registries (ADR-0029), a YAML flow map; host defaults to `ghcr.io`, namespace to `""` (the GitHub owner) |
-| `@@GLIDEPATH_PROMOTION@@` | `promotion.enabled` / `promotion.pinDigest` (both default `false`), Glidepath's promotion switches (ADR-0029), a YAML flow map |
+| `@@GLIDEPATH_PROMOTION@@` | `promotion.enabled` / `promotion.pinDigest` (both default `false`), Glidepath's promotion switches (ADR-0029), a YAML flow map; includes `promoter: {repo}` when `promotion.promoter.repo` is set |
+| `@@GLIDEPATH_PROMOTER_REPO@@` | `promotion.promoter.repo`, the Flight promoter's dispatch repo (ADR-0029 phase 2; optional, the control plane's `promoter` block renders only when set) |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |
 

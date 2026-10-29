@@ -17,6 +17,10 @@
 # Fail, matchConditions keep each policy to Backstage's own requests, every optional field read behind has().
 # Phase 3 of the spec (2026-10-12) added the federated writer identity, hangar:the prod cluster:tower-actor; phase 4 removed the
 # old backstage-system/backstage-ingestor ServiceAccount, so it is the only username left.
+#
+# 2026-10-28 (Glidepath API spec phase 3): glidepath-api's ServiceAccount starts and cancels PipelineRuns for Tower and
+# Clearance (POST /v1/apps/{app}/pipelineruns/{name}/rerun, /cancel), so tower-pipelinerun-shape holds it to the same
+# shape. tower-actor stays until Tower's runControl group is on api and phase 6 removes its Tekton grant.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:

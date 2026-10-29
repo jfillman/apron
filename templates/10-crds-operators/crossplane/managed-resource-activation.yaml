@@ -54,3 +54,25 @@ spec:
     - routetableassociations.ec2.aws.m.upbound.io
     - securitygroups.ec2.aws.m.upbound.io
     - securitygrouprules.ec2.aws.m.upbound.io
+#@if components.cloudTargets
+    # --- Cloud dependencies (airframe MessageQueue / ObjectStorage / ManagedPostgreSQL, 2026-10-24) ---
+    # The grants (iam RolePolicy), Lambda triggers (EventSourceMapping) and the database's network (the EC2 kinds
+    # above) are already active.
+    - queues.sqs.aws.m.upbound.io
+    - buckets.s3.aws.m.upbound.io
+    - bucketpublicaccessblocks.s3.aws.m.upbound.io
+    - bucketownershipcontrols.s3.aws.m.upbound.io
+    - bucketserversideencryptionconfigurations.s3.aws.m.upbound.io
+    - bucketversionings.s3.aws.m.upbound.io
+    - instances.rds.aws.m.upbound.io
+    - subnetgroups.rds.aws.m.upbound.io
+    # Azure, with the providers in providers.yaml (not installed yet, airframe known gap 10):
+    # - servicebusnamespaces.servicebus.azure.m.upbound.io
+    # - queues.servicebus.azure.m.upbound.io
+    # - queueauthorizationrules.servicebus.azure.m.upbound.io
+    # - accounts.storage.azure.m.upbound.io
+    # - containers.storage.azure.m.upbound.io
+    # - flexibleservers.dbforpostgresql.azure.m.upbound.io
+    # - flexibleserverdatabases.dbforpostgresql.azure.m.upbound.io
+    # - flexibleserverfirewallrules.dbforpostgresql.azure.m.upbound.io
+#@end

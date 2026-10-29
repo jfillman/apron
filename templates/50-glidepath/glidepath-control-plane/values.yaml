@@ -65,3 +65,38 @@ fulcio:
 chains:
   configPatch:
     signers.x509.fulcio.issuer: "@@ISSUER@@"
+
+# glidepath-api (glidepath docs/admin/api.md, 2026-10-25). Tower (Backstage on the prod cluster)
+# reaches it through this API server's services/proxy as its federated identities; the proxy grant
+# is in 00-bootstrap/backstage-ingestor-rbac. backstage-ingestor reads every app's runs and
+# releases, the same reach it already has through tekton-results-relay and the ConfigMaps; both
+# Tower identities may name the person they act for. Nothing else is granted.
+api:
+  delegates:
+    - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    - hangar:@@TOWER_CLUSTER@@:tower-actor
+    # Clearance names the session's principal on every call, so a write's audit line carries both identities.
+    - system:serviceaccount:platform-system:clearance
+  readers:
+    users:
+      - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    # Clearance's glidepath.* tools (00-bootstrap/clearance-identity): reads only; each agent is narrowed further by
+    # its definition's profile.glidepath.apps before any call.
+    serviceAccounts:
+      - { name: clearance, namespace: platform-system }
+  # Who may re-run and cancel PipelineRuns through the API (glidepath-api-operator, cluster-wide). Tower writes as
+  # tower-actor, owner-checked in Tower first; Clearance's glidepath.run.rerun/.cancel are T1, per agent definition.
+  operators:
+    users:
+      - hangar:@@TOWER_CLUSTER@@:tower-actor
+    serviceAccounts:
+      - { name: clearance, namespace: platform-system }
+
+#@if promotion.promoter.repo
+# The Flight promoter (glidepath ADR-0029 phase 2, docs/admin/registries.md): the broker's /promoter-token for
+# platform-catalog's glidepath-promoter, and the secrets it needs from this cluster's Infisical project
+# (flight-promoter-app-id, flight-promoter-private-key, flight-registry-read-dockerconfigjson).
+promoter:
+  enabled: true
+  dispatchRepo: @@GLIDEPATH_PROMOTER_REPO@@
+#@end

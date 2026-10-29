@@ -40,7 +40,7 @@ spec:
                 requiredApprovals: 0
             apps: @@RELEASE_SIGNING_APPS@@
           # Ground and Flight registries, and promotion (glidepath ADR-0029, docs/admin/registries.md), from cluster.yaml
-          # registries / promotion. Admin-owned. pinDigest needs every cluster's defaultChart at airframe v0.3.166+.
+          # registries / promotion. Admin-owned. enabled needs glidepath#171 (the fan-in); pinDigest needs every cluster's defaultChart at airframe v0.3.166+.
           registries: @@GLIDEPATH_REGISTRIES@@
           promotion: @@GLIDEPATH_PROMOTION@@
 #@if itsm.provider == 'webhook'

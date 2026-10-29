@@ -341,6 +341,64 @@ spec:
 #@end
 ---
 #@if components.cloudTargets
+# Cloud dependencies (2026-10-24, airframe MessageQueue / ObjectStorage / ManagedPostgreSQL,
+# docs/user/cloud-dependencies.md). SafeStart providers: only the kinds managed-resource-activation.yaml
+# names become CRDs (8 here). Same AWS runtime as the cloud targets, so the same hangar-crossplane-<cluster>
+# role: its trust matches provider-aws-* ServiceAccounts, and its policy needs the 2026-10-24 additions
+# (airframe docs/admin/cloud-credentials.md#cloud-dependencies-2026-10-24).
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-sqs
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-sqs:v2.9.0
+  # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-s3
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-s3:v2.9.0
+  # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-rds
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-rds:v2.9.0
+  # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
+---
+#@end
+#@if components.cloudTargets
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
@@ -376,5 +434,60 @@ spec:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig
     name: provider-cloud-runtime
-
+#@end
+#@if components.cloudTargets
+---
+# NOT INSTALLED (airframe known gap 10): the Azure cloud-dependency providers. The Azure compositions are
+# render-tested only, the Azure identity still uses stored keys, and this node is at ~80% memory; each provider
+# pod costs ~250 MB. Uncomment together with the Azure block in managed-resource-activation.yaml.
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-servicebus
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-servicebus:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime
+# ---
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-storage
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-storage:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime
+# ---
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-dbforpostgresql
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-dbforpostgresql:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime
 #@end
