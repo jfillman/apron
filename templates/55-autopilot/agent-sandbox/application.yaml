@@ -36,7 +36,12 @@ spec:
           # label limit. registry.k8s.io images are promoted, not overwritten; v1.0.8's multi-arch index is
           # sha256:e1d96312487eba7d8f001e848a9d4e644b7deea8c2a4564ccc318abb729be731 (verify on upgrade).
           tag: "v1.0.8"
-        controller: {extensions: false, leaderElect: true}
+        # leaderElect false: one replica, and with election on, a slow API server made it lose its lease and exit
+        # (6 restarts in 41 min on hangar-dev, 2026-10-29); a Sandbox whose shutdownTime fell in a restart window was
+        # ended late by the kubelet's activeDeadlineSeconds backstop (+28 s) instead of on time. The chart has no lease
+        # timing flags. A rolling update may overlap two controllers for seconds: harmless, a Sandbox's pod is named
+        # after it (a second create is AlreadyExists) and deleting an expired Sandbox is idempotent.
+        controller: {extensions: false, leaderElect: false}
         resources:
           requests: {cpu: 10m, memory: 64Mi}
           limits: {cpu: 500m, memory: 256Mi}
