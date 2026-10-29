@@ -37,7 +37,9 @@ observability:
   tempo: true                   # trace storage (Grafana's Explore); false drops Tempo, the collector still derives the service graph
   receive: true                 # Thanos Receive for tower.cluster's trace metrics (its observability.remoteWrite)
 aiTriage:
-  cpuRequest: 250m
+  # 50m (was 250m, 2026-10-29): Holmes idles at ~5m between investigations, and the dev cluster's single node had
+  # its CPU requests at 99%, leaving builds unschedulable. Requests only; the chart's limits are unchanged.
+  cpuRequest: 50m
   memoryRequest: 1024Mi
   memoryLimit: 2048Mi
 cnpg:

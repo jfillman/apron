@@ -2867,7 +2867,9 @@ spec:
             cpu: 500m
             memory: 512Mi
           requests:
-            cpu: 300m
+            # LOCAL CHANGE (2026-10-29): 50m, upstream 300m. Each replica idles at 2-5m; with the 2 replicas above,
+            # upstream's request reserved 600m of a single-node dev cluster whose requests were at 99%.
+            cpu: 50m
             memory: 128Mi
         securityContext:
           allowPrivilegeEscalation: false

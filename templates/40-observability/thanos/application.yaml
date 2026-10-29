@@ -59,9 +59,11 @@ spec:
           # retention (which only runs after a successful compaction pass) never
           # applied - the thanos bucket grew to ~212GB. Explicit resources override
           # the preset.
+          # cpu request 50m (was 250m, 2026-10-29): the compactor idles at ~1m between passes and the limit below is what
+          # a pass bursts to; the request only reserved a quarter core on a single node whose requests were at 99%.
           resources:
             requests:
-              cpu: 250m
+              cpu: 50m
               memory: 1Gi
             limits:
               cpu: "1"
