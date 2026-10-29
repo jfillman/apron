@@ -183,6 +183,19 @@ def object_origin_checks(k, check, objs):
     check("provider-kubernetes points the Object at another ProviderConfig", False,
           run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
                "-p", '{"spec":{"providerConfigRef":{"name":"elsewhere"}}}'], as_user=PROVIDER), ORIGIN)
+    # Spec fields besides the manifest that change what the provider does must stay Crossplane's alone.
+    check("an admin adds a reference that patches another object's field into the manifest", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"references":[{"patchesFrom":{"apiVersion":"v1","kind":"ConfigMap","name":"x","namespace":"default","fieldPath":"data.x"},"toFieldPath":"metadata.labels.x"}]}}']), ORIGIN)
+    check("an admin drops Delete from managementPolicies (the run namespace would outlive its run)", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"managementPolicies":["Observe","Create","Update"]}}']), ORIGIN)
+    check("provider-kubernetes adds a connection-secret target", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"writeConnectionSecretToRef":{"name":"leak"}}}'], as_user=PROVIDER), ORIGIN)
+    check("an admin turns on watch (no effect on what is created)", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"watch":true}}']))
     check("an admin removes that finalizer (spec unchanged)", True,
           run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=json",
                "-p", '[{"op":"remove","path":"/metadata/finalizers"}]']))

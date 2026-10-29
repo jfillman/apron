@@ -54,17 +54,35 @@ spec:
           || (oldObject.spec.forProvider.manifest.apiVersion.startsWith('agents.x-k8s.io/')
               && oldObject.spec.forProvider.manifest.kind == 'Sandbox')))
   variables:
-    # What a run-kind Object creates, and on which cluster: spec.forProvider (the manifest) and providerConfigRef. An
-    # UPDATE that leaves both alone passes for anyone. provider-kubernetes late-initializes other spec fields
-    # (spec.readiness.policy) on every Object it manages, so comparing all of spec refused the provider itself and no
-    # run could start (copy-test on hangar-dev, 2026-10-29).
+    # An UPDATE passes for anyone when every spec field that changes what provider-kubernetes does is unchanged: the
+    # manifest (forProvider), where it is applied (providerConfigRef, legacy providerRef), what is patched into it
+    # (references), whether it is deleted (managementPolicies, legacy managementPolicy and deletionPolicy) and where
+    # its connection details go (connectionDetails, writeConnectionSecretToRef). Only readiness and watch may change:
+    # provider-kubernetes late-initializes spec.readiness.policy on every Object it manages (comparing all of spec
+    # refused the provider itself and no run could start: copy-test on hangar-dev, 2026-10-29), and watch only makes
+    # it watch for drift. Fields are listed, not "all but two", because CEL cannot iterate a typed object's fields; a
+    # new spec field in a provider-kubernetes upgrade is therefore NOT compared until it is added here.
     - name: specUnchanged
       expression: >-
         request.operation == 'UPDATE' && oldObject != null && has(oldObject.spec) && has(object.spec)
-        && (has(oldObject.spec.forProvider) == has(object.spec.forProvider))
+        && has(oldObject.spec.forProvider) == has(object.spec.forProvider)
         && (!has(object.spec.forProvider) || oldObject.spec.forProvider == object.spec.forProvider)
-        && (has(oldObject.spec.providerConfigRef) == has(object.spec.providerConfigRef))
+        && has(oldObject.spec.providerConfigRef) == has(object.spec.providerConfigRef)
         && (!has(object.spec.providerConfigRef) || oldObject.spec.providerConfigRef == object.spec.providerConfigRef)
+        && has(oldObject.spec.providerRef) == has(object.spec.providerRef)
+        && (!has(object.spec.providerRef) || oldObject.spec.providerRef == object.spec.providerRef)
+        && has(oldObject.spec.references) == has(object.spec.references)
+        && (!has(object.spec.references) || oldObject.spec.references == object.spec.references)
+        && has(oldObject.spec.managementPolicies) == has(object.spec.managementPolicies)
+        && (!has(object.spec.managementPolicies) || oldObject.spec.managementPolicies == object.spec.managementPolicies)
+        && has(oldObject.spec.managementPolicy) == has(object.spec.managementPolicy)
+        && (!has(object.spec.managementPolicy) || oldObject.spec.managementPolicy == object.spec.managementPolicy)
+        && has(oldObject.spec.deletionPolicy) == has(object.spec.deletionPolicy)
+        && (!has(object.spec.deletionPolicy) || oldObject.spec.deletionPolicy == object.spec.deletionPolicy)
+        && has(oldObject.spec.connectionDetails) == has(object.spec.connectionDetails)
+        && (!has(object.spec.connectionDetails) || oldObject.spec.connectionDetails == object.spec.connectionDetails)
+        && has(oldObject.spec.writeConnectionSecretToRef) == has(object.spec.writeConnectionSecretToRef)
+        && (!has(object.spec.writeConnectionSecretToRef) || oldObject.spec.writeConnectionSecretToRef == object.spec.writeConnectionSecretToRef)
     - name: byCrossplane
       expression: "has(request.userInfo.username) && request.userInfo.username == 'system:serviceaccount:crossplane-system:crossplane'"
     - name: composite
