@@ -128,11 +128,9 @@ metadata:
     hangar.io/component: autopilot
     hangar.io/subcomponent: agentrun
 spec:
-  # Autopilot AP-A3: composes AgentRun XRs (airframe functions/function-agentrun). The dev build
-  # 0.1.0-dev.cafa630 (airframe commit cafa630, branch ap-a3-agentrun), pinned by its multi-arch index digest
-  # (linux/arm64 + linux/amd64). The 2026-10-28 copy-test passed on this digest and the function's code is unchanged
-  # since, so it stays the pin until a v0.1.0 tag is pushed for it. airframe-service-catalog ships the AgentRun XRD
-  # and Composition that use it.
+  # Autopilot AP-A3: composes AgentRun XRs (airframe functions/function-agentrun). v0.1.0, pinned by its multi-arch
+  # index digest (linux/arm64 + linux/amd64): the dev build 0.1.0-dev.cafa630 that passed the 2026-10-28 copy-test,
+  # re-tagged v0.1.0 unchanged (same digest). airframe-service-catalog ships the AgentRun XRD and Composition.
   package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-agentrun@sha256:cf9f288c45b4722fd7e94ecc565e884234e4719d6c55b48c9ff36fb6fbb51935
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
