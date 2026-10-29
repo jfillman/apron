@@ -1,0 +1,29 @@
+# Clearance, the gateway every agent tool call goes through (AP-A2; the clearance repo, deployed with Autopilot's
+# Hangar backends as the autopilot-gateway image). It runs in autopilot-system because run pods reach it there:
+# function-agentrun's egress allows only pods labelled app.kubernetes.io/name=clearance in that namespace, port 8080.
+# A directory source of this folder, everything but this file:
+#   identity.yaml   the ServiceAccount and its cluster grants: TokenReview (to authenticate callers) and the
+#                   read-only Airframe reader for the airframe.* tools. Its AgentRun Role is in agentrun-grants; its
+#                   glidepath-api grants are in 50-glidepath/glidepath-control-plane/values.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autopilot-clearance
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 55-autopilot/clearance
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: autopilot-system
+  syncPolicy:
+    automated:
+      selfHeal: true

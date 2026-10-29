@@ -77,13 +77,17 @@ api:
     - hangar:@@TOWER_CLUSTER@@:tower-actor
     # Clearance names the session's principal on every call, so a write's audit line carries both identities.
     - system:serviceaccount:platform-system:clearance
+    # Clearance's deployed identity (55-autopilot/clearance). platform-system/clearance stays until the deployed
+    # gateway is verified, then goes (hangar roadmap, AP-A2).
+    - system:serviceaccount:autopilot-system:clearance
   readers:
     users:
       - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
-    # Clearance's glidepath.* tools (00-bootstrap/clearance-identity): reads only; each agent is narrowed further by
+    # Clearance's glidepath.* tools (55-autopilot/clearance; platform-system/clearance until it is retired): reads only; each agent is narrowed further by
     # its definition's profile.glidepath.apps before any call.
     serviceAccounts:
       - { name: clearance, namespace: platform-system }
+      - { name: clearance, namespace: autopilot-system }
   # Who may re-run and cancel PipelineRuns through the API (glidepath-api-operator, cluster-wide). Tower writes as
   # tower-actor, owner-checked in Tower first; Clearance's glidepath.run.rerun/.cancel are T1, per agent definition.
   operators:
@@ -91,6 +95,7 @@ api:
       - hangar:@@TOWER_CLUSTER@@:tower-actor
     serviceAccounts:
       - { name: clearance, namespace: platform-system }
+      - { name: clearance, namespace: autopilot-system }
   # Who may promote and roll back through the API (glidepath-api-releaser, cluster-wide; glidepath docs/admin/api.md
   # "Promote and roll back"). T2: each only starts the app's release pipeline, whose PR a person merges. Tower
   # owner-checks first; Clearance's glidepath.promote/.rollback are per agent definition.
@@ -99,6 +104,7 @@ api:
       - hangar:@@TOWER_CLUSTER@@:tower-actor
     serviceAccounts:
       - { name: clearance, namespace: platform-system }
+      - { name: clearance, namespace: autopilot-system }
 
 #@if promotion.promoter.repo
 # The Flight promoter (glidepath ADR-0029 phase 2, docs/admin/registries.md): the broker's /promoter-token for

@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 APRON = HERE.parents[1]
 GRANTS = APRON / "templates" / "55-autopilot" / "agentrun-grants"
 PROVIDER = "system:serviceaccount:crossplane-system:provider-kubernetes"
-CLEARANCE = "system:serviceaccount:platform-system:clearance"
+CLEARANCE = "system:serviceaccount:autopilot-system:clearance"  # the deployed gateway (55-autopilot/clearance)
 
 
 def free_port():
@@ -312,7 +312,7 @@ def main():
         setup(["create", "clusterrole", "test-object-writer", "--verb=*",
                "--resource=objects.kubernetes.m.crossplane.io,objects.kubernetes.crossplane.io"])
         setup(["create", "clusterrolebinding", "test-object-writer", "--clusterrole=test-object-writer",
-               "--serviceaccount=crossplane-system:crossplane", "--serviceaccount=platform-system:clearance",
+               "--serviceaccount=crossplane-system:crossplane", "--serviceaccount=autopilot-system:clearance",
                "--serviceaccount=crossplane-system:provider-kubernetes"])
         time.sleep(3)  # policy and RBAC informers settle
 
