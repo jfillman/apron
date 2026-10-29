@@ -22,9 +22,20 @@ spec:
       # ManagedResourceActivationPolicy "default" activating "*" on every start, so any provider added would turn
       # every one of its kinds into a CRD (provider-aws-ec2: 208). managed-resource-activation.yaml lists what is
       # active instead. Must be a values block: `--set provider.defaultActivations={}` still renders the flag.
+      # resourcesCrossplane: the chart's 500m CPU limit throttled crossplane in 16% of CFS periods on hangar-dev
+      # (2026-10-28). Every restart re-establishes each provider revision's ~1,000 CRDs/MRDs, and while it's
+      # throttled through that burst it can't renew its leader lease in time, so it gets killed and restarts
+      # again (16 restarts in a week). The memory values are the chart defaults.
       valuesObject:
         provider:
           defaultActivations: []
+        resourcesCrossplane:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 1024Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: crossplane-system

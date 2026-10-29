@@ -121,11 +121,6 @@ spec:
             - selector: hangar.io/subcomponent=tenant-onboarding
               triggers: [on-sync-retrying, on-sync-failed]
               recipients: ["glidepath-relay:"]
-        controller:
-          resources:
-            requests:
-              cpu: 150m
-              memory: 500Mi
         crds:
           install: false
         dex:
@@ -146,11 +141,6 @@ spec:
         # version/CRDs to match this instance - keep both instances'
         # operational posture consistent rather than only hardening
         # whichever one happened to be symptomatic first.
-        controller:
-          resources:
-            requests:
-              cpu: 150m
-              memory: 500Mi
         repoServer:
           resources:
             requests:
@@ -174,6 +164,20 @@ spec:
           livenessProbe:
             timeoutSeconds: 15
             failureThreshold: 5
+        # One controller block for every cluster (it used to sit twice inside the
+        # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
+        # for the reason given at GOMEMLIMIT in 01-argocd-platform/install.yaml. This
+        # instance ran at a 0.95 GB heap / 1.6 GB RSS on hangar-dev (23 apps).
+        controller:
+          env:
+            - name: GOMEMLIMIT
+              value: 1500MiB
+          resources:
+            requests:
+              cpu: 150m
+              memory: 500Mi
+            limits:
+              memory: 2560Mi
 #@if isControlPlane
         applicationSet:
           allowAnyNamespace: true
