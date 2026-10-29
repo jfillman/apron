@@ -1,0 +1,119 @@
+# Confines provider-kubernetes's AgentRun grant (provider-kubernetes-agentrun.yaml) to Autopilot run namespaces.
+# Decision D15 (a): the ClusterRole lands on provider-kubernetes's SHARED service account, so RBAC alone would let
+# any provider-kubernetes Object create a namespace anywhere, create a ServiceAccount anywhere, drop pod-security
+# labels from any namespace, or add the PR-sweep label to one. This policy is what stops that. Every kind the role
+# grants, for every request provider-kubernetes makes (create, update, delete):
+#   1. lives in (or is) a namespace named agent-r-* that carries hangar.io/agent-run=true;
+#   2. never carries hangar.io/ephemeral-env (the PR-namespace TTL sweep would reap it);
+#   3. a Namespace is created with exactly pod-security enforce=restricted (and enforce-version=latest), and an
+#      update never adds, changes or removes a pod-security.kubernetes.io/* label;
+#   4. a Sandbox's pod runs as serviceAccountName `run` with no automounted token, and the only ServiceAccount it
+#      may create is `run`.
+# Matched on the provider's request identity (the stable service account), so no other client is affected, and
+# every other provider-kubernetes Object kind (ClusterSecretStores, Secrets) is outside matchConstraints.
+# failurePolicy Fail: a CEL error denies. Tested offline against a real kube-apiserver: apron tests/policy/.
+#
+# Why matchConditions keys only on the user: a provider-kubernetes request carries no trace of which Object asked
+# for it (same user, same field manager for every Object). The confinement is therefore by content, not by caller.
+# The lever that IS Object-specific is a policy on objects.kubernetes.m.crossplane.io itself (who may create an
+# Object whose manifest targets these kinds); see airframe functions/function-agentrun/README.md, "Shared grant".
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: autopilot-agentrun-provider-confinement
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["namespaces", "resourcequotas", "serviceaccounts"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["networkpolicies"]
+      - apiGroups: ["agents.x-k8s.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["sandboxes"]
+  matchConditions:
+    - name: provider-kubernetes-only
+      expression: "request.userInfo.username == 'system:serviceaccount:crossplane-system:provider-kubernetes'"
+  variables:
+    - name: obj
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: isNamespace
+      expression: "request.resource.group == '' && request.resource.resource == 'namespaces'"
+    - name: nsName
+      expression: "variables.isNamespace ? variables.obj.metadata.name : request.namespace"
+    - name: labels
+      expression: "has(variables.obj.metadata.labels) ? variables.obj.metadata.labels : {}"
+    - name: oldLabels
+      expression: "oldObject != null && has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}"
+    # The run namespace's labels: the Namespace itself, or the namespace a namespaced object is in.
+    - name: nsLabels
+      expression: >-
+        variables.isNamespace ? variables.labels :
+        (namespaceObject != null && has(namespaceObject.metadata.labels) ? namespaceObject.metadata.labels : {})
+    - name: psaKeys
+      expression: "variables.labels.filter(k, k.startsWith('pod-security.kubernetes.io/'))"
+    - name: oldPsaKeys
+      expression: "variables.oldLabels.filter(k, k.startsWith('pod-security.kubernetes.io/'))"
+  validations:
+    - expression: "variables.nsName.startsWith('agent-r-')"
+      messageExpression: >-
+        'provider-kubernetes may manage ' + request.resource.resource +
+        ' only as or inside Autopilot run namespaces (agent-r-*), not ' + (variables.nsName == '' ? '<cluster scope>' : variables.nsName)
+      reason: Forbidden
+    - expression: "'hangar.io/agent-run' in variables.nsLabels && variables.nsLabels['hangar.io/agent-run'] == 'true'"
+      messageExpression: "'namespace ' + variables.nsName + ' does not carry hangar.io/agent-run=true, so it is not an Autopilot run namespace'"
+      reason: Forbidden
+    - expression: "request.operation == 'DELETE' || !('hangar.io/ephemeral-env' in variables.labels)"
+      message: "provider-kubernetes may never set hangar.io/ephemeral-env: the PR-namespace TTL sweep deletes namespaces carrying it"
+      reason: Forbidden
+    - expression: >-
+        !variables.isNamespace || request.operation != 'CREATE' ||
+        (variables.psaKeys.all(k, k in ['pod-security.kubernetes.io/enforce', 'pod-security.kubernetes.io/enforce-version'])
+         && 'pod-security.kubernetes.io/enforce' in variables.labels
+         && variables.labels['pod-security.kubernetes.io/enforce'] == 'restricted'
+         && (!('pod-security.kubernetes.io/enforce-version' in variables.labels)
+             || variables.labels['pod-security.kubernetes.io/enforce-version'] == 'latest'))
+      message: "a run namespace is created with exactly pod-security.kubernetes.io/enforce=restricted (enforce-version=latest) and no other pod-security labels"
+      reason: Forbidden
+    - expression: >-
+        !variables.isNamespace || request.operation != 'UPDATE' ||
+        (variables.psaKeys.all(k, k in variables.oldLabels && variables.oldLabels[k] == variables.labels[k])
+         && variables.oldPsaKeys.all(k, k in variables.labels))
+      message: "provider-kubernetes may not add, change or remove pod-security.kubernetes.io/* labels on a namespace"
+      reason: Forbidden
+    - expression: >-
+        request.resource.resource != 'sandboxes' || request.operation == 'DELETE' ||
+        (has(object.spec.podTemplate) && has(object.spec.podTemplate.spec)
+         && has(object.spec.podTemplate.spec.serviceAccountName) && object.spec.podTemplate.spec.serviceAccountName == 'run'
+         && (!has(object.spec.podTemplate.spec.serviceAccount) || object.spec.podTemplate.spec.serviceAccount == 'run')
+         && has(object.spec.podTemplate.spec.automountServiceAccountToken)
+         && object.spec.podTemplate.spec.automountServiceAccountToken == false)
+      message: "a run's Sandbox must run as serviceAccountName run with automountServiceAccountToken false"
+      reason: Forbidden
+    - expression: "request.resource.resource != 'serviceaccounts' || request.operation == 'DELETE' || variables.obj.metadata.name == 'run'"
+      message: "the only ServiceAccount provider-kubernetes may create in a run namespace is run"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: autopilot-agentrun-provider-confinement
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  policyName: autopilot-agentrun-provider-confinement
+  validationActions: [Deny]

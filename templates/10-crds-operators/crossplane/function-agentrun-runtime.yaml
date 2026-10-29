@@ -1,0 +1,24 @@
+# DeploymentRuntimeConfig for function-agentrun (Autopilot AP-A3). The AgentRun Composition is shared by every
+# cluster, so it cannot say which cluster it runs on; the function reads that from HANGAR_CLUSTER_NAME and looks up
+# this cluster's registry record (crossplane-system/<name>) for airframe.autopilotReady. Unset or unknown means
+# every AgentRun is Rejected. Own runtime config, never the shared "default" one.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: function-agentrun-runtime
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun
+spec:
+  deploymentTemplate:
+    spec:
+      selector:
+        matchLabels:
+          pkg.crossplane.io/function: function-agentrun
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              env:
+                - name: HANGAR_CLUSTER_NAME
+                  value: @@CLUSTER_NAME@@

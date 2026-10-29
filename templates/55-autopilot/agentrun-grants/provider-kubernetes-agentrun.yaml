@@ -1,0 +1,44 @@
+# What provider-kubernetes needs to create, observe, update and delete an AgentRun's composed Objects
+# (airframe functions/function-agentrun): the run Namespace, its ResourceQuota, two NetworkPolicies, the
+# ServiceAccount `run`, and the agent-sandbox Sandbox. Approved as decision D15 (U8, 2026-10-09), with batch/jobs
+# replaced by the agent-sandbox resources (U11).
+#
+# This is a real privilege grant, and RBAC cannot scope it: namespaces create/delete is cluster-wide, and it lands on
+# provider-kubernetes's SHARED service account, so it covers every provider-kubernetes Object, not only
+# function-agentrun's. provider-confinement-policy.yaml is what confines it (run namespaces only, no pod-security
+# changes, no PR-sweep label, serviceAccountName run only). Never ship this file without that one.
+# No secrets, pods, pods/exec, roles, rolebindings or jobs here; keep it that way.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hangar-agentrun-objects
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas, serviceaccounts]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hangar-agentrun-objects
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hangar-agentrun-objects
+subjects:
+  # The stable name (10-crds-operators/crossplane/provider-kubernetes-runtime.yaml), never provider-kubernetes-<hash>.
+  - kind: ServiceAccount
+    name: provider-kubernetes
+    namespace: crossplane-system

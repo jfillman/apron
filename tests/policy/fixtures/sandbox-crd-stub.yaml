@@ -1,0 +1,23 @@
+# A schema-less stand-in for agent-sandbox's Sandbox CRD, so the test runs offline. The policy reads only
+# spec.podTemplate.spec; pass --sandbox-crd with the real v1.0.8 CRD (helm/crds/agents.x-k8s.io_sandboxes.yaml) to
+# test against its schema too.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sandboxes.agents.x-k8s.io
+spec:
+  group: agents.x-k8s.io
+  scope: Namespaced
+  names:
+    kind: Sandbox
+    plural: sandboxes
+    singular: sandbox
+    listKind: SandboxList
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
