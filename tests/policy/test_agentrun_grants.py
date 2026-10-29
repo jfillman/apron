@@ -14,6 +14,12 @@ system:serviceaccount:crossplane-system:provider-kubernetes by impersonation:
             namespace
   control   the same Sandbox in default created by an admin is admitted (the policy matches the provider only), and
             Clearance can create/patch agentruns in autopilot-runs and nothing elsewhere
+  origin    object-origin-policy.yaml: a provider-kubernetes Object whose manifest is a run kind is admitted only from
+            Crossplane core for an AgentRun owner in autopilot-runs; an admin, Clearance or the provider making one,
+            a wrong/missing owner or label, another namespace and the legacy cluster-scoped Object API are refused;
+            SecretStore-shaped Objects (ClusterSecretStore, Secret) by anyone, spec-unchanged updates and deletes pass;
+            malformed Objects are refused by the CRD schema, never by the policy; no request may hit a CEL error.
+            The Object CRDs are provider-kubernetes v1.2.1's, in fixtures/.
 
     KUBEBUILDER_ASSETS=$(setup-envtest use 1.36.2 -p path) python3 tests/policy/test_agentrun_grants.py [--sandbox-crd CRD.yaml]
 
@@ -118,6 +124,122 @@ def sandbox(namespace, sa="run", automount=False):
             "spec": {"shutdownTime": "2099-01-01T00:00:00Z", "shutdownPolicy": "Delete", "podTemplate": {"spec": spec}}}
 
 
+CROSSPLANE = "system:serviceaccount:crossplane-system:crossplane"
+ORIGIN = "autopilot-agentrun-object-origin"
+OWNER = {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "AgentRun", "name": "r-1a2b3c",
+         "uid": "11111111-2222-3333-4444-555555555555", "controller": True, "blockOwnerDeletion": True}
+
+
+def pk_object(name, manifest, *, namespace="autopilot-runs", owner=OWNER, composite="r-1a2b3c", legacy=False, labels=True):
+    """A provider-kubernetes Object as Crossplane composes it: controller ownerReference + crossplane.io/composite."""
+    md = {"name": name}
+    if not legacy:
+        md["namespace"] = namespace
+    if labels and composite is not None:
+        md["labels"] = {"crossplane.io/composite": composite}
+    if owner is not None:
+        md["ownerReferences"] = [owner]
+    spec = {"forProvider": {"manifest": manifest}, "providerConfigRef": {"name": "default"}}
+    if not legacy:
+        spec["providerConfigRef"]["kind"] = "ClusterProviderConfig"
+    return {"apiVersion": "kubernetes.crossplane.io/v1alpha2" if legacy else "kubernetes.m.crossplane.io/v1alpha1",
+            "kind": "Object", "metadata": md, "spec": spec}
+
+
+def object_origin_checks(k, check, objs):
+    """autopilot-agentrun-object-origin: only Crossplane core, for an AgentRun, may make a run-kind Object; nothing
+    else is touched. Every output is also checked for a CEL evaluation error (the past cluster-wide incident)."""
+    errors = []
+
+    def run(args, doc=None, as_user=None):
+        ok, out = k.kubectl(args, doc, as_user)
+        if "evaluation" in out.lower() or "expression" in out.lower() and "error" in out.lower():
+            errors.append(out)
+        return ok, out
+
+    def create(doc, who):
+        return run(["create", "-f", "-"], doc, who)
+
+    print("-- object origin: Crossplane core composing an AgentRun's Objects is admitted")
+    for i, m in enumerate(objs):
+        check(f"Crossplane creates the run's {m['kind']} Object", True,
+              create(pk_object(f"r-1a2b3c-{i}", m), CROSSPLANE))
+    ns_obj = "r-1a2b3c-0"
+    check("Crossplane changes a run Object's spec (re-apply)", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"managementPolicies":["*"]}}'], as_user=CROSSPLANE))
+    check("provider-kubernetes adds a finalizer and an annotation (spec unchanged)", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"metadata":{"finalizers":["finalizer.managedresource.crossplane.io"],"annotations":{"crossplane.io/external-name":"x"}}}'],
+              as_user=PROVIDER))
+    check("an admin removes that finalizer (spec unchanged)", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=json",
+               "-p", '[{"op":"remove","path":"/metadata/finalizers"}]']))
+    check("a run-kind manifest with no metadata of its own, composed for an AgentRun", True,
+          create(pk_object("r-1a2b3c-bare", {"apiVersion": "v1", "kind": "ServiceAccount"}), CROSSPLANE))
+
+    print("-- object origin: anyone else making a run-kind Object is refused")
+    nsm = objs[0]
+    check("a cluster admin (system:masters) creates a run-namespace Object", False,
+          create(pk_object("hand-made-ns", nsm), None), ORIGIN)
+    check("Clearance creates a run-namespace Object", False, create(pk_object("clearance-ns", nsm), CLEARANCE), ORIGIN)
+    check("Clearance creates a Sandbox Object", False, create(pk_object("clearance-sb", objs[-1]), CLEARANCE), ORIGIN)
+    check("provider-kubernetes creates a run-kind Object", False, create(pk_object("provider-ns", nsm), PROVIDER), ORIGIN)
+    check("Crossplane, but no owner reference", False, create(pk_object("no-owner", nsm, owner=None), CROSSPLANE), "must belong to an AgentRun")
+    check("Crossplane, but owned by a SecretStore", False,
+          create(pk_object("ss-owner", nsm, owner={**OWNER, "kind": "SecretStore"}), CROSSPLANE), "must belong to an AgentRun")
+    check("Crossplane, owner not the controller", False,
+          create(pk_object("not-ctl", nsm, owner={**OWNER, "controller": False}), CROSSPLANE), "must belong to an AgentRun")
+    check("Crossplane, composite label names another XR", False,
+          create(pk_object("other-xr", nsm, composite="r-ffffff"), CROSSPLANE), "must belong to an AgentRun")
+    check("Crossplane, no labels at all", False, create(pk_object("no-labels", nsm, labels=False), CROSSPLANE), "must belong to an AgentRun")
+    check("Crossplane, outside autopilot-runs", False, create(pk_object("elsewhere", nsm, namespace="default"), CROSSPLANE), "must belong to an AgentRun")
+    check("the legacy cluster-scoped Object API with a Namespace manifest", False,
+          create(pk_object("legacy-ns", nsm, legacy=True), CROSSPLANE), "must belong to an AgentRun")
+    check("an admin changes the spec of Crossplane's run Object", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"forProvider":{"manifest":{"metadata":{"name":"agent-r-ffffff"}}}}}']), ORIGIN)
+    check("an admin turns a run Object into a ConfigMap (the old manifest is a run kind)", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"forProvider":{"manifest":{"apiVersion":"v1","kind":"ConfigMap"}}}}']), ORIGIN)
+
+    print("-- object origin: everything else is untouched")
+    css = {"apiVersion": "external-secrets.io/v1", "kind": "ClusterSecretStore", "metadata": {"name": "backstage-hangar-dev"},
+           "spec": {"provider": {"kubernetes": {}}}}
+    sec = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "token", "namespace": "app-x-cicd"}, "stringData": {"a": "b"}}
+    ss_owner = {**OWNER, "kind": "SecretStore", "name": "backstage-hangar-dev"}
+    check("a SecretStore's ClusterSecretStore Object, by Crossplane", True,
+          create(pk_object("css", css, namespace="app-flight-api-dev", owner=ss_owner, composite="backstage-hangar-dev"), CROSSPLANE))
+    check("a Secret Object, by an admin, with no owner or labels", True,
+          create(pk_object("sec-admin", sec, namespace="app-flight-api-dev", owner=None, composite=None), None))
+    check("a Secret Object, by Clearance", True,
+          create(pk_object("sec-clearance", sec, namespace="app-flight-api-dev", owner=None, composite=None), CLEARANCE))
+    check("a legacy cluster-scoped Object with a Secret manifest", True,
+          create(pk_object("legacy-sec", sec, legacy=True, owner=None, composite=None), None))
+    check("an admin edits the SecretStore Object's spec", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", "css", "-n", "app-flight-api-dev", "--type=merge",
+               "-p", '{"spec":{"managementPolicies":["Observe"]}}']))
+    check("an admin turns a Secret Object into a Namespace (the new manifest is a run kind)", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", "sec-admin", "-n", "app-flight-api-dev", "--type=merge",
+               "-p", '{"spec":{"forProvider":{"manifest":{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"agent-r-0d0d0d"}}}}}']), ORIGIN)
+    ok, out = create({"apiVersion": "kubernetes.m.crossplane.io/v1alpha1", "kind": "Object",
+                      "metadata": {"name": "no-manifest", "namespace": "app-flight-api-dev"}, "spec": {"forProvider": {}}}, None)
+    check("an Object with no manifest is refused by the schema, not the policy", False, (ok, out), "manifest")
+    if ORIGIN in out:
+        check("... and the policy did not answer for it", False, (True, out))
+    ok, out = create({"apiVersion": "kubernetes.m.crossplane.io/v1alpha1", "kind": "Object",
+                      "metadata": {"name": "empty-manifest", "namespace": "app-flight-api-dev"},
+                      "spec": {"forProvider": {"manifest": {}}}}, None)
+    check("an Object with an empty manifest is refused by the schema, not the policy", False, (ok, out), "kind")
+    if ORIGIN in out:
+        check("... and the policy did not answer for it", False, (True, out))
+    check("a ConfigMap Object with no metadata in its manifest", True,
+          create(pk_object("cm-bare", {"apiVersion": "v1", "kind": "ConfigMap"}, namespace="app-flight-api-dev", owner=None, composite=None), None))
+    check("deleting a run Object is not matched (Crossplane's own cleanup, or an admin's)", True,
+          run(["delete", "objects.kubernetes.m.crossplane.io", "r-1a2b3c-bare", "-n", "autopilot-runs", "--wait=false"]))
+    check("no request produced a CEL evaluation error", True, (not errors, "\n".join(errors)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sandbox-crd", default=str(HERE / "fixtures" / "sandbox-crd-stub.yaml"))
@@ -141,6 +263,9 @@ def main():
                 raise RuntimeError(f"setup {' '.join(args)}: {out}")
 
         setup(["apply", "-f", a.sandbox_crd])
+        for crd in ("objects.kubernetes.m.crossplane.io", "objects.kubernetes.crossplane.io"):
+            setup(["apply", "-f", str(HERE / "fixtures" / f"crd-{crd}.yaml")])
+            setup(["wait", "--for=condition=Established", f"crd/{crd}", "--timeout=60s"])
         setup(["wait", "--for=condition=Established", "crd/sandboxes.agents.x-k8s.io", "--timeout=60s"])
         for n in ("crossplane-system", "platform-system", "autopilot-runs", "app-flight-api-dev"):
             setup(["create", "ns", n])
@@ -158,6 +283,13 @@ def main():
             if f.name != "application.yaml":
                 setup(["apply", "-f", str(f)])
         setup(["wait", "--for=condition=Established", "crd/agentruns.catalog.hangar.io", "--timeout=60s"])
+        # Test-only: let every identity the Object-origin checks impersonate write Objects, so a refusal below is the
+        # policy's, not RBAC's (on the cluster only Crossplane and Crossplane admins hold this).
+        setup(["create", "clusterrole", "test-object-writer", "--verb=*",
+               "--resource=objects.kubernetes.m.crossplane.io,objects.kubernetes.crossplane.io"])
+        setup(["create", "clusterrolebinding", "test-object-writer", "--clusterrole=test-object-writer",
+               "--serviceaccount=crossplane-system:crossplane", "--serviceaccount=platform-system:clearance",
+               "--serviceaccount=crossplane-system:provider-kubernetes"])
         time.sleep(3)  # policy and RBAC informers settle
 
         P = PROVIDER
@@ -242,6 +374,8 @@ def main():
               k.kubectl(["create", "-f", "-"], {**run, "metadata": {"name": "r-1a2b3c", "namespace": "default"}}, CLEARANCE), "forbidden")
         check("Clearance cannot create a Sandbox", False, k.kubectl(["create", "-f", "-"], sandbox(run_ns), CLEARANCE), "forbidden")
         check("Clearance cannot read Secrets in autopilot-runs", False, k.kubectl(["get", "secrets", "-n", "autopilot-runs"], as_user=CLEARANCE), "forbidden")
+
+        object_origin_checks(k, check, objs)
 
         print("-- allowed: teardown")
         for d in reversed(objs[1:]):

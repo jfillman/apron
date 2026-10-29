@@ -1,0 +1,97 @@
+# Who may ask provider-kubernetes for a run-shaped object (Autopilot AP-A3, the Object-specific half of D15's
+# containment; decided 2026-10-28). provider-confinement-policy.yaml confines WHAT provider-kubernetes may write for
+# the run kinds; it cannot tell which Object asked, because every request comes from the one provider identity. This
+# policy closes that from the other side: a provider-kubernetes Object whose manifest is a run kind (Namespace,
+# ResourceQuota, ServiceAccount, NetworkPolicy, agent-sandbox Sandbox) may be created or have its spec changed only
+#   1. by Crossplane core (system:serviceaccount:crossplane-system:crossplane), i.e. composed, never hand-made, and
+#   2. for an AgentRun: in autopilot-runs, with a controller ownerReference to a catalog.hangar.io AgentRun that the
+#      crossplane.io/composite label names (what Crossplane v2 stamps on every composed resource).
+# So a cluster admin, a Crossplane admin or Clearance cannot hand-make an Object that gets them a run namespace and its
+# agent-r-*:run identity. Both Object APIs are covered: the legacy cluster-scoped kubernetes.crossplane.io Object is
+# never in autopilot-runs, so it can never carry a run kind.
+#
+# Blast radius (a fail-closed CEL policy once refused requests cluster-wide): the matchConditions select only Objects
+# whose manifest, old or new, is a run kind, and every field access there is guarded with has(), so an Object of any
+# other kind (SecretStore's ClusterSecretStores and Secrets), or a malformed one, is never evaluated and never errors.
+# failurePolicy Fail applies only inside that scope. An UPDATE that leaves spec unchanged (provider-kubernetes's
+# finalizers and annotations, the garbage collector) passes for anyone. DELETE is not matched. Tested offline against
+# a real kube-apiserver: apron tests/policy/.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: autopilot-agentrun-object-origin
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["kubernetes.m.crossplane.io", "kubernetes.crossplane.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["objects"]
+  matchConditions:
+    - name: manifest-is-a-run-kind
+      expression: >-
+        (object != null && has(object.spec) && has(object.spec.forProvider) && has(object.spec.forProvider.manifest)
+         && has(object.spec.forProvider.manifest.apiVersion) && has(object.spec.forProvider.manifest.kind)
+         && ((object.spec.forProvider.manifest.apiVersion == 'v1'
+              && object.spec.forProvider.manifest.kind in ['Namespace', 'ResourceQuota', 'ServiceAccount'])
+          || (object.spec.forProvider.manifest.apiVersion.startsWith('networking.k8s.io/')
+              && object.spec.forProvider.manifest.kind == 'NetworkPolicy')
+          || (object.spec.forProvider.manifest.apiVersion.startsWith('agents.x-k8s.io/')
+              && object.spec.forProvider.manifest.kind == 'Sandbox')))
+        ||
+        (oldObject != null && has(oldObject.spec) && has(oldObject.spec.forProvider) && has(oldObject.spec.forProvider.manifest)
+         && has(oldObject.spec.forProvider.manifest.apiVersion) && has(oldObject.spec.forProvider.manifest.kind)
+         && ((oldObject.spec.forProvider.manifest.apiVersion == 'v1'
+              && oldObject.spec.forProvider.manifest.kind in ['Namespace', 'ResourceQuota', 'ServiceAccount'])
+          || (oldObject.spec.forProvider.manifest.apiVersion.startsWith('networking.k8s.io/')
+              && oldObject.spec.forProvider.manifest.kind == 'NetworkPolicy')
+          || (oldObject.spec.forProvider.manifest.apiVersion.startsWith('agents.x-k8s.io/')
+              && oldObject.spec.forProvider.manifest.kind == 'Sandbox')))
+  variables:
+    - name: specUnchanged
+      expression: >-
+        request.operation == 'UPDATE' && oldObject != null && has(oldObject.spec) && has(object.spec)
+        && oldObject.spec == object.spec
+    - name: byCrossplane
+      expression: "has(request.userInfo.username) && request.userInfo.username == 'system:serviceaccount:crossplane-system:crossplane'"
+    - name: composite
+      expression: >-
+        has(object.metadata.labels) && 'crossplane.io/composite' in object.metadata.labels
+        ? object.metadata.labels['crossplane.io/composite'] : ''
+    - name: ownedByAgentRun
+      expression: >-
+        has(request.namespace) && request.namespace == 'autopilot-runs' && variables.composite != ''
+        && has(object.metadata.ownerReferences)
+        && object.metadata.ownerReferences.exists(r,
+             has(r.controller) && r.controller == true && r.kind == 'AgentRun'
+             && r.apiVersion.startsWith('catalog.hangar.io/') && r.name == variables.composite)
+  validations:
+    - expression: "variables.specUnchanged || variables.byCrossplane"
+      messageExpression: >-
+        'only Crossplane core may create or change a provider-kubernetes Object whose manifest is a run kind
+        (Namespace, ResourceQuota, ServiceAccount, NetworkPolicy, Sandbox); ' + request.userInfo.username + ' may not'
+      reason: Forbidden
+    - expression: "variables.specUnchanged || variables.ownedByAgentRun"
+      message: >-
+        a provider-kubernetes Object whose manifest is a run kind must belong to an AgentRun: in autopilot-runs, with a
+        controller ownerReference to a catalog.hangar.io AgentRun named by its crossplane.io/composite label
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: autopilot-agentrun-object-origin
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agentrun-grants
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  policyName: autopilot-agentrun-object-origin
+  validationActions: [Deny]

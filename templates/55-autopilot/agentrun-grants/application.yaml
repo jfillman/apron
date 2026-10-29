@@ -3,8 +3,10 @@
 #   provider-kubernetes-agentrun.yaml   the ClusterRole provider-kubernetes needs for an AgentRun's Objects, bound to
 #                                       its stable service account (10-crds-operators/crossplane/provider-kubernetes-runtime.yaml)
 #   provider-confinement-policy.yaml    the ValidatingAdmissionPolicy that confines that grant to run namespaces
+#   object-origin-policy.yaml           the ValidatingAdmissionPolicy that lets only Crossplane core, for an AgentRun,
+#                                       make a provider-kubernetes Object whose manifest is a run kind
 #   clearance-agentruns.yaml            Clearance's one Kubernetes permission: agentruns in autopilot-runs
-# Sync wave: the policy (wave -1) is in place before the grant (wave 0), so the grant is never live unconfined.
+# Sync wave: the policies (wave -1) is in place before the grant (wave 0), so the grant is never live unconfined.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
