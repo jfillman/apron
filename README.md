@@ -62,7 +62,7 @@ cluster and without the full catalog.
 |---|---|---|
 | `namespaces/` | `autopilot-system` (Clearance, the model proxy) and `autopilot-runs` (AgentRun XRs), pod security restricted | never labelled `hangar.io/ephemeral-env` |
 | `agent-sandbox/` | the kubernetes-sigs/agent-sandbox controller, chart pinned by commit and image by digest (v1.0.8) | a run's Sandbox `shutdownTime` ends its pod with no Clearance or Crossplane involved |
-| `agentrun-grants/` | provider-kubernetes's ClusterRole for a run's objects, the ValidatingAdmissionPolicy that confines it, Clearance's Role | the grant only ships with the policy: run namespaces (`agent-r-*`) only, no pod-security label changes, no PR-sweep label, `serviceAccountName: run` only (decision D15) |
+| `agentrun-grants/` | provider-kubernetes's ClusterRole for a run's objects, the ValidatingAdmissionPolicy that confines it, a second policy on who may create such Objects, Clearance's Role | the grant only ships with the policy: run namespaces (`agent-r-*`) only, no pod-security label changes, no PR-sweep label, `serviceAccountName: run` only (decision D15); and a provider-kubernetes Object with a run-kind manifest comes only from Crossplane core for an AgentRun, never hand-made |
 
 It also gives provider-kubernetes a stable service account (`10-crds-operators/crossplane/provider-kubernetes-runtime.yaml`)
 and installs function-agentrun with the cluster's name (`function-agentrun-runtime.yaml`). Runs land only once the
