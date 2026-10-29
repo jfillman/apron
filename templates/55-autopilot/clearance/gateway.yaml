@@ -2,9 +2,11 @@
 # Autopilot's Hangar backends (README "Running the gateway"). One replica: the store is single-writer and clearance.pg
 # refuses a second writer. Run pods find it by the label and port function-agentrun's egress allows.
 #
-# Backends wired here: AgentRuns (Role in agentrun-grants), Airframe reads (identity.yaml), glidepath-api (its
-# delegates/readers/operators/releasers list this identity). Callers authenticate with a service-account token for the
-# `clearance` audience; people's OIDC sign-in is not configured yet. The SA token mounted here (API server audience)
+# Backends wired here: AgentRuns (Role in agentrun-grants), Airframe and Argo CD Application reads (identity.yaml),
+# glidepath-api (its delegates/readers/operators/releasers list this identity), Thanos Query and Loki (no credential).
+# Losing Postgres ends the process (exit 70) and the kubelet restarts it; it starts again once the database answers.
+# Callers authenticate with a service-account token for the `clearance` audience; people's OIDC sign-in is not
+# configured yet. The SA token mounted here (API server audience)
 # is what Clearance uses for TokenReview, the Airframe reads, AgentRuns and glidepath-api.
 apiVersion: apps/v1
 kind: Deployment
@@ -33,8 +35,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.1.0 = autopilot a2c6127 with clearance v0.4.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.1.0@sha256:1f9309693e212250d3bd2b98dc752efde2fb88482c2868b8cdc3c75ab6199f66
+          # gateway-v0.2.0 = autopilot 9f0bf02 with clearance v0.4.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.2.0@sha256:c370889e931d4cc59c387b84b3ab56453c9d298ad82ee49775fc79bd57341f45
           ports:
             - {name: mcp, containerPort: 8080}
           env:
@@ -46,6 +48,11 @@ spec:
             - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
             - {name: AIRFRAME_CLUSTER, value: "@@CLUSTER_NAME@@"}
             - {name: AIRFRAME_TENANTS_REPO, value: "@@TENANTS_REPO_NAME@@"}
+            # T0 reads: Argo CD Applications through the Kubernetes API (the airframe reader's RBAC), PromQL on Thanos
+            # Query, LogQL on Loki (OpenTelemetry labels: k8s_namespace_name, k8s_pod_name, service_name).
+            - {name: ARGO_APP_NAMESPACES, value: "argocd,argocd-apps"}
+            - {name: PROMETHEUS_URL, value: "http://thanos-query.observability.svc:9090"}
+            - {name: LOKI_URL, value: "http://loki-gateway.observability.svc"}
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10

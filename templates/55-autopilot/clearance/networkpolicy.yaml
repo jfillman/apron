@@ -1,0 +1,46 @@
+# Who may reach Clearance and its database (ingress only; Clearance's own egress is open: the API server, glidepath-api,
+# Prometheus, Loki and an OIDC issuer's JWKS, and the API server has no stable selector).
+#   clearance      the gateway's MCP port, from agent-run namespaces only. function-agentrun labels each run namespace
+#                  hangar.io/agent-run=true and its egress policy allows this pod and port; this is the other half.
+#                  kubelet probes and `kubectl port-forward` reach the pod from the node, which Cilium allows. Add a
+#                  rule here when another in-cluster caller (Tower, Holmes) is wired to Clearance.
+#   clearance-pg   Postgres from the gateway only, and the CloudNativePG operator's status and management ports.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {hangar.io/agent-run: "true"}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-pg
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: clearance-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: clearance}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cnpg-system}
+      ports:
+        - {protocol: TCP, port: 8000}
+        - {protocol: TCP, port: 5432}
