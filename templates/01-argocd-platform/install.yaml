@@ -34099,6 +34099,15 @@ spec:
               optional: true
         - name: KUBECACHEDIR
           value: /tmp/kubecache
+        # GOMEMLIMIT + memory limit, added 2026-10-28. With neither set, this controller's
+        # heap swung between ~2 GB and 4.7 GB on hangar-dev (58 apps) and its RSS stayed
+        # at 5.9 GB, since Go returns freed memory to the node slowly. The node (32 GB,
+        # no swap) ran out of headroom, the apiserver stalled, and every control-plane
+        # controller lost its leader lease in a loop. GOMEMLIMIT makes the GC work harder
+        # near 2.5 GiB and hand memory back. The limit sits well above it, so a real
+        # working set larger than GOMEMLIMIT costs GC CPU before the pod gets OOMKilled.
+        - name: GOMEMLIMIT
+          value: 2500MiB
         image: quay.io/argoproj/argocd:v3.5.0
         imagePullPolicy: Always
         name: argocd-application-controller
@@ -34110,6 +34119,12 @@ spec:
             port: 8082
           initialDelaySeconds: 5
           periodSeconds: 10
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            memory: 4Gi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
