@@ -30,8 +30,7 @@ subjects:
 ---
 # Read-only Kubernetes access for the airframe.* tools (AF-8a): XR conditions, the Argo CD Application that syncs an
 # environment, and its Rollout. No Secrets, ConfigMaps, pods, exec or port-forward: verify works from XR status, and a
-# check that needs more is reported as skipped. Its own name, so it never collides with the pre-deployment
-# clearance-airframe-reader still bound to platform-system/clearance.
+# check that needs more is reported as skipped.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
