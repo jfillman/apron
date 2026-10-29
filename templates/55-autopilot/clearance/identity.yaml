@@ -1,0 +1,64 @@
+# Clearance's identity. No token Secret: the kubelet projects a short-lived token into the gateway's pod.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clearance
+  namespace: autopilot-system
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+automountServiceAccountToken: false
+---
+# Callers present a service-account token for the `clearance` audience; Clearance checks it with a TokenReview
+# (clearance.auth.WorkloadAuthenticator). system:auth-delegator grants tokenreviews and subjectaccessreviews create,
+# nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: autopilot-clearance-auth-delegator
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: clearance
+    namespace: autopilot-system
+---
+# Read-only Kubernetes access for the airframe.* tools (AF-8a): XR conditions, the Argo CD Application that syncs an
+# environment, and its Rollout. No Secrets, ConfigMaps, pods, exec or port-forward: verify works from XR status, and a
+# check that needs more is reported as skipped. Its own name, so it never collides with the pre-deployment
+# clearance-airframe-reader still bound to platform-system/clearance.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: autopilot-clearance-airframe-reader
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+rules:
+  - apiGroups: ["catalog.hangar.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "rollouts"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: autopilot-clearance-airframe-reader
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: autopilot-clearance-airframe-reader
+subjects:
+  - kind: ServiceAccount
+    name: clearance
+    namespace: autopilot-system

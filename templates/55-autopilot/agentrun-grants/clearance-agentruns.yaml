@@ -1,7 +1,8 @@
 # Clearance's one Kubernetes write permission (Autopilot design section 1, "What this costs"): AgentRun XRs in
 # autopilot-runs and nothing else. patch is for spec.frozen (the XRD makes every other spec field immutable, so
 # Clearance can neither extend a deadline nor widen a run). A namespaced Role, never a cluster grant. Bound to the
-# Clearance identity that exists today (platform-system/clearance); Clearance's deployment (AP-A2) runs as it.
+# deployed gateway's identity, autopilot-system/clearance (55-autopilot/clearance), and, until that is verified, the
+# earlier platform-system/clearance.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -28,6 +29,11 @@ roleRef:
   kind: Role
   name: clearance-agentruns
 subjects:
+  # The deployed gateway (55-autopilot/clearance).
+  - kind: ServiceAccount
+    name: clearance
+    namespace: autopilot-system
+  # The identity used before it was deployed (minted tokens for the smoke tools); removed once the gateway is verified.
   - kind: ServiceAccount
     name: clearance
     namespace: platform-system
