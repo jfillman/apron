@@ -2,9 +2,10 @@
 # shutdownTime + shutdownPolicy: Delete is the run's hard deadline (deleted within about a second of expiry, measured
 # on the dev cluster 2026-09-26 with v1.0.4), so this controller, not Clearance or Crossplane, ends a run on time.
 #
-# Pinned: the chart from the v1.0.8 release commit (an immutable SHA, not the tag), the controller image by digest
-# (the multi-arch index: linux/arm64 + linux/amd64; the image runs as UID 65532). Upgrading means a new commit SHA and a
-# new digest together; read the release notes for Sandbox API and shutdown behaviour changes first.
+# Pinned: the chart from the v1.0.8 release commit (an immutable SHA, not the tag), the controller image by its
+# release tag (the chart cannot take a digest; see image.tag below; multi-arch index, linux/arm64 + linux/amd64; the
+# image runs as UID 65532). Upgrading means a new commit SHA and tag together; read the release notes for Sandbox API
+# and shutdown behaviour changes first.
 #
 # Core controller only (controller.extensions: false): AgentRun renders a Sandbox directly, no SandboxTemplate, Claim
 # or WarmPool. Helm's crds/ still installs the extension CRDs, unused. The chart's ClusterRoles aggregate to nobody:
@@ -29,7 +30,12 @@ spec:
       valuesObject:
         namespace: {create: false, name: agent-sandbox-system}
         image:
-          tag: "v1.0.8@sha256:e1d96312487eba7d8f001e848a9d4e644b7deea8c2a4564ccc318abb729be731"
+          # The tag, not tag@digest: the chart renders "repository:tag" AND copies image.tag into the
+          # app.kubernetes.io/version label, so "v1.0.8@sha256:..." is an invalid label value (the ServiceAccount
+          # and Deployment were refused on hangar-dev, 2026-10-29) and a bare 64-char digest exceeds the 63-char
+          # label limit. registry.k8s.io images are promoted, not overwritten; v1.0.8's multi-arch index is
+          # sha256:e1d96312487eba7d8f001e848a9d4e644b7deea8c2a4564ccc318abb729be731 (verify on upgrade).
+          tag: "v1.0.8"
         controller: {extensions: false, leaderElect: true}
         resources:
           requests: {cpu: 10m, memory: 64Mi}
