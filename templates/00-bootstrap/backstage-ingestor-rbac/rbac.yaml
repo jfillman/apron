@@ -466,6 +466,11 @@ rules:
     resourceNames:
       - tekton-results-relay
       - tekton-results-relay:8080
+      # glidepath-api (2026-10-25, glidepath docs/admin/api.md): the read API Tower moves onto. It
+      # checks the token again itself (sent in X-Glidepath-Authorization, since the proxy drops
+      # Authorization) and authorizes every read, so this grant only opens the door.
+      - glidepath-api
+      - glidepath-api:8080
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

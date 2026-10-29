@@ -110,4 +110,11 @@ spec:
       kind: AwsEcsTarget
     - group: catalog.hangar.io
       kind: AzureContainerAppTarget
+    # Cloud dependencies added 2026-10-24 (airframe docs/user/cloud-dependencies.md): requested the same way.
+    - group: catalog.hangar.io
+      kind: MessageQueue
+    - group: catalog.hangar.io
+      kind: ObjectStorage
+    - group: catalog.hangar.io
+      kind: ManagedPostgreSQL
 #@end

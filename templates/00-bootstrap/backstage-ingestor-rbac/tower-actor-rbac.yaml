@@ -50,3 +50,31 @@ subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:tower-actor
+---
+# Glidepath API spec phase 3 (2026-10-28): Tower's Re-run and Cancel move onto glidepath-api, called as this identity
+# through the API server's service proxy (the proxy drops Authorization; glidepath-api checks the token again from
+# X-Glidepath-Authorization and authorizes the write itself, so this only opens the door).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tower-actor-glidepath-api-proxy
+  namespace: platform-system
+rules:
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["glidepath-api", "glidepath-api:8080"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tower-actor-glidepath-api-proxy
+  namespace: platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tower-actor-glidepath-api-proxy
+subjects:
+  - kind: User
+    apiGroup: rbac.authorization.k8s.io
+    name: hangar:@@TOWER_CLUSTER@@:tower-actor

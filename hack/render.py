@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
+MAY_BE_EMPTY = {"GLIDEPATH_PROMOTER_REPO", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
 
 
 def tokens(v):
@@ -91,7 +91,10 @@ def tokens(v):
         "GLIDEPATH_PROMOTION": json.dumps({
             "enabled": bool(g("promotion.enabled", False)),
             "pinDigest": bool(g("promotion.pinDigest", False)),
+            # The Flight promoter's dispatch repo (glidepath ADR-0029 phase 2), only when set.
+            **({"promoter": {"repo": g("promotion.promoter.repo")}} if g("promotion.promoter.repo", "") else {}),
         }),
+        "GLIDEPATH_PROMOTER_REPO": g("promotion.promoter.repo", ""),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
