@@ -1,6 +1,6 @@
 # Who may reach Clearance and its database (ingress only; Clearance's own egress is open: the API server, glidepath-api,
 # Prometheus, Loki and an OIDC issuer's JWKS, and the API server has no stable selector).
-#   clearance      the gateway's MCP port, from agent-run namespaces only. function-agentrun labels each run namespace
+#   clearance      the gateway's MCP port and the model proxy's (8081), from agent-run namespaces only. function-agentrun labels each run namespace
 #                  hangar.io/agent-run=true and its egress policy allows this pod and port; this is the other half.
 #                  kubelet probes and `kubectl port-forward` reach the pod from the node, which Cilium allows. Add a
 #                  rule here when another in-cluster caller (Tower, Holmes) is wired to Clearance.
@@ -21,6 +21,7 @@ spec:
             matchLabels: {hangar.io/agent-run: "true"}
       ports:
         - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8081}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

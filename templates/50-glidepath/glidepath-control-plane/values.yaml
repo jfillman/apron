@@ -109,3 +109,11 @@ promoter:
   enabled: true
   dispatchRepo: @@GLIDEPATH_PROMOTER_REPO@@
 #@end
+
+#@if components.autopilot
+# The agents' GitHub App (Autopilot AP-B1, hangar D4; glidepath docs/admin/release.md "The agent installation token"):
+# the broker's /agent-installation-token for Clearance (autopilot-system/clearance, the chart's default caller), and
+# the App's id and key from this cluster's Infisical project (agent-app-id, agent-app-private-key).
+agentToken:
+  enabled: true
+#@end

@@ -1,0 +1,24 @@
+# The model provider's API key for Clearance's model proxy (clearance server.create_model_app; autopilot README
+# "Running the gateway", MODEL_KEY_FILE). From this cluster's Infisical project (agent-model-anthropic-api-key) into
+# autopilot-system only, mounted into the Clearance pod and read per model call. Runs never hold it: a run calls the
+# proxy with its own model-proxy token, and Clearance forwards with this key after deciding the call.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-model-key
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-model-key
+    creationPolicy: Owner
+  data:
+    - secretKey: anthropic-api-key
+      remoteRef:
+        key: agent-model-anthropic-api-key

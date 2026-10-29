@@ -6,7 +6,8 @@
 #                   read-only Airframe reader for the airframe.* tools. Its AgentRun Role is in agentrun-grants; its
 #                   glidepath-api grants are in 50-glidepath/glidepath-control-plane/values.yaml.
 #   postgres.yaml   its store and evidence sink, a CloudNativePG cluster (sync wave 0)
-#   gateway.yaml    the gateway Deployment and Service (sync wave 1)
+#   model-key.yaml  the model provider's key for the model proxy, from Infisical (sync wave 0)
+#   gateway.yaml    the gateway Deployment, its Service and the model-proxy Service (sync wave 1)
 #   networkpolicy.yaml  ingress to the gateway (agent-run namespaces only) and to its database (the gateway and the
 #                   CloudNativePG operator)
 apiVersion: argoproj.io/v1alpha1

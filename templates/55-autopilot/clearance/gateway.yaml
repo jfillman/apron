@@ -39,6 +39,7 @@ spec:
           image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.2.0@sha256:c370889e931d4cc59c387b84b3ab56453c9d298ad82ee49775fc79bd57341f45
           ports:
             - {name: mcp, containerPort: 8080}
+            - {name: model, containerPort: 8081}
           env:
             - name: CLEARANCE_DSN
               valueFrom: {secretKeyRef: {name: clearance-pg-app, key: uri}}
@@ -53,6 +54,13 @@ spec:
             - {name: ARGO_APP_NAMESPACES, value: "argocd,argocd-apps"}
             - {name: PROMETHEUS_URL, value: "http://thanos-query.observability.svc:9090"}
             - {name: LOKI_URL, value: "http://loki-gateway.observability.svc"}
+            # repo.pr.open as the agents' GitHub App: a token per PR from Glidepath's broker (/agent-installation-token),
+            # asked for with the projected token below. The App's key never reaches this pod.
+            - {name: GITHUB_PR_ENABLED, value: "1"}
+            - {name: AGENT_TOKEN_FILE, value: /var/run/clearance/agent-installation-token}
+            # The model proxy (port 8081, Service model-proxy): runs' model calls, decided and charged here.
+            - {name: MODEL_KEY_FILE, value: /etc/clearance-model/anthropic-api-key}
+            - {name: MODEL_ROUTES, value: "claude-sonnet-5-5=claude-sonnet-5-5"}
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10
@@ -69,9 +77,19 @@ spec:
             capabilities: {drop: ["ALL"]}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            - {name: clearance-tokens, mountPath: /var/run/clearance, readOnly: true}
+            - {name: model-key, mountPath: /etc/clearance-model, readOnly: true}
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
+        # Clearance's token toward the broker's /agent-installation-token, rotated by the kubelet.
+        - name: clearance-tokens
+          projected:
+            sources:
+              - serviceAccountToken: {audience: agent-installation-token, expirationSeconds: 3600, path: agent-installation-token}
+        - name: model-key
+          secret:
+            secretName: clearance-model-key
 ---
 apiVersion: v1
 kind: Service
@@ -83,3 +101,16 @@ spec:
   selector: {app.kubernetes.io/name: clearance}
   ports:
     - {name: mcp, port: 8080, targetPort: mcp}
+---
+# The model proxy is Clearance's own pod (function-agentrun's model_proxy_selector, airframe compositions/agentrun):
+# runs reach it as MODEL_PROXY_URL, http://model-proxy.autopilot-system.svc:8081.
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-proxy
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  selector: {app.kubernetes.io/name: clearance}
+  ports:
+    - {name: model, port: 8081, targetPort: model}
