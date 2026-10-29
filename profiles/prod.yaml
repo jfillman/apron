@@ -42,3 +42,12 @@ cnpg:
   replicas: 1
 tower:
   env: prod
+admission:
+  flight:                       # glidepath ADR-0029 phase 4; needs registries.flight.namespace + promotion.promoter.repo
+    enabled: false              # render flight-only-images + flight-images (Audit+Warn) and the Kyverno Flight read secret
+    enforce: false              # Deny + failurePolicy Fail; only once every app's prod release runs from Flight
+    pullFromFlight: false       # tenant registry-credentials reads Flight (read-only) instead of Ground
+    allowedPrefixes:            # third-party images tenants run; no Glidepath build produces them, so nothing promotes them
+      - ghcr.io/cloudnative-pg/
+      - ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-
+      - docker.io/bitnamilegacy/

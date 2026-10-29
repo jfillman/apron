@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"GLIDEPATH_PROMOTER_REPO", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
+MAY_BE_EMPTY = {"GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
 
 
 def tokens(v):
@@ -95,6 +95,7 @@ def tokens(v):
             **({"promoter": {"repo": g("promotion.promoter.repo")}} if g("promotion.promoter.repo", "") else {}),
         }),
         "GLIDEPATH_PROMOTER_REPO": g("promotion.promoter.repo", ""),
+        **flight_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
@@ -115,6 +116,29 @@ def tokens(v):
         "KIND_HOST_HTTPS_PORT": g("runtime.kind.hostHttpsPort", ""),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
+
+
+def flight_admission_tokens(g):
+    """Flight admission on an upper cluster (glidepath ADR-0029 phase 4): tenant pods run Flight images, each carrying
+    the promotion attestation the promoter workflow signs, or an allow-listed third-party image. Audit+Warn until
+    admission.flight.enforce; the tenant pull secret reads Flight only once admission.flight.pullFromFlight."""
+    flight_ns = g("registries.flight.namespace", "") or ""
+    promoter = g("promotion.promoter.repo", "") or ""
+    on = bool(g("admission.flight.enabled", False))
+    if on and not (flight_ns and promoter):
+        raise ApronError("admission.flight.enabled needs registries.flight.namespace and promotion.promoter.repo")
+    enforce = bool(g("admission.flight.enforce", False))
+    return {
+        "FLIGHT_PREFIX": f"{g('registries.flight.host', '') or 'ghcr.io'}/{flight_ns}/" if flight_ns else "",
+        # The promoter workflow's keyless identity: GitHub Actions OIDC, the workflow file on main.
+        "FLIGHT_PROMOTER_SUBJECT_RE": (f"^https://github\\.com/{re.escape(promoter)}/\\.github/workflows/promote\\.yaml"
+                                       "@refs/heads/main$") if promoter else "",
+        "FLIGHT_ADMISSION_ACTIONS": "[Deny]" if enforce else "[Audit, Warn]",
+        "FLIGHT_ADMISSION_FAILURE_POLICY": "Fail" if enforce else "Ignore",
+        "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])),
+        "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
+                              else "registry-credentials-dockerconfigjson"),
+    }
 
 
 def manifest(root):

@@ -56,6 +56,7 @@
 30-policy/                              components.policy
 30-policy/kyverno-policies/backstage-component-type-annotations.yaml   components.policy and isControlPlane
 30-policy/kyverno-policies/glidepath-cloud-deployer.yaml              components.policy and isControlPlane
+30-policy/kyverno-policies/flight-images.yaml                       components.policy and zone == 'upper' and admission.flight.enabled
 30-policy/kyverno-policies/no-long-lived-sa-tokens.yaml               components.policy and components.towerAccessHub
 30-policy/kyverno-policies/testkube-rbac.yaml                         components.policy and components.glidepath
 30-policy/kyverno-policies/testkube-secret-usage.yaml                 components.policy and components.glidepath
