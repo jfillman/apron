@@ -91,6 +91,14 @@ api:
       - hangar:@@TOWER_CLUSTER@@:tower-actor
     serviceAccounts:
       - { name: clearance, namespace: platform-system }
+  # Who may promote and roll back through the API (glidepath-api-releaser, cluster-wide; glidepath docs/admin/api.md
+  # "Promote and roll back"). T2: each only starts the app's release pipeline, whose PR a person merges. Tower
+  # owner-checks first; Clearance's glidepath.promote/.rollback are per agent definition.
+  releasers:
+    users:
+      - hangar:@@TOWER_CLUSTER@@:tower-actor
+    serviceAccounts:
+      - { name: clearance, namespace: platform-system }
 
 #@if promotion.promoter.repo
 # The Flight promoter (glidepath ADR-0029 phase 2, docs/admin/registries.md): the broker's /promoter-token for
