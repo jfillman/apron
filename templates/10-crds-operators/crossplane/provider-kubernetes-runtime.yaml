@@ -1,0 +1,23 @@
+# DeploymentRuntimeConfig for provider-kubernetes (Autopilot AP-A3, decision D15 (c)): a STABLE service account name.
+#
+# Without it Crossplane names the provider's service account after the package revision (provider-kubernetes-<hash>),
+# which changes with every provider upgrade, and every ClusterRoleBinding to it (provider-kubernetes-applied-resources,
+# hangar-agentrun-objects) and the confinement policy's matchConditions would silently stop matching. Crossplane
+# creates the service account under this name and its RBAC manager binds the provider's own system ClusterRole to
+# whatever service account the Deployment runs as (crossplane v2.3 rbac/provider/binding), so nothing else changes.
+#
+# Only serviceAccountTemplate: no deploymentTemplate, so the Deployment's (immutable) selector is untouched.
+# Own runtime config, never the shared "default" one (see provider-helm-runtime.yaml for why).
+#
+# Rendered only with components.autopilot (the D15 grants need it). Other clusters keep the hashed name.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-kubernetes-runtime
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-kubernetes

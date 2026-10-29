@@ -1,0 +1,57 @@
+# kubernetes-sigs/agent-sandbox (roadmap U11): the controller behind the Sandbox each AgentRun renders. Its
+# shutdownTime + shutdownPolicy: Delete is the run's hard deadline (deleted within about a second of expiry, measured
+# on the dev cluster 2026-09-26 with v1.0.4), so this controller, not Clearance or Crossplane, ends a run on time.
+#
+# Pinned: the chart from the v1.0.8 release commit (an immutable SHA, not the tag), the controller image by digest
+# (the multi-arch index: linux/arm64 + linux/amd64; the image runs as UID 65532). Upgrading means a new commit SHA and a
+# new digest together; read the release notes for Sandbox API and shutdown behaviour changes first.
+#
+# Core controller only (controller.extensions: false): AgentRun renders a Sandbox directly, no SandboxTemplate, Claim
+# or WarmPool. Helm's crds/ still installs the extension CRDs, unused. The chart's ClusterRoles aggregate to nobody:
+# only cluster admins and provider-kubernetes (55-autopilot/agentrun-grants) can create Sandboxes.
+# ServerSideApply: the Sandbox CRD (~200 KB, a full PodSpec) is over client-side apply's annotation limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-sandbox
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: agent-sandbox
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kubernetes-sigs/agent-sandbox.git
+    targetRevision: a502928b6eff4a17013d24e9c5481d79e99bcdd5   # v1.0.8 (2026-10-22)
+    path: helm
+    helm:
+      releaseName: agent-sandbox
+      valuesObject:
+        namespace: {create: false, name: agent-sandbox-system}
+        image:
+          tag: "v1.0.8@sha256:e1d96312487eba7d8f001e848a9d4e644b7deea8c2a4564ccc318abb729be731"
+        controller: {extensions: false, leaderElect: true}
+        resources:
+          requests: {cpu: 10m, memory: 64Mi}
+          limits: {cpu: 500m, memory: 256Mi}
+        podSecurityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+          runAsNonRoot: true
+          seccompProfile: {type: RuntimeDefault}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-sandbox-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        hangar.io/component: autopilot
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/enforce-version: latest
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

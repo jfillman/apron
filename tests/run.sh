@@ -7,6 +7,8 @@
 #   2. re-render: a second render changes nothing; removing a component removes its files; cluster.yaml survives.
 #   3. check: each invariant violation is refused.
 #   4. TOKENS.md lists exactly the tokens templates use.
+#   5. the AgentRun confinement policy admits a run's objects and refuses everything D15 forbids (skipped without
+#      envtest binaries in KUBEBUILDER_ASSETS: tests/policy/test_agentrun_grants.py).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 APRON="$(pwd)"
@@ -242,6 +244,13 @@ print("; ".join(out))
 PY
 )" 2>&1
 [ -z "${missing}" ] && ok "TOKENS.md, templates and render.py agree" || bad "tokens: ${missing}"
+
+echo "== 5. policy (55-autopilot/agentrun-grants against a real kube-apiserver; needs KUBEBUILDER_ASSETS)"
+if out="$(python3 tests/policy/test_agentrun_grants.py 2>&1)"; then
+  ok "agentrun-grants: $(tail -1 <<<"${out}")"
+else
+  bad "agentrun-grants: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
 
 echo
 echo "${PASS} passed, ${FAIL} failed$( [ "${HAVE_YAML}" = true ] || echo ' (YAML parse skipped: no PyYAML)')"

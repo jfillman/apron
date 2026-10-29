@@ -37,6 +37,9 @@
 # The Infisical host delivers provider-infisical's credential from its own Infisical project; a consumer has it
 # planted by hand (the only project it could come from is one this provider manages).
 10-crds-operators/crossplane/provider-infisical-creds-external-secret.yaml   infisical.host
+# Autopilot AP-A3: provider-kubernetes's stable service account (D15) and function-agentrun's cluster name.
+10-crds-operators/crossplane/provider-kubernetes-runtime.yaml         components.autopilot
+10-crds-operators/crossplane/function-agentrun-runtime.yaml           components.autopilot
 10-crds-operators/external-secrets/     components.externalSecrets
 10-crds-operators/external-secrets/cluster-secret-store.yaml          components.externalSecrets and not infisical.host
 10-crds-operators/external-secrets/packages-application.yaml          components.externalSecrets and not infisical.host

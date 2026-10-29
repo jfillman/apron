@@ -11,6 +11,13 @@ metadata:
     hangar.io/subcomponent: crds-operators
 spec:
   package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes:v1.2.1
+#@if components.autopilot
+  # A stable service account name for the AgentRun grants (provider-kubernetes-runtime.yaml, decision D15 (c)).
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-kubernetes-runtime
+#@end
 ---
 #@if components.crossplane.providerGithub
 # Backs NodeJSApplication (idp-service-catalog, the first Bootstrap-tier XRD —

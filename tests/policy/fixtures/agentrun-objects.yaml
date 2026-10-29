@@ -1,0 +1,232 @@
+# What function-agentrun renders for one run (airframe compositions/agentrun/example/expected/provisioning.yaml,
+# unwrapped from its provider-kubernetes Objects). The policy test creates these as provider-kubernetes and expects
+# every one to be admitted. Refresh it when that golden render changes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+  name: agent-r-1a2b3c
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+  name: run
+  namespace: agent-r-1a2b3c
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+  name: run
+  namespace: agent-r-1a2b3c
+spec:
+  hard:
+    count/jobs.batch: '0'
+    count/sandboxes.agents.x-k8s.io: '1'
+    count/secrets: '0'
+    count/services: '0'
+    limits.cpu: '1'
+    limits.memory: 1Gi
+    persistentvolumeclaims: '0'
+    pods: '2'
+    requests.cpu: 250m
+    requests.memory: 512Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+  name: default-deny
+  namespace: agent-r-1a2b3c
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+  name: allow-egress
+  namespace: agent-r-1a2b3c
+spec:
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+  - ports:
+    - port: 8080
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: autopilot-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: clearance
+  - ports:
+    - port: 8081
+      protocol: TCP
+    to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: autopilot-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: model-proxy
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+apiVersion: agents.x-k8s.io/v1beta1
+kind: Sandbox
+metadata:
+  labels:
+    hangar.io/agent: coding-agent
+    hangar.io/agent-run: 'true'
+    hangar.io/component: autopilot
+    hangar.io/session: s-1a2b3c
+    hangar.io/task: t-1a2b3c
+  name: agent
+  namespace: agent-r-1a2b3c
+spec:
+  failedPodPolicy: Retain
+  operatingMode: Running
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-run
+        hangar.io/agent: coding-agent
+        hangar.io/agent-run: 'true'
+        hangar.io/component: autopilot
+        hangar.io/session: s-1a2b3c
+        hangar.io/task: t-1a2b3c
+    spec:
+      activeDeadlineSeconds: 1800
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: HANGAR_RUN_ID
+          value: r-1a2b3c
+        - name: HANGAR_TASK_ID
+          value: t-1a2b3c
+        - name: HANGAR_SESSION_ID
+          value: s-1a2b3c
+        - name: HANGAR_AGENT
+          value: coding-agent
+        - name: HANGAR_EXPIRES_AT
+          value: '2099-01-01T00:30:00Z'
+        - name: HANGAR_OUTPUT_DIR
+          value: /run/output
+        - name: HANGAR_WORKSPACE
+          value: /workspace
+        - name: HANGAR_LIMITS
+          value: '{"githubCalls":50,"modelTokens":100000,"toolCalls":100}'
+        - name: CLEARANCE_URL
+          value: http://clearance.autopilot-system.svc:8080
+        - name: MODEL_PROXY_URL
+          value: http://model-proxy.autopilot-system.svc:8081
+        - name: HANGAR_TOKEN_DIR
+          value: /var/run/hangar
+        image: ghcr.io/jfillman/agent-x@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: IfNotPresent
+        name: agent
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 10001
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /workspace
+          name: workspace
+        - mountPath: /run/output
+          name: output
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /var/run/hangar
+          name: hangar-tokens
+          readOnly: true
+      enableServiceLinks: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: run
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir:
+          sizeLimit: 1Gi
+        name: workspace
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: output
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: tmp
+      - name: hangar-tokens
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: clearance
+              expirationSeconds: 3600
+              path: clearance-token
+          - serviceAccountToken:
+              audience: model-proxy
+              expirationSeconds: 3600
+              path: model-proxy-token
+  service: false
+  shutdownPolicy: Delete
+  shutdownTime: '2099-01-01T00:30:00Z'

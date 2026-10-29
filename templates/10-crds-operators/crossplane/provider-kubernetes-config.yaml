@@ -74,6 +74,14 @@ roleRef:
   kind: ClusterRole
   name: provider-kubernetes-applied-resources
 subjects:
+#@if components.autopilot
+  # The stable name from provider-kubernetes-runtime.yaml (survives provider upgrades).
+  - kind: ServiceAccount
+    name: provider-kubernetes
+    namespace: crossplane-system
+#@end
+#@if not components.autopilot
   - kind: ServiceAccount
     name: provider-kubernetes-f6665ef36536
     namespace: crossplane-system
+#@end

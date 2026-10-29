@@ -53,6 +53,23 @@ defaults to it.
   changes are on their `no-hardcoded-cluster-names` branches: cut tags from them and set those tags in `versions.yaml`
   before the rebuild uses them.
 
+## Autopilot (`components.autopilot`, control-plane clusters only)
+
+`55-autopilot/` holds what Autopilot's agent runs need on the cluster. `apron check` refuses it off the control-plane
+cluster and without the full catalog.
+
+| Path | What | Guardrail |
+|---|---|---|
+| `namespaces/` | `autopilot-system` (Clearance, the model proxy) and `autopilot-runs` (AgentRun XRs), pod security restricted | never labelled `hangar.io/ephemeral-env` |
+| `agent-sandbox/` | the kubernetes-sigs/agent-sandbox controller, chart pinned by commit and image by digest (v1.0.8) | a run's Sandbox `shutdownTime` ends its pod with no Clearance or Crossplane involved |
+| `agentrun-grants/` | provider-kubernetes's ClusterRole for a run's objects, the ValidatingAdmissionPolicy that confines it, Clearance's Role | the grant only ships with the policy: run namespaces (`agent-r-*`) only, no pod-security label changes, no PR-sweep label, `serviceAccountName: run` only (decision D15) |
+
+It also gives provider-kubernetes a stable service account (`10-crds-operators/crossplane/provider-kubernetes-runtime.yaml`)
+and installs function-agentrun with the cluster's name (`function-agentrun-runtime.yaml`). Runs land only once the
+cluster's registry record has `airframe.autopilotReady`, set after autopilot's `tools/netpol_canary.py` passes.
+`tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
+`KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
+
 ## Install
 
 1. **Create two new repos per cluster**, the cluster repo and its tenants repo (`<repo>-tenants` by default): by hand,
