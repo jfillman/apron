@@ -1,0 +1,130 @@
+# Flight admission on an upper cluster (glidepath ADR-0029 phase 4, decision D3): a tenant pod runs images promoted to
+# the Flight registry, and each carries the promotion attestation the promoter workflow signed when it copied the image
+# there. Two policies, because an ImageValidatingPolicy fetches every image it matches with its own credential (a Ground
+# image read with the Flight credential is an evaluation error, not a violation - found in phase 0):
+#
+#   flight-only-images (ValidatingPolicy, no registry access): every container and init container image starts with the
+#     Flight prefix or an allow-listed third-party prefix (admission.flight.allowedPrefixes: CloudNativePG, the OTel
+#     auto-instrumentation init image, ... - images no Glidepath build produces, so nothing promotes them).
+#   flight-images (ImageValidatingPolicy, Flight images only): the promotion attestation
+#     https://hangar.io/attestations/promotion/v1 verifies keyless against the promoter workflow's GitHub Actions
+#     identity on public Sigstore, offline from the bundle's inclusion proof. Chains' build provenance is not checked
+#     here: it has no inclusion proof and lives in the hub's Rekor, which this cluster cannot reach; the gates verified
+#     it before the promotion this attestation records.
+#
+# Scope: Pod CREATE in tenant namespaces (hangar.io/managed-secrets, the label tenant onboarding puts on every app
+# namespace), so a running pod is never re-judged and platform namespaces never pass through it. Audit+Warn with
+# failurePolicy Ignore until admission.flight.enforce (Deny, Fail) - turn that on once every app's prod release runs
+# from Flight, or a restart of an app still on Ground is refused.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: flight-only-images
+  annotations:
+    policies.kyverno.io/title: Flight images only
+    policies.kyverno.io/description: Tenant pods on an upper cluster run Flight-registry images or allow-listed third-party images.
+spec:
+  validationActions: @@FLIGHT_ADMISSION_ACTIONS@@
+  failurePolicy: @@FLIGHT_ADMISSION_FAILURE_POLICY@@
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        hangar.io/managed-secrets: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  variables:
+    - name: images
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        (has(object.spec.initContainers) ? object.spec.initContainers.map(c, c.image) : [])
+    - name: allowed
+      expression: '@@FLIGHT_ALLOWED_PREFIXES@@'
+  validations:
+    - expression: >-
+        variables.images.all(i, i.startsWith('@@FLIGHT_PREFIX@@') || variables.allowed.exists(p, i.startsWith(p)))
+      messageExpression: >-
+        'Upper clusters run promoted images from @@FLIGHT_PREFIX@@ only (glidepath ADR-0029); not promoted: ' +
+        variables.images.filter(i, !i.startsWith('@@FLIGHT_PREFIX@@') && !variables.allowed.exists(p, i.startsWith(p))).join(', ')
+---
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: flight-images
+  annotations:
+    policies.kyverno.io/title: Flight promotion attestation
+    policies.kyverno.io/description: A Flight image carries the promotion attestation signed by the Flight promoter workflow.
+spec:
+  validationActions: @@FLIGHT_ADMISSION_ACTIONS@@
+  failurePolicy: @@FLIGHT_ADMISSION_FAILURE_POLICY@@
+  webhookConfiguration:
+    timeoutSeconds: 20
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        hangar.io/managed-secrets: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "@@FLIGHT_PREFIX@@*"
+  validationConfigurations:
+    mutateDigest: false
+    verifyDigest: true
+    required: true
+  credentials:
+    secrets: [flight-registry-read]
+  attestors:
+    - name: promoter
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subjectRegExp: '@@FLIGHT_PROMOTER_SUBJECT_RE@@'
+  attestations:
+    - name: promotion
+      intoto:
+        type: https://hangar.io/attestations/promotion/v1
+  validations:
+    - expression: >-
+        images.containers.filter(i, i.startsWith('@@FLIGHT_PREFIX@@'))
+          .map(i, verifyAttestationSignatures(i, attestations.promotion, [attestors.promoter])).all(n, n > 0)
+      message: A Flight image has no promotion attestation from the Flight promoter workflow (glidepath ADR-0029).
+    - expression: >-
+        !has(images.initContainers) ||
+        images.initContainers.filter(i, i.startsWith('@@FLIGHT_PREFIX@@'))
+          .map(i, verifyAttestationSignatures(i, attestations.promotion, [attestors.promoter])).all(n, n > 0)
+      message: A Flight image has no promotion attestation from the Flight promoter workflow (glidepath ADR-0029).
+---
+# The read-only Flight credential the image policy fetches attestations with (Infisical
+# flight-registry-read-dockerconfigjson, a read:packages token of the Flight registry's owner). Kyverno reads
+# credentials.secrets from its own namespace.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: flight-registry-read
+  namespace: kyverno
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: platform-secret-store
+  target:
+    name: flight-registry-read
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/dockerconfigjson
+  data:
+    - secretKey: .dockerconfigjson
+      remoteRef:
+        key: flight-registry-read-dockerconfigjson

@@ -99,6 +99,12 @@ the render with `file:line`.
 | `@@GLIDEPATH_REGISTRIES@@` | `registries.{ground,flight}.{host,namespace}`, Glidepath's Ground and Flight registries (ADR-0029), a YAML flow map; host defaults to `ghcr.io`, namespace to `""` (the GitHub owner) |
 | `@@GLIDEPATH_PROMOTION@@` | `promotion.enabled` / `promotion.pinDigest` (both default `false`), Glidepath's promotion switches (ADR-0029), a YAML flow map; includes `promoter: {repo}` when `promotion.promoter.repo` is set |
 | `@@GLIDEPATH_PROMOTER_REPO@@` | `promotion.promoter.repo`, the Flight promoter's dispatch repo (ADR-0029 phase 2; optional, the control plane's `promoter` block renders only when set) |
+| `@@FLIGHT_PREFIX@@` | `registries.flight.{host,namespace}` as `<host>/<namespace>/`, the Flight images' prefix for upper-cluster admission (ADR-0029 phase 4; empty when no Flight namespace) |
+| `@@FLIGHT_PROMOTER_SUBJECT_RE@@` | `promotion.promoter.repo`, as the promoter workflow's keyless identity regexp (`^https://github\.com/<repo>/\.github/workflows/promote\.yaml@refs/heads/main$`; empty when unset) |
+| `@@FLIGHT_ADMISSION_ACTIONS@@` | `admission.flight.enforce`: `[Deny]`, else `[Audit, Warn]` |
+| `@@FLIGHT_ADMISSION_FAILURE_POLICY@@` | `admission.flight.enforce`: `Fail`, else `Ignore` |
+| `@@FLIGHT_ALLOWED_PREFIXES@@` | `admission.flight.allowedPrefixes`, third-party image prefixes tenants may run on an upper cluster, a CEL/YAML list (`[]` when unset) |
+| `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |
 
