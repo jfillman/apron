@@ -7,6 +7,8 @@
 #                   glidepath-api grants are in 50-glidepath/glidepath-control-plane/values.yaml.
 #   postgres.yaml   its store and evidence sink, a CloudNativePG cluster (sync wave 0)
 #   gateway.yaml    the gateway Deployment and Service (sync wave 1)
+#   networkpolicy.yaml  ingress to the gateway (agent-run namespaces only) and to its database (the gateway and the
+#                   CloudNativePG operator)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
