@@ -592,6 +592,9 @@ spec:
     # 2026-10-28: v0.3.165 -> v0.3.169. airframe#131-#133: the AgentRun XRD and Composition (Autopilot AP-A3), added to
     # the include list on components.autopilot clusters only, after the hangar-dev copy-test passed
     # (airframe docs/admin/agentrun-copy-test.md). No other XRD or Composition changed since v0.3.165.
+    # 2026-10-29: v0.3.169 -> v0.3.170. airframe#135: the AgentRun Composition's model_proxy_selector is Clearance's
+    # pod (the model proxy is Clearance, port 8081, Autopilot P5); airframe#134 changed only the AgentRun XRD's header
+    # comment. Nothing else changed.
     targetRevision: @@AIRFRAME_CATALOG_VERSION@@
     path: .
     directory:
