@@ -172,6 +172,17 @@ def object_origin_checks(k, check, objs):
           run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
                "-p", '{"metadata":{"finalizers":["finalizer.managedresource.crossplane.io"],"annotations":{"crossplane.io/external-name":"x"}}}'],
               as_user=PROVIDER))
+    # Regression, live copy-test 2026-10-29: provider-kubernetes late-initializes spec.readiness on every Object it
+    # manages; refusing that left every run Provisioning with the provider unable to write its own Objects.
+    check("provider-kubernetes late-initializes spec.readiness (manifest and providerConfigRef unchanged)", True,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"readiness":{"policy":"SuccessfulCreate"}}}'], as_user=PROVIDER))
+    check("provider-kubernetes changes the manifest", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"forProvider":{"manifest":{"metadata":{"labels":{"x":"y"}}}}}}'], as_user=PROVIDER), ORIGIN)
+    check("provider-kubernetes points the Object at another ProviderConfig", False,
+          run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=merge",
+               "-p", '{"spec":{"providerConfigRef":{"name":"elsewhere"}}}'], as_user=PROVIDER), ORIGIN)
     check("an admin removes that finalizer (spec unchanged)", True,
           run(["patch", "objects.kubernetes.m.crossplane.io", ns_obj, "-n", "autopilot-runs", "--type=json",
                "-p", '[{"op":"remove","path":"/metadata/finalizers"}]']))

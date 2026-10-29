@@ -54,10 +54,17 @@ spec:
           || (oldObject.spec.forProvider.manifest.apiVersion.startsWith('agents.x-k8s.io/')
               && oldObject.spec.forProvider.manifest.kind == 'Sandbox')))
   variables:
+    # What a run-kind Object creates, and on which cluster: spec.forProvider (the manifest) and providerConfigRef. An
+    # UPDATE that leaves both alone passes for anyone. provider-kubernetes late-initializes other spec fields
+    # (spec.readiness.policy) on every Object it manages, so comparing all of spec refused the provider itself and no
+    # run could start (copy-test on hangar-dev, 2026-10-29).
     - name: specUnchanged
       expression: >-
         request.operation == 'UPDATE' && oldObject != null && has(oldObject.spec) && has(object.spec)
-        && oldObject.spec == object.spec
+        && (has(oldObject.spec.forProvider) == has(object.spec.forProvider))
+        && (!has(object.spec.forProvider) || oldObject.spec.forProvider == object.spec.forProvider)
+        && (has(oldObject.spec.providerConfigRef) == has(object.spec.providerConfigRef))
+        && (!has(object.spec.providerConfigRef) || oldObject.spec.providerConfigRef == object.spec.providerConfigRef)
     - name: byCrossplane
       expression: "has(request.userInfo.username) && request.userInfo.username == 'system:serviceaccount:crossplane-system:crossplane'"
     - name: composite
