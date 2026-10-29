@@ -5,6 +5,8 @@
 #   identity.yaml   the ServiceAccount and its cluster grants: TokenReview (to authenticate callers) and the
 #                   read-only Airframe reader for the airframe.* tools. Its AgentRun Role is in agentrun-grants; its
 #                   glidepath-api grants are in 50-glidepath/glidepath-control-plane/values.yaml.
+#   postgres.yaml   its store and evidence sink, a CloudNativePG cluster (sync wave 0)
+#   gateway.yaml    the gateway Deployment and Service (sync wave 1)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

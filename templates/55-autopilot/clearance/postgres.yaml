@@ -1,0 +1,26 @@
+# Clearance's durable store and evidence sink (clearance.pg): one CloudNativePG cluster, one instance, owned by this
+# Application. CNPG creates the `clearance` database and owner and writes the connection URI to the Secret
+# clearance-pg-app (key `uri`), which the gateway reads as CLEARANCE_DSN; no credential is written by hand.
+# Evidence is retention-bound data: the volume outlives a pod restart, not a cluster rebuild (no backup yet).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: clearance-pg
+  namespace: autopilot-system
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  storage:
+    size: 2Gi
+  bootstrap:
+    initdb:
+      database: clearance
+      owner: clearance
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

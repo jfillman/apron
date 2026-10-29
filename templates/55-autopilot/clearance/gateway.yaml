@@ -1,0 +1,78 @@
+# The gateway: autopilot-gateway (autopilot repo, Dockerfile), which is Clearance at its pinned release with
+# Autopilot's Hangar backends (README "Running the gateway"). One replica: the store is single-writer and clearance.pg
+# refuses a second writer. Run pods find it by the label and port function-agentrun's egress allows.
+#
+# Backends wired here: AgentRuns (Role in agentrun-grants), Airframe reads (identity.yaml), glidepath-api (its
+# delegates/readers/operators/releasers list this identity). Callers authenticate with a service-account token for the
+# `clearance` audience; people's OIDC sign-in is not configured yet. The SA token mounted here (API server audience)
+# is what Clearance uses for TokenReview, the Airframe reads, AgentRuns and glidepath-api.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clearance
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: clearance}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+    spec:
+      serviceAccountName: clearance
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          # gateway-v0.1.0 = autopilot a2c6127 with clearance v0.4.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.1.0@sha256:1f9309693e212250d3bd2b98dc752efde2fb88482c2868b8cdc3c75ab6199f66
+          ports:
+            - {name: mcp, containerPort: 8080}
+          env:
+            - name: CLEARANCE_DSN
+              valueFrom: {secretKeyRef: {name: clearance-pg-app, key: uri}}
+            - {name: CLEARANCE_RESOURCE_URL, value: "http://clearance.autopilot-system.svc:8080/mcp"}
+            - {name: CLEARANCE_AUDIENCE, value: clearance}
+            - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
+            - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
+            - {name: AIRFRAME_CLUSTER, value: "@@CLUSTER_NAME@@"}
+            - {name: AIRFRAME_TENANTS_REPO, value: "@@TENANTS_REPO_NAME@@"}
+          readinessProbe:
+            httpGet: {path: /healthz, port: mcp}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: mcp}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clearance
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  selector: {app.kubernetes.io/name: clearance}
+  ports:
+    - {name: mcp, port: 8080, targetPort: mcp}
