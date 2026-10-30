@@ -200,8 +200,8 @@ subjects:
 # kube-prometheus-stack-prometheus:9090 is forbidden" - while the prod cluster's own copy
 # of this exact grant (the prod cluster's repo/60-backstage/backstage/rbac.yaml)
 # already existed, which is why only Flight-tier envs worked. Same shape as the
-# Rekor grant above: a namespaced Role on the single Service, not a cluster-wide
-# proxy grant. Both `name` and `name:port` forms, since the checked resourceName is
+# glidepath-api grant below (and the Rekor grant, removed in P6): a namespaced Role
+# on the single Service, not a cluster-wide proxy grant. Both `name` and `name:port` forms, since the checked resourceName is
 # the literal string in the proxy URL path.
 # thanos-query-frontend (2026-10-07): Tower's Ops Wall reads DORA (dora-exporter's
 # series, 7-90 day windows) through the long-term query layer, not the local

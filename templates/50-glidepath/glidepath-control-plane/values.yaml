@@ -69,8 +69,8 @@ chains:
 # glidepath-api (glidepath docs/admin/api.md, 2026-10-25). Tower (Backstage on the prod cluster)
 # reaches it through this API server's services/proxy as its federated identities; the proxy grant
 # is in 00-bootstrap/backstage-ingestor-rbac. backstage-ingestor reads every app's runs and
-# releases, the same reach it already has through tekton-results-relay and the ConfigMaps; both
-# Tower identities may name the person they act for. Nothing else is granted.
+# releases, the reach it had through tekton-results-relay until P6 (2026-10-30, now only this API)
+# and still has to the ConfigMaps; both Tower identities may name the person they act for. Nothing else is granted.
 api:
   delegates:
     - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
