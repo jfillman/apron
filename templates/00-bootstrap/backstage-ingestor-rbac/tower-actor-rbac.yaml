@@ -5,13 +5,13 @@
 # (TokenRequest on the prod cluster, audience the dev cluster, bound to the Backstage pod) and drops it after that action.
 # Reads use the pod's own projected token instead (hangar:the prod cluster:backstage-ingestor, read bindings in rbac.yaml).
 #
-# The write grants are the same two the old ServiceAccount holds, still held to their shape by
-# 30-policy/kyverno-policies/tower-identity-writes.yaml and tower-breakglass.yaml, which name this user too:
-#   - backstage-tekton-rerun: create + patch PipelineRuns (Re-run, Cancel, release runs);
+# Its one write grant, held to its shape by 30-policy/kyverno-policies/tower-breakglass.yaml, which names this user:
 #   - tower-breakglass-binder: create/delete tower-breakglass-* RoleBindings and bind the two debug roles, to this
 #     user only.
-# `view` because those actions read what they act on (the PipelineRun to copy, the TriggerTemplate, the target pod and
-# namespace). Phase 4 removes the ServiceAccount's write bindings and its long-lived token.
+# Tower's Tekton writes (Re-run, Cancel, release and rollback runs) go through glidepath-api since Glidepath API P6
+# (2026-10-30): this user calls the API (tower-actor-glidepath-api-proxy below) and holds no Tekton grant; the
+# backstage-tekton-rerun binding it had is gone, and tower-identity-writes.yaml refuses any PipelineRun write from it.
+# `view` because break-glass reads what it acts on (the target pod and namespace).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -20,19 +20,6 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: view
-subjects:
-  - kind: User
-    apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:tower-actor
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: tower-actor-tekton-rerun
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: backstage-tekton-rerun
 subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
@@ -51,7 +38,8 @@ subjects:
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:tower-actor
 ---
-# Glidepath API spec phase 3 (2026-10-28): Tower's Re-run and Cancel move onto glidepath-api, called as this identity
+# Glidepath API spec phase 3 (2026-10-28): Tower's Re-run and Cancel (and since P4, Promote and Roll back) go through
+# glidepath-api, called as this identity
 # through the API server's service proxy (the proxy drops Authorization; glidepath-api checks the token again from
 # X-Glidepath-Authorization and authorizes the write itself, so this only opens the door).
 apiVersion: rbac.authorization.k8s.io/v1
