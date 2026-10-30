@@ -35,8 +35,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.3 = autopilot 4fafd45 with clearance v0.8.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.3@sha256:cb3c075c4346cf93b91dad3e7677e04b6eeafd272b1d54d0a51f9a373fb88eb8
+          # gateway-v0.3.4 = autopilot 676bd43 with clearance v0.9.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.4@sha256:186a64f1beb626efeb7f23c91e0ad2af2948e1f74d83130c59155ce4bfdeba04
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
@@ -64,6 +64,9 @@ spec:
             # The event trigger bridge: glidepath-api /v1/events as this identity (a glidepath-api reader) -> each
             # matching Glidepath event trigger's run (agents/triage-agent.yaml: a failed gate-api pipeline run).
             - {name: EVENTS_ENABLED, value: "1"}
+            # The agent gates (glidepath docs/admin/agent-gates.md) ask POST /v1/provenance as their pipeline's service
+            # account; only these principals may. Every app's -cicd namespace runs them.
+            - {name: CLEARANCE_VERIFIERS, value: "app-*-cicd/pipeline-runner"}
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10

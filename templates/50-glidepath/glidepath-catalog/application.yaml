@@ -66,6 +66,12 @@ spec:
               @@TOWER_CLUSTER@@:
                 url: http://thanos-query-frontend.observability.svc.cluster.local:9090
 #@end
+#@if components.autopilot
+          # The agent gates (glidepath docs/admin/agent-gates.md): every PR checked against Clearance's record of agent
+          # PRs. Clearance runs on this cluster (55-autopilot/clearance); without it the gate fails agent-looking PRs.
+          agentGates:
+            clearanceUrl: http://clearance.autopilot-system.svc.cluster.local:8080
+#@end
           # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
           # for images signed before the switch (glidepath docs/admin/image-signing.md).
           sigstoreIssuers:
