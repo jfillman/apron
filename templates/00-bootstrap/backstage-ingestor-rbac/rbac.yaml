@@ -191,83 +191,6 @@ subjects:
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
 ---
-# Rekor public-key read (2026-09-06, Glidepath's Supply Chain panel - real SET/
-# transparency-log verification now that Rekor is deployed for real, see
-# platform-cicd's provenance-policy.md). Deliberately namespaced Role/RoleBinding,
-# not a ClusterRole like every other grant in this file - rekor-server is itself a
-# namespaced Service, and there's exactly one instance of it, so a cluster-wide grant
-# would be broader than what's actually being reached. `services/proxy` (not plain
-# `services`, which `view` already covers) is what lets a caller with no direct
-# network route to the Service reach its HTTP API through the API server itself - the
-# same mechanism the ConfigMap-based Fulcio root-cert fetch uses for a different
-# resource kind. No ConfigMap equivalent exists for Rekor's public key on purpose
-# (platform-cicd deliberately deleted rekor-pubkey-sync-job.yaml after it went stale -
-# see that repo's own history - every real consumer fetches it live at verify-time
-# instead, and Glidepath now does the same).
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: backstage-ingestor-rekor-proxy
-  namespace: rekor-system
-rules:
-  # resourceNames must match the exact "name" or "name:port" string used in
-  # the proxy URL path - confirmed live (2026-09-06) that a request to
-  # .../services/rekor-server:80/proxy/... is checked against the literal
-  # resourceName "rekor-server:80", not "rekor-server" alone. Both forms
-  # listed since either could reasonably be used by a caller.
-  - apiGroups: [""]
-    resources: ["services/proxy"]
-    resourceNames: ["rekor-server", "rekor-server:80"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: backstage-ingestor-rekor-proxy
-  namespace: rekor-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: backstage-ingestor-rekor-proxy
-subjects:
-  # Federated reader (2026-10-12, SPEC-tower-cluster-credentials.md phase 2): the prod cluster's Backstage pod
-  # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
-  - kind: User
-    apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
----
-# Testkube API proxy (Glidepath test framework, phase 4, 2026-10-19): Tower's Pipelines tab
-# lists an app's test runs and downloads their JUnit reports from Testkube's own list API
-# (/v1/test-workflow-executions?tagSelector=app=<name>, /artifacts/...), read through the
-# API server's services/proxy exactly like Rekor above - the standalone agent has no
-# dashboard, and this pod has no route into the testkube namespace. Read only: the
-# resourceName names the one Service and port the backend reaches, in both forms the
-# authorizer may check (see the Rekor Role above for why both).
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: backstage-ingestor-testkube-proxy
-  namespace: testkube
-rules:
-  - apiGroups: [""]
-    resources: ["services/proxy"]
-    resourceNames: ["testkube-api-server", "testkube-api-server:8088"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: backstage-ingestor-testkube-proxy
-  namespace: testkube
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: backstage-ingestor-testkube-proxy
-subjects:
-  - kind: User
-    apiGroup: rbac.authorization.k8s.io
-    name: hangar:hangar-prod:backstage-ingestor
----
 # Prometheus query proxy (2026-09-24 bug: "the workload performance metrics/graphs
 # are not working for ground and preview envs"). Tower's Topology-tab
 # Performance panel, the canary AnalysisRun charts and the SLO views all query
@@ -313,47 +236,6 @@ subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
----
-# Tower's Tekton "Re-run" + "Cancel" actions (2026-09-14/15,
-# HANDOFF-tower-write-actions.md Tier 1 - the write-action security
-# framework that handoff establishes: a "delegated action" whose blast
-# radius is scoped by RESOURCE KIND, not a broad standing grant). This is
-# the one deliberate exception to this file's otherwise read-only posture
-# (README.md) - `create` + `patch` on PipelineRuns only, nothing else: no
-# get/list/watch here because Tower already reads PipelineRuns/TaskRuns
-# through the ordinary Kubernetes proxy's ClusterRole `view` binding above,
-# and no delete because neither action needs it - re-running submits a
-# brand-new PipelineRun (a clone of the failed one, fresh generateName)
-# rather than mutating the original, and cancelling is itself a `patch`
-# (spec.status -> CancelledRunFinally), never a removal.
-#
-# Note on `patch`'s real scope: Kubernetes RBAC has no field-level
-# granularity - this verb technically lets the identity PATCH any field of
-# any PipelineRun, not just spec.status, the same way `create` above
-# technically allows any PipelineRun spec, not just a faithful re-run clone.
-# What's actually sent is constrained by this repo's own frontend/backend
-# code (useCancelPipelineRun.ts sends only a spec.status merge-patch), not
-# by RBAC itself - narrowing further would need a validating webhook, which
-# doesn't exist here. Same honest-scope posture as every other grant in
-# this file.
-#
-# Cluster-scoped (not namespaced to one app's app-<name>-cicd) for the same
-# reason backstage-argo-rollouts-viewer above is cluster-scoped: onboarded
-# apps each get their own -cicd namespace and this identity has no way to
-# know the full set up front, same as every other resource-kind grant here.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  # Name predates Cancel (2026-09-14, re-run only) - kept as-is rather than
-  # renamed to `...-actions` so this stays the same object ArgoCD already
-  # manages instead of orphaning it (this Application's syncPolicy has no
-  # `prune: true`, so a rename here wouldn't clean up the old name on its
-  # own). The rules below are what actually govern scope, not the name.
-  name: backstage-tekton-rerun
-rules:
-  - apiGroups: ["tekton.dev"]
-    resources: ["pipelineruns"]
-    verbs: ["create", "patch"]
 ---
 # Tower's Topology tab "all resources" gallery (2026-09-17) - RBAC objects
 # (Roles/RoleBindings/ClusterRoles/ClusterRoleBindings) are deliberately
@@ -431,30 +313,13 @@ subjects:
     apiGroup: rbac.authorization.k8s.io
     name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
 ---
-# Tekton Results read (2026-09-17, Tower's Release Record - "pull as much
-# build/pipeline data as it can into the record"). Originally shaped like
-# backstage-ingestor-rekor-proxy above (proxying straight to
-# tekton-results-api-service), but that path was verified live and does NOT
-# work: the generic services/proxy subresource never forwards this
-# identity's Authorization header to the proxied backend pod, and Results'
-# own API server does its own TokenReview/SubjectAccessReview check that
-# needs to actually see a bearer token - confirmed by hitting Results'
-# ClusterIP directly from an in-cluster debug pod with the same token and
-# getting a clean 200, versus `{"code":16,"message":"unable to find
-# token"}` through services/proxy. Full isolating test in
-# HANDOFF-tower-tekton-results.md.
-#
-# Fix: this grant now targets `tekton-results-relay` (plain HTTP,
-# platform-system - see glidepath's
-# charts/glidepath-control-plane/templates/tekton/tekton-results-relay.yaml
-# and platform/tekton-results-relay/cmd/tekton-results-relay/main.go), a
-# small relay that re-issues the request to the real Results API using ITS
-# OWN ServiceAccount token instead of trying to forward this identity's.
-# This grant still fully controls who may reach the relay at all; Results'
-# own RBAC (granted to the relay's own identity, not this one) decides what
-# can actually be read once there. Plain HTTP on the relay's own incoming
-# side (unlike Results' TLS-only port) means no `https:` scheme-prefix
-# variant is needed here, unlike the original grant.
+# glidepath-api through the API server's services/proxy (2026-10-25, glidepath docs/admin/api.md): Tower's every CI/CD
+# read (runs, live runs and logs, release state, image evidence, tests). glidepath-api checks the token again itself
+# (sent in X-Glidepath-Authorization, since the proxy drops Authorization) and authorizes every read, so this grant
+# only opens the door. Until P6 (2026-10-30) it also opened tekton-results-relay, which Tower read Tekton Results
+# through itself, and this file granted the Rekor and Testkube service proxies and create/patch on PipelineRuns
+# (backstage-tekton-rerun) the same way; glidepath-api reads and writes all of that now. The Role keeps its name so
+# this Application (no prune) updates it in place.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -464,11 +329,6 @@ rules:
   - apiGroups: [""]
     resources: ["services/proxy"]
     resourceNames:
-      - tekton-results-relay
-      - tekton-results-relay:8080
-      # glidepath-api (2026-10-25, glidepath docs/admin/api.md): the read API Tower moves onto. It
-      # checks the token again itself (sent in X-Glidepath-Authorization, since the proxy drops
-      # Authorization) and authorizes every read, so this grant only opens the door.
       - glidepath-api
       - glidepath-api:8080
     verbs: ["get"]

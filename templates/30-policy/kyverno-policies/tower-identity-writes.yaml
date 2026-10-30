@@ -6,7 +6,7 @@
 # argocd-application-controller (bound to */*/*) with an inline taskSpec has Tekton start a pod holding that token, and
 # any RoleBinding anywhere can be deleted.
 #
-# - tower-pipelinerun-shape: Backstage's PipelineRuns are Glidepath's own shape (every TriggerTemplate and run on this
+# - glidepath-api-pipelinerun-shape (tower-pipelinerun-shape until P6): the PipelineRuns written for Tower are Glidepath's own shape (every TriggerTemplate and run on this
 #   cluster, checked 2026-10-11): an app -cicd namespace, a cluster-resolver pipelineRef into platform-catalog, SA
 #   pipeline-runner, no inline spec, no per-task overrides, a podTemplate of hostAliases only, and emptyDir or
 #   volumeClaimTemplate workspaces. An update (Cancel) may change spec.status and nothing else.
@@ -19,15 +19,20 @@
 # old backstage-system/backstage-ingestor ServiceAccount, so it is the only username left.
 #
 # 2026-10-28 (Glidepath API spec phase 3): glidepath-api's ServiceAccount starts and cancels PipelineRuns for Tower and
-# Clearance (POST /v1/apps/{app}/pipelineruns/{name}/rerun, /cancel), so tower-pipelinerun-shape holds it to the same
-# shape. tower-actor stays until Tower's runControl group is on api and phase 6 removes its Tekton grant.
+# Clearance (POST /v1/apps/{app}/pipelineruns/{name}/rerun, /cancel; since P4 the release and rollback runs too), so
+# the shape policy holds it to the same shape.
+#
+# 2026-10-30 (Glidepath API spec phase 6): Tower writes PipelineRuns only through glidepath-api, and tower-actor lost
+# its Tekton grant (00-bootstrap/backstage-ingestor-rbac). The policy is glidepath-api's now
+# (glidepath-api-pipelinerun-shape, formerly tower-pipelinerun-shape): it admits an InfraService's -cicd namespace as
+# well as an app's, and still matches tower-actor only to refuse it, should a grant ever come back.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
-  name: tower-pipelinerun-shape
+  name: glidepath-api-pipelinerun-shape
   annotations:
-    policies.kyverno.io/title: Tower PipelineRun shape
-    policies.kyverno.io/description: Backstage may only start Glidepath-shaped PipelineRuns in app -cicd namespaces, and only cancel them.
+    policies.kyverno.io/title: glidepath-api PipelineRun shape
+    policies.kyverno.io/description: glidepath-api may only start Glidepath-shaped PipelineRuns in app and InfraService -cicd namespaces, and only cancel them; Tower may not write PipelineRuns.
 spec:
   validationActions: [Deny]
   failurePolicy: Fail
@@ -44,7 +49,7 @@ spec:
         operations: ["CREATE", "UPDATE"]
         resources: ["pipelineruns"]
   matchConditions:
-    - name: backstage
+    - name: writers
       expression: >-
         has(request.userInfo.username) &&
         request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor', 'system:serviceaccount:platform-system:glidepath-api']
@@ -56,8 +61,10 @@ spec:
     - name: refParams
       expression: "has(variables.ref.params) ? variables.ref.params : []"
   validations:
-    - expression: request.namespace.matches('^app-[a-z0-9-]+-cicd$')
-      message: Backstage may only start or cancel PipelineRuns in an app's -cicd namespace.
+    - expression: request.userInfo.username != 'hangar:@@TOWER_CLUSTER@@:tower-actor'
+      message: Tower writes PipelineRuns only through glidepath-api (Glidepath API P6).
+    - expression: request.namespace.matches('^(app|infra)-[a-z0-9-]+-cicd$')
+      message: glidepath-api may only start or cancel PipelineRuns in an app's or InfraService's -cicd namespace.
     - expression: "!variables.isCreate || !has(object.spec.pipelineSpec)"
       message: No inline pipelineSpec.
     - expression: >-
@@ -89,13 +96,13 @@ spec:
     - expression: >-
         !variables.isCreate || !has(object.metadata.annotations) ||
         object.metadata.annotations.all(k, !k.startsWith('pipelinesascode.tekton.dev/'))
-      message: A run Backstage starts must not carry Pipelines-as-Code annotations (it would report status for a trigger it is not).
+      message: A run glidepath-api starts must not carry Pipelines-as-Code annotations (it would report status for a trigger it is not).
     - expression: >-
         variables.isCreate || (
           object.spec.all(k, k == 'status' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
           oldObject.spec.all(k, k == 'status' || k in object.spec)
         )
-      message: Backstage may only change spec.status on an existing PipelineRun.
+      message: glidepath-api may only change spec.status on an existing PipelineRun.
     - expression: >-
         variables.isCreate || !has(object.spec.status) ||
         (has(oldObject.spec.status) && object.spec.status == oldObject.spec.status) ||
@@ -108,7 +115,7 @@ spec:
           has(object.metadata.annotations) == has(oldObject.metadata.annotations) &&
           (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
         )
-      message: Backstage may not change an existing PipelineRun's labels or annotations.
+      message: glidepath-api may not change an existing PipelineRun's labels or annotations.
 ---
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
