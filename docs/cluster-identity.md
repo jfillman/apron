@@ -88,9 +88,12 @@ The node's filesystem survives restarts. A recreated cluster gets the configurat
 
 - **Tower → hub.** Tower's cluster signs as `https://<issuerBase>/oidc/<tower cluster>`; the hub trusts it for two
   ServiceAccounts in `app-backstage-<env>`, both with audience `<hub name>`: `backstage-ingestor` (the Tower pod's
-  projected token, reads) and `tower-actor` (a token minted per write action). Records: the hub repo's
-  `00-bootstrap/cluster-identity/` and `00-bootstrap/backstage-ingestor-rbac/`, Tower's `66-tower-access/`, Tower
-  `docs/credentials/index.md`.
+  projected token, reads) and `tower-actor` (a token minted per write action). Since Glidepath API phase 6
+  (2026-10-30) neither may create or patch a PipelineRun, and Tower's CI/CD reads and writes go through
+  `glidepath-api`'s service proxy (`backstage-ingestor-tekton-results-proxy` and `tower-actor-glidepath-api-proxy`,
+  both naming only `glidepath-api`); `tower-actor` otherwise holds `view` and the break-glass binder. Records: the
+  hub repo's `00-bootstrap/cluster-identity/` and `00-bootstrap/backstage-ingestor-rbac/`, Tower's `66-tower-access/`,
+  Tower `docs/credentials/index.md`.
 - **AWS → hub.** An IAM identity provider for the hub's issuer; roles trust audience `sts.amazonaws.com` and an exact
   ServiceAccount (`hangar-crossplane-<hub name>` for `crossplane-system:provider-aws-*`, `glidepath-deploy-<function>`
   for `app-<app>-cicd:glidepath-cloud-deployer`). Enable with `components.cloudTargets` and `aws.accountId`. Records:
