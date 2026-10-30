@@ -70,6 +70,22 @@ cluster's registry record has `airframe.autopilotReady`, set after autopilot's `
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
 
+## Flight admission (`admission.flight`, prod profile)
+
+On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),
+[registries.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/registries.md#admission-phase-4)) into
+`30-policy/kyverno-policies/flight-images.yaml`. `apron render` refuses `enabled` without `registries.flight.namespace`
+and `promotion.promoter.repo` in `cluster.yaml`.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `enabled` | `flight-only-images` (Flight prefix or `allowedPrefixes`) and `flight-images` (promotion attestation, offline), `[Audit, Warn]` with `failurePolicy: Ignore`, plus `kyverno/flight-registry-read` from Infisical `flight-registry-read-dockerconfigjson` | promotion is on in Glidepath |
+| `pullFromFlight` | tenant `registry-credentials` reads `flight-registry-read-dockerconfigjson` (read-only) instead of the Ground credential | every app's prod release pins Flight; an app still on Ground could not pull on its next restart |
+| `enforce` | `[Deny]` with `failurePolicy: Fail` | a server-side dry run of every running tenant pod gives no warning. While Kyverno's admission controller is down, new tenant pods are refused |
+| `allowedPrefixes` | the third-party prefixes `flight-only-images` lets through (CloudNativePG, OTel auto-instrumentation, `bitnamilegacy`) | a tenant runs another image no Glidepath build produces |
+
+hangar-prod: Audit 2026-10-29; `pullFromFlight` and `enforce` on since 2026-10-30.
+
 ## Install
 
 1. **Create two new repos per cluster**, the cluster repo and its tenants repo (`<repo>-tenants` by default): by hand,
