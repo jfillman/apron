@@ -27,21 +27,23 @@ spec:
         apiVersions: ["v1"]
         operations: ["CREATE"]
         resources: ["pods", "serviceaccounts/token"]
+  # request.subResource is absent (not "") on a plain Pod create, so it is read through has() everywhere: an unguarded
+  # read is a CEL error, which failurePolicy Fail turns into a refusal (it refused Clearance's own pod, 2026-10-30).
   matchConditions:
     - name: asks-for-the-catalog-audience
       expression: >-
-        (request.resource.resource == 'pods' && request.subResource == ''
+        (request.resource.resource == 'pods' && (!has(request.subResource) || request.subResource == '')
          && has(object.spec) && has(object.spec.volumes)
          && object.spec.volumes.exists(v, has(v.projected) && has(v.projected.sources)
               && v.projected.sources.exists(s, has(s.serviceAccountToken) && has(s.serviceAccountToken.audience)
                    && s.serviceAccountToken.audience == 'backstage-catalog')))
         ||
-        (request.resource.resource == 'serviceaccounts' && request.subResource == 'token'
+        (request.resource.resource == 'serviceaccounts' && has(request.subResource) && request.subResource == 'token'
          && has(object.spec) && has(object.spec.audiences) && 'backstage-catalog' in object.spec.audiences)
   validations:
     - expression: >-
         request.namespace == 'autopilot-system'
-        && (request.subResource == 'token'
+        && (has(request.subResource) && request.subResource == 'token'
             ? request.name == 'clearance'
             : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName == 'clearance'))
       message: only autopilot-system/clearance may hold a token for audience backstage-catalog (Tower's catalog)
