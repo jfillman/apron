@@ -64,6 +64,9 @@ spec:
             # The event trigger bridge: glidepath-api /v1/events as this identity (a glidepath-api reader) -> each
             # matching Glidepath event trigger's run (agents/triage-agent.yaml: a failed gate-api pipeline run).
             - {name: EVENTS_ENABLED, value: "1"}
+            # The agent gates (glidepath docs/admin/agent-gates.md) ask POST /v1/provenance as their pipeline's service
+            # account; only these principals may. Every app's -cicd namespace runs them.
+            - {name: CLEARANCE_VERIFIERS, value: "app-*-cicd/pipeline-runner"}
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10
