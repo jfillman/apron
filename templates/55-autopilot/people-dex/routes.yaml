@@ -35,6 +35,8 @@ spec:
   rules:
     - matches:
         - path: {type: PathPrefix, value: /mcp}
+        # The human inbox's people API (Tower's backend, or a person with their own token).
+        - path: {type: PathPrefix, value: /v1/human/}
       backendRefs:
         - name: clearance
           port: 8080

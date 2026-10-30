@@ -80,6 +80,12 @@ spec:
             # against this cluster's public issuer; catalog-token-policy.yaml keeps that audience to this pod).
             - {name: BACKSTAGE_URL, value: "@@TOWER_BASE_URL@@"}
             - {name: BACKSTAGE_TOKEN_FILE, value: /var/run/clearance/backstage-token}
+            # The human inbox (human.request): Tower's backend (Backstage's service account on Tower's cluster) answers
+            # for the person it names. Its tokens are verified against that cluster's public issuer.
+            - {name: TOWER_ISSUER, value: "@@TOWER_ISSUER@@"}
+            - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
+            - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
 #@if autopilot.people and components.gatewayRoutes
             # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as
