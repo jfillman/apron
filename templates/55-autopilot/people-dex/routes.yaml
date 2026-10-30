@@ -1,0 +1,40 @@
+# Browser and laptop reach to people-dex (sign-in, the device flow) and to Clearance's MCP endpoint, through the
+# cluster's Gateway. HTTP, like every route on a lab cluster. clearance.<domain> serves /mcp only: the provenance
+# endpoint and /healthz stay in-cluster. Clearance still needs a bearer it accepts on every request.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: people-dex
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - dex.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /dex}
+      backendRefs:
+        - name: people-dex
+          port: 5556
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-mcp
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /mcp}
+      backendRefs:
+        - name: clearance
+          port: 8080

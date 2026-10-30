@@ -8,6 +8,8 @@
 #                  them hangar.io/clearance-client=agent-gates; they run in each app's -cicd namespace) for
 #                  POST /v1/provenance. The label is only a network fence: Clearance still requires a verifier's
 #                  token (CLEARANCE_VERIFIERS, gateway.yaml).
+#                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
+#                  clearance.<domain>/mcp, people-dex/routes.yaml); each request still needs a person's ID token.
 #   clearance-pg   Postgres from the gateway only, and the CloudNativePG operator's status and management ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -32,6 +34,13 @@ spec:
             matchLabels: {hangar.io/clearance-client: agent-gates}
       ports:
         - {protocol: TCP, port: 8080}
+#@if autopilot.people and components.gatewayRoutes
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
+      ports:
+        - {protocol: TCP, port: 8080}
+#@end
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

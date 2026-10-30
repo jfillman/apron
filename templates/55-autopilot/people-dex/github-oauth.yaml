@@ -1,0 +1,23 @@
+# The GitHub OAuth App people-dex signs people in with (callback http://dex.@@CLUSTER_DOMAIN@@/dex/callback). Its
+# client id and secret are created in this cluster's Infisical project by a person, never in git.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: people-dex-github
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: people-dex-github
+    creationPolicy: Owner
+  data:
+    - secretKey: client-id
+      remoteRef: {key: people-github-oauth-client-id}
+    - secretKey: client-secret
+      remoteRef: {key: people-github-oauth-client-secret}
