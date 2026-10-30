@@ -51,6 +51,9 @@ spec:
             # T0 reads: Argo CD Applications through the Kubernetes API (the airframe reader's RBAC), PromQL on Thanos
             # Query, LogQL on Loki (OpenTelemetry labels: k8s_namespace_name, k8s_pod_name, service_name).
             - {name: ARGO_APP_NAMESPACES, value: "argocd,argocd-apps"}
+            # argo.sync.lower: a sync of an Application in an <app>-lower project, the Role and admission policy in
+            # argo-sync.yaml (argocd-apps only).
+            - {name: ARGO_SYNC_ENABLED, value: "1"}
             - {name: PROMETHEUS_URL, value: "http://thanos-query.observability.svc:9090"}
             - {name: LOKI_URL, value: "http://loki-gateway.observability.svc"}
             # repo.pr.open as the agents' GitHub App: a token per PR from Glidepath's broker (/agent-installation-token),
