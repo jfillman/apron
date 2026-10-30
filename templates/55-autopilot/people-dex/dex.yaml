@@ -41,12 +41,16 @@ data:
         public: true
         redirectURIs: ["/device/callback"]
 ---
+# Same wave as the Deployment: a WaitForFirstConsumer PVC stays Pending until its pod schedules, so an earlier wave
+# would wait on it forever.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: people-dex
   namespace: autopilot-system
   labels: {app.kubernetes.io/name: people-dex, hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   accessModes: [ReadWriteOnce]
   resources:
@@ -105,11 +109,15 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/dex, readOnly: true}
             - {name: data, mountPath: /var/dex}
+            # The image entrypoint renders the config (env expansion) into /tmp before starting dex.
+            - {name: tmp, mountPath: /tmp}
       volumes:
         - name: config
           configMap: {name: people-dex}
         - name: data
           persistentVolumeClaim: {claimName: people-dex}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
 ---
 apiVersion: v1
 kind: Service
