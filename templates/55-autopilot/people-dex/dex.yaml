@@ -39,7 +39,8 @@ data:
       - id: clearance
         name: Clearance
         public: true
-        redirectURIs: ["/device/callback"]
+        # The device flow's callback under the issuer's path, matched exactly (Dex authflow validateRedirectURI).
+        redirectURIs: ["/dex/device/callback"]
 ---
 # Same wave as the Deployment: a WaitForFirstConsumer PVC stays Pending until its pod schedules, so an earlier wave
 # would wait on it forever.
