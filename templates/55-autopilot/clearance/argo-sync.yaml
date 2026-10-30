@@ -1,0 +1,98 @@
+# argo.sync.lower (AP-B2): Clearance may start a sync of a lower-environment Argo CD Application, and nothing more.
+# Argo CD syncs when an Application's `operation` is set, so the grant is `patch` on applications in argocd-apps (where
+# the <app>-dev Applications live, in the <app>-lower projects); reads already come from the airframe reader.
+#
+# RBAC cannot tell a lower Application from an upper one, or a sync from a spec change, so the policy below does, for
+# Clearance's identity only: an update must be to an Application whose project ends in -lower (before and after), must
+# leave spec, status, labels, annotations, finalizers and owners as they were, must start a sync with nothing in flight,
+# and the sync may not name its own source, resources or strategy. The adapter (autopilot argo_sync.py) checks the same
+# before it sends anything; this holds even if Clearance were wrong.
+#
+# Blast radius: the one matchCondition is a username comparison, so no other request is ever evaluated, and every field
+# access in the validations is has()-guarded. Tested against a real kube-apiserver: apron tests/policy/test_argo_sync.py.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: autopilot-clearance-argo-sync
+  namespace: argocd-apps
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: autopilot-clearance-argo-sync
+  namespace: argocd-apps
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: autopilot-clearance-argo-sync
+subjects:
+  - kind: ServiceAccount
+    name: clearance
+    namespace: autopilot-system
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: autopilot-clearance-argo-sync
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]   # create and delete: RBAC grants neither
+        resources: ["applications"]
+  matchConditions:
+    - name: clearance-only
+      expression: request.userInfo.username == 'system:serviceaccount:autopilot-system:clearance'
+  validations:
+    - expression: >-
+        has(oldObject.spec) && has(oldObject.spec.project) && oldObject.spec.project.endsWith('-lower')
+        && has(object.spec) && has(object.spec.project) && object.spec.project == oldObject.spec.project
+      message: Clearance may sync Applications in a -lower project only
+    - expression: object.spec == oldObject.spec
+      message: Clearance may not change an Application's spec
+    - expression: >-
+        has(object.status) == has(oldObject.status) && (!has(object.status) || object.status == oldObject.status)
+      message: Clearance may not change an Application's status
+    - expression: >-
+        (has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {})
+        && (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})
+        && (has(object.metadata.finalizers) ? object.metadata.finalizers : []) == (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : [])
+        && (has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) == (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : [])
+      message: Clearance may not change an Application's labels, annotations, finalizers or owners
+    - expression: '!has(oldObject.operation)'
+      message: an operation is already in flight
+    - expression: >-
+        has(object.operation) && has(object.operation.sync)
+        && object.operation.all(k, k in ['initiatedBy', 'info', 'sync'])
+        && object.operation.sync.all(k, k in ['revision', 'revisions', 'prune'])
+      message: Clearance may start a sync of the Application's own source only (no source, resources or strategy override)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: autopilot-clearance-argo-sync
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  policyName: autopilot-clearance-argo-sync
+  validationActions: [Deny]

@@ -7,8 +7,9 @@
 #   2. re-render: a second render changes nothing; removing a component removes its files; cluster.yaml survives.
 #   3. check: each invariant violation is refused.
 #   4. TOKENS.md lists exactly the tokens templates use.
-#   5. the AgentRun confinement policy admits a run's objects and refuses everything D15 forbids (skipped without
-#      envtest binaries in KUBEBUILDER_ASSETS: tests/policy/test_agentrun_grants.py).
+#   5. the AgentRun confinement policy admits a run's objects and refuses everything D15 forbids, and Clearance's
+#      argo.sync.lower grant admits only a sync of a -lower Application (skipped without envtest binaries in
+#      KUBEBUILDER_ASSETS: tests/policy/test_agentrun_grants.py, test_argo_sync.py).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 APRON="$(pwd)"
@@ -281,6 +282,11 @@ if out="$(python3 tests/policy/test_agentrun_grants.py 2>&1)"; then
   ok "agentrun-grants: $(tail -1 <<<"${out}")"
 else
   bad "agentrun-grants: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+if out="$(python3 tests/policy/test_argo_sync.py 2>&1)"; then
+  ok "clearance argo-sync: $(tail -1 <<<"${out}")"
+else
+  bad "clearance argo-sync: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
 fi
 
 echo "== 6. agentrun-reaper (the script in its ConfigMap, against a fake API)"

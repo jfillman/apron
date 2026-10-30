@@ -10,6 +10,8 @@
 #   gateway.yaml    the gateway Deployment, its Service and the model-proxy Service (sync wave 1)
 #   networkpolicy.yaml  ingress to the gateway (agent-run namespaces only) and to its database (the gateway and the
 #                   CloudNativePG operator)
+#   argo-sync.yaml  argo.sync.lower's grant: patch on applications in argocd-apps, confined by an admission policy
+#                   to starting a sync of a -lower Application (sync wave -1)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

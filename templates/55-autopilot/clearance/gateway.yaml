@@ -35,8 +35,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.5 = autopilot 3bfd0c8 with clearance v0.10.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.5@sha256:11347b0d3bdeddba31d79c576c28cb6b76aa6276c553e90d5aa09e88fa9174e1
+          # gateway-v0.3.6 = autopilot 12aa087 with clearance v0.11.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.6@sha256:7d0eaf6fd65a63d278be5fe224a41ed206d15809a728052859dbec63558277ec
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
@@ -51,6 +51,9 @@ spec:
             # T0 reads: Argo CD Applications through the Kubernetes API (the airframe reader's RBAC), PromQL on Thanos
             # Query, LogQL on Loki (OpenTelemetry labels: k8s_namespace_name, k8s_pod_name, service_name).
             - {name: ARGO_APP_NAMESPACES, value: "argocd,argocd-apps"}
+            # argo.sync.lower: a sync of an Application in an <app>-lower project, the Role and admission policy in
+            # argo-sync.yaml (argocd-apps only).
+            - {name: ARGO_SYNC_ENABLED, value: "1"}
             - {name: PROMETHEUS_URL, value: "http://thanos-query.observability.svc:9090"}
             - {name: LOKI_URL, value: "http://loki-gateway.observability.svc"}
             # repo.pr.open as the agents' GitHub App: a token per PR from Glidepath's broker (/agent-installation-token),
