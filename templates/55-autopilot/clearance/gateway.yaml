@@ -41,8 +41,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.8 = autopilot 9cb6aae with clearance v0.12.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.8@sha256:894407edc488a5d6b65940e745305df2af7256ead1f34fcddb29aeeee8de87a8
+          # gateway-v0.3.9 = autopilot 88af8b7 with clearance v0.12.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.9@sha256:1f26dda90dc5b8ddbec215cbb7c2d8d7896f500613d6b464c81a93c7a5bc6fe2
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
