@@ -5,8 +5,8 @@
 # Backends wired here: AgentRuns (Role in agentrun-grants), Airframe and Argo CD Application reads (identity.yaml),
 # glidepath-api (its delegates/readers/operators/releasers list this identity), Thanos Query and Loki (no credential).
 # Losing Postgres ends the process (exit 70) and the kubelet restarts it; it starts again once the database answers.
-# Callers authenticate with a service-account token for the `clearance` audience; people's OIDC sign-in is not
-# configured yet. The SA token mounted here (API server audience)
+# Callers authenticate with a service-account token for the `clearance` audience, or (people) an ID token from
+# people-dex (55-autopilot/people-dex, GitHub sign-in, autopilot.people only). The SA token mounted here (API server audience)
 # is what Clearance uses for TokenReview, the Airframe reads, AgentRuns and glidepath-api.
 apiVersion: apps/v1
 kind: Deployment
@@ -35,15 +35,14 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.4 = autopilot 676bd43 with clearance v0.9.0; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.4@sha256:186a64f1beb626efeb7f23c91e0ad2af2948e1f74d83130c59155ce4bfdeba04
+          # gateway-v0.3.5 = autopilot 3bfd0c8 with clearance v0.10.0; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.5@sha256:11347b0d3bdeddba31d79c576c28cb6b76aa6276c553e90d5aa09e88fa9174e1
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
           env:
             - name: CLEARANCE_DSN
               valueFrom: {secretKeyRef: {name: clearance-pg-app, key: uri}}
-            - {name: CLEARANCE_RESOURCE_URL, value: "http://clearance.autopilot-system.svc:8080/mcp"}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
             - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
             - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
@@ -67,6 +66,17 @@ spec:
             # The agent gates (glidepath docs/admin/agent-gates.md) ask POST /v1/provenance as their pipeline's service
             # account; only these principals may. Every app's -cicd namespace runs them.
             - {name: CLEARANCE_VERIFIERS, value: "app-*-cicd/pipeline-runner"}
+#@if autopilot.people and components.gatewayRoutes
+            # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as
+            # user:<GitHub login>, and only for cluster.yaml autopilot.people. The issuer is the browser-facing URL;
+            # the keys are read in-cluster.
+            - {name: CLEARANCE_OIDC_ISSUER, value: "http://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: CLEARANCE_OIDC_AUDIENCE, value: clearance}
+            - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+            - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
+            - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            - {name: CLEARANCE_RESOURCE_URL, value: "http://clearance.@@CLUSTER_DOMAIN@@/mcp"}
+#@end
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
             periodSeconds: 10

@@ -72,6 +72,9 @@ def tokens(v):
         "TOWER_BASE_URL": g("tower.baseUrl", ""),
         "TOWER_HOST_ALIAS_IP": g("tower.hostAliasIP", ""),
         "AWS_ACCOUNT_ID": g("aws.accountId", ""),
+        # Who may sign in to Clearance as a person (D19 interim: people-dex's GitHub logins), comma-separated; empty
+        # lets nobody in.
+        "AUTOPILOT_PEOPLE": ",".join(g("autopilot.people", None) or []),
         # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
         "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
         "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),

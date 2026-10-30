@@ -1,0 +1,32 @@
+# People's sign-in to Clearance (Hangar D19, interim until an IdP issues ID-JAG): a Dex whose only connector is
+# GitHub, issuing ID tokens for the static public client `clearance`. Clearance accepts them for audience
+# `clearance` and only for the GitHub logins in cluster.yaml autopilot.people (CLEARANCE_OIDC_ALLOWED_USERS): Dex
+# signs in anyone with a GitHub account, so its token alone is not a grant.
+#   github-oauth.yaml  the GitHub OAuth App's client id and secret, from Infisical (sync wave 0)
+#   dex.yaml           Dex: config, a 1 Gi volume for its sqlite store (signing keys survive a restart), the
+#                      Deployment and its Service
+#   routes.yaml        dex.<domain> (the browser's sign-in and the device flow) and clearance.<domain>/mcp (people's
+#                      MCP clients), both through the cluster's Gateway
+# Signing in from a laptop: autopilot tools/hangar-login (the device flow), docs in the autopilot README.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autopilot-people-dex
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: people-dex
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 55-autopilot/people-dex
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: autopilot-system
+  syncPolicy:
+    automated:
+      selfHeal: true
