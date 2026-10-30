@@ -1,0 +1,60 @@
+# Only Clearance may hold a token for Tower's catalog (catalog.read, AP-B2). Backstage accepts any token this cluster's
+# issuer signs for audience `backstage-catalog` (its externalAccess jwks entry cannot allowlist a subject), and
+# Kubernetes lets any pod project a token for any audience, and anyone allowed to create serviceaccounts/token mint
+# one. So this policy refuses both, unless the token is autopilot-system/clearance's:
+#   - a Pod that projects a serviceAccountToken with that audience, in any namespace but autopilot-system or for any
+#     service account but clearance;
+#   - a TokenRequest (serviceaccounts/token) with that audience for any service account but autopilot-system/clearance
+#     (the kubelet's own TokenRequest for Clearance's pod is the allowed case).
+# What the token reaches is narrow anyway: Backstage restricts it to the catalog plugin's catalog.entity.read.
+#
+# Blast radius: the matchConditions select only Pods that project this audience and TokenRequests that ask for it;
+# every field access is has()-guarded, so any other Pod or TokenRequest is never evaluated and never errors.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: autopilot-clearance-catalog-token
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods", "serviceaccounts/token"]
+  matchConditions:
+    - name: asks-for-the-catalog-audience
+      expression: >-
+        (request.resource.resource == 'pods' && request.subResource == ''
+         && has(object.spec) && has(object.spec.volumes)
+         && object.spec.volumes.exists(v, has(v.projected) && has(v.projected.sources)
+              && v.projected.sources.exists(s, has(s.serviceAccountToken) && has(s.serviceAccountToken.audience)
+                   && s.serviceAccountToken.audience == 'backstage-catalog')))
+        ||
+        (request.resource.resource == 'serviceaccounts' && request.subResource == 'token'
+         && has(object.spec) && has(object.spec.audiences) && 'backstage-catalog' in object.spec.audiences)
+  validations:
+    - expression: >-
+        request.namespace == 'autopilot-system'
+        && (request.subResource == 'token'
+            ? request.name == 'clearance'
+            : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName == 'clearance'))
+      message: only autopilot-system/clearance may hold a token for audience backstage-catalog (Tower's catalog)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: autopilot-clearance-catalog-token
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  policyName: autopilot-clearance-catalog-token
+  validationActions: [Deny]
