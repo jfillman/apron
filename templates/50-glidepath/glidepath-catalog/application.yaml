@@ -71,6 +71,10 @@ spec:
           # PRs. Clearance runs on this cluster (55-autopilot/clearance); without it the gate fails agent-looking PRs.
           agentGates:
             clearanceUrl: http://clearance.autopilot-system.svc.cluster.local:8080
+          # The deployment gate (glidepath docs/admin/clearance-gate.md): the PR comment links a holding change to the
+          # portal's Clearances page. Clearance's URL and audience are agentGates' above.
+          clearanceGate:
+            towerUrl: "@@TOWER_BASE_URL@@"
 #@end
           # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
           # for images signed before the switch (glidepath docs/admin/image-signing.md).

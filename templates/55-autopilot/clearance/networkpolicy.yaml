@@ -4,9 +4,9 @@
 #                  hangar.io/agent-run=true and its egress policy allows this pod and port; this is the other half.
 #                  kubelet probes and `kubectl port-forward` reach the pod from the node, which Cilium allows. Add a
 #                  rule here when another in-cluster caller (Tower, Holmes) is wired to Clearance.
-#                  The MCP port also from the agent gates' pods in any namespace (glidepath Task agent-gates labels
-#                  them hangar.io/clearance-client=agent-gates; they run in each app's -cicd namespace) for
-#                  POST /v1/provenance. The label is only a network fence: Clearance still requires a verifier's
+#                  The MCP port also from the agent gates' and the clearance gate's pods in any namespace (glidepath Tasks
+#                  agent-gates and clearance-gate label them hangar.io/clearance-client=<gate>; they run in each app's
+#                  -cicd namespace) for POST /v1/provenance and POST /v1/clearances. The label is only a network fence: Clearance still requires a verifier's
 #                  token (CLEARANCE_VERIFIERS, gateway.yaml).
 #                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
 #                  clearance.<domain>/mcp, people-dex/routes.yaml); each request still needs a person's ID token.
@@ -31,7 +31,10 @@ spec:
     - from:
         - namespaceSelector: {}
           podSelector:
-            matchLabels: {hangar.io/clearance-client: agent-gates}
+            # agent-gates: POST /v1/provenance. clearance-gate: POST /v1/clearances (the deployment gate's check,
+            # glidepath docs/admin/clearance-gate.md). Both run in each app's -cicd namespace as pipeline-runner.
+            matchExpressions:
+              - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate]}
       ports:
         - {protocol: TCP, port: 8080}
 #@if autopilot.people and components.gatewayRoutes
