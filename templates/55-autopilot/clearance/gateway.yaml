@@ -41,9 +41,9 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.13 = autopilot f92e394 with clearance v0.16.0 (glidepath.cicd.validate and glidepath.cicd.propose:
-          # a cicd.yaml change validated by glidepath-api, then a PR); multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.13@sha256:8dabda0f116304d83e73ea7a97ef7a0284f25c08852b3b895110ed92c0a14494
+          # gateway-v0.3.15 = autopilot 8d8a97e with clearance v0.18.0 (person controls: freeze, end, hold, release, CLEARANCE_ADMINS;
+          # Agent XR pins become definitions: agent_xrs.py); multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.15@sha256:78504e36909c101dd9fe8d2bbb95609398c0d28f735ad5208c24da86cef087cf
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
@@ -97,6 +97,10 @@ spec:
             - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
             - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
             - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            # Person controls (clearance v0.17.0 control.py): beside each agent's owner group, these principals may freeze
+            # or end any session and hold or release any agent's triggers (POST /v1/sessions/{id}/freeze|end,
+            # POST|DELETE /v1/agents/{name}/hold), through Tower's backend as the delegate or signed in themselves.
+            - {name: CLEARANCE_ADMINS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
             - {name: CLEARANCE_RESOURCE_URL, value: "http://clearance.@@CLUSTER_DOMAIN@@/mcp"}
 #@end
           readinessProbe:
