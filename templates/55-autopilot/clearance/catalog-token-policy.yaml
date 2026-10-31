@@ -1,7 +1,7 @@
 # Only Clearance may hold a token for Tower's catalog (catalog.read, AP-B2). Backstage accepts any token this cluster's
 # issuer signs for audience `backstage-catalog` (its externalAccess jwks entry cannot allowlist a subject), and
 # Kubernetes lets any pod project a token for any audience, and anyone allowed to create serviceaccounts/token mint
-# one. So this policy refuses both, unless the token is autopilot-system/clearance's:
+# one. So this policy refuses both, unless the token is autopilot-system/clearance's or clearance-api's (the read API):
 #   - a Pod that projects a serviceAccountToken with that audience, in any namespace but autopilot-system or for any
 #     service account but clearance;
 #   - a TokenRequest (serviceaccounts/token) with that audience for any service account but autopilot-system/clearance
@@ -44,9 +44,9 @@ spec:
     - expression: >-
         request.namespace == 'autopilot-system'
         && (has(request.subResource) && request.subResource == 'token'
-            ? request.name == 'clearance'
-            : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName == 'clearance'))
-      message: only autopilot-system/clearance may hold a token for audience backstage-catalog (Tower's catalog)
+            ? request.name in ['clearance', 'clearance-api']
+            : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName in ['clearance', 'clearance-api']))
+      message: only autopilot-system/clearance and clearance-api may hold a token for audience backstage-catalog (Tower's catalog)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

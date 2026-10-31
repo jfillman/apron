@@ -56,6 +56,9 @@ spec:
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: clearance}
+        # clearance-api (api.yaml): the read-only role only (reader-credentials.yaml).
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: clearance-api}
       ports:
         - {protocol: TCP, port: 5432}
     - from:
