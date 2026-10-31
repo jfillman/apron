@@ -117,4 +117,7 @@ spec:
       kind: ObjectStorage
     - group: catalog.hangar.io
       kind: ManagedPostgreSQL
+    # Autopilot M4: an app's Agent pins live in its xr-requests folder (airframe xrds/agent.yaml).
+    - group: catalog.hangar.io
+      kind: Agent
 #@end
