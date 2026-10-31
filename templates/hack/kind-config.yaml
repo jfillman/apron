@@ -12,6 +12,11 @@
 # cluster). podman's per-container pids limit is not a kubelet setting: set `pids_limit = 8192` once in
 # ~/.config/containers/containers.conf if kind runs on podman.
 #
+# InitConfiguration patches: kubeadm patches the static Pods it writes with the files in /kind/kubeadm-patches (rendered
+# into hack/kubeadm-patches/; `apron up` adds the extraMount from this checkout, since kind needs an absolute host
+# path). kube-apiserver+strategic.yaml relaxes the API server's liveness probe; see that file. Create time only: a
+# running cluster gets the same edit in /etc/kubernetes/manifests/kube-apiserver.yaml.
+#
 # extraPortMappings: host 80/443 -> Traefik's fixed NodePorts (10-crds-operators/traefik/traefik.yaml). kind has no
 # LoadBalancer, so this is how the host reaches the Gateway. Baked in at create time; changing them means a recreate.
 kind: Cluster
@@ -26,6 +31,10 @@ nodes:
       - |
         kind: KubeletConfiguration
         maxPods: @@KIND_MAX_PODS@@
+      - |
+        kind: InitConfiguration
+        patches:
+          directory: /kind/kubeadm-patches
     extraPortMappings:
       - containerPort: @@TRAEFIK_HTTP_NODEPORT@@
         hostPort: @@KIND_HOST_HTTP_PORT@@

@@ -42,6 +42,8 @@ aiTriage:
   cpuRequest: 50m
   memoryRequest: 1024Mi
   memoryLimit: 2048Mi
+argocd:
+  light: false                  # Argo CD's stock re-check interval and concurrency
 cnpg:
   replicas: 2
 tower:

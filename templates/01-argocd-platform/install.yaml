@@ -31497,6 +31497,14 @@ subjects:
 ---
 apiVersion: v1
 data:
+#@if argocd.light
+  # argocd.light (profiles/prod.yaml, 2026-10-31): re-check each app every 10 min, spread over 2 more, instead of
+  # every few minutes. On hangar-prod's thermally throttled single node, Argo CD's re-checks after every API server
+  # restart were the node's biggest CPU load, starving the API server into the next restart. A merged release PR can
+  # now wait up to ~12 min for its sync; Refresh in Tower or the Argo CD UI starts it at once.
+  timeout.reconciliation: 600s
+  timeout.reconciliation.jitter: 120s
+#@end
   resource.customizations.ignoreResourceUpdates.ConfigMap: |
     jqPathExpressions:
       # Ignore the cluster-autoscaler status
@@ -31864,6 +31872,14 @@ metadata:
 data:
   reposerver.repo.cache.expiration: 3m
   server.insecure: "true"
+#@if argocd.light
+  # argocd.light (see argocd-cm): at most 2 manifest builds at once (helm/kustomize), fewer controller workers (stock
+  # 20 status / 10 operation), and a longer wait for the repo-server, since builds now queue.
+  reposerver.parallelism.limit: "2"
+  controller.status.processors: "10"
+  controller.operation.processors: "5"
+  controller.repo.server.timeout.seconds: "180"
+#@end
 ---
 apiVersion: v1
 kind: ConfigMap
