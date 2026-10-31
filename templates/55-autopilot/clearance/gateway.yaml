@@ -41,8 +41,9 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.12 = autopilot 5a9b466 with clearance v0.15.0 (event history); multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.12@sha256:9f4716a61ae9d0b106fd5df5a6b83b039f2252d01effff709f2b527aa2d59265
+          # gateway-v0.3.13 = autopilot f92e394 with clearance v0.16.0 (glidepath.cicd.validate and glidepath.cicd.propose:
+          # a cicd.yaml change validated by glidepath-api, then a PR); multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.13@sha256:8dabda0f116304d83e73ea7a97ef7a0284f25c08852b3b895110ed92c0a14494
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
