@@ -10,6 +10,7 @@
 #                  token (CLEARANCE_VERIFIERS, gateway.yaml).
 #                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
 #                  clearance.<domain>/mcp, people-dex/routes.yaml); each request still needs a person's ID token.
+#                  And GitHub's webhooks (clearance.<domain>/v1/github/webhook only, github-app.yaml), each signature-checked.
 #   clearance-pg   Postgres from the gateway only, and the CloudNativePG operator's status and management ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -40,6 +41,13 @@ spec:
       ports:
         - {protocol: TCP, port: 8080}
 #@if autopilot.people and components.gatewayRoutes
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
+      ports:
+        - {protocol: TCP, port: 8080}
+#@end
+#@if autopilot.githubApp and components.gatewayRoutes
     - from:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}

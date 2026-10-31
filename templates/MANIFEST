@@ -81,6 +81,7 @@
 50-glidepath/                           components.glidepath
 55-autopilot/                           components.autopilot
 55-autopilot/people-dex/                components.autopilot and autopilot.people and components.gatewayRoutes
+55-autopilot/clearance/github-app.yaml  components.autopilot and autopilot.githubApp and components.gatewayRoutes
 
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes

@@ -1,0 +1,51 @@
+# The Clearance GitHub App (clearance docs/provenance-app.md, phase 1): Clearance's own check runs,
+# `Clearance / agent-identity` and `Clearance / agent-scope`, posted on the PRs of every repo the App is installed on.
+# Only with cluster.yaml autopilot.githubApp: true, set once the App is registered (from clearance
+# contract/github-app-manifest.json) and its id, private key and webhook secret are in this cluster's Infisical project.
+# The gateway mounts the key and the secret as files and reads the id from the env (gateway.yaml).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-github-app
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-github-app
+    creationPolicy: Owner
+  data:
+    - secretKey: app-id
+      remoteRef: {key: clearance-github-app-id}
+    - secretKey: private-key
+      remoteRef: {key: clearance-github-app-private-key}
+    - secretKey: webhook-secret
+      remoteRef: {key: clearance-github-app-webhook-secret}
+---
+# GitHub's webhooks reach POST /v1/github/webhook through the cluster's Gateway, and nothing else of Clearance's
+# through this route. The gateway checks each body's X-Hub-Signature-256 against the webhook secret before reading it.
+# How GitHub reaches the Gateway is the cluster's (on hangar-dev, a Cloudflare tunnel hostname: autopilot docs).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-github-webhook
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: Exact, value: /v1/github/webhook}
+          method: POST
+      backendRefs:
+        - name: clearance
+          port: 8080
