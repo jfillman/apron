@@ -21,6 +21,14 @@ spec:
     initdb:
       database: clearance
       owner: clearance
+  # clearance-api's read-only role (reader-credentials.yaml): it may read every table and write none.
+  managed:
+    roles:
+      - name: clearance_reader
+        ensure: present
+        login: true
+        inRoles: [pg_read_all_data]
+        passwordSecret: {name: clearance-pg-reader}
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}

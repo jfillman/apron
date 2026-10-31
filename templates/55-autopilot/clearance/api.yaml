@@ -1,0 +1,179 @@
+# clearance-api (AP-B2c, clearance docs/clearance-api.md): Clearance's read API, the gateway's image run as
+# `autopilot-gateway api`, a separate Deployment. It reads the gateway's tables as the read-only role
+# (reader-credentials.yaml), never the writer lock, so Tower's reads never queue behind agents, and it runs two
+# replicas. It writes nothing: a human answer still goes to the gateway (clearance.<domain>/v1/human/...).
+#
+# Its own service account, `clearance-api`: TokenReview (to authenticate callers, as the gateway does) and the
+# catalog token (a person's teams and apps from Tower's catalog), nothing else. None of the gateway's grants (Argo
+# CD syncs, AgentRuns, GitHub, glidepath-api) are on it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: autopilot-clearance-api-auth-delegator
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: clearance-api
+    namespace: autopilot-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: clearance-api}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+    spec:
+      serviceAccountName: clearance-api
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+#@if tower.hostAliasIP
+      hostAliases:
+        - ip: "@@TOWER_HOST_ALIAS_IP@@"
+          hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]
+#@end
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          # The gateway's image (gateway.yaml pins the same digest); `api` selects the read API.
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.10@sha256:681a30a1068fe2def0f2243a5ad41cfb1a228c62440233b35bb7ef8f114908c4
+          args: [api]
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - name: CLEARANCE_API_DSN
+              valueFrom: {secretKeyRef: {name: clearance-pg-reader, key: uri}}
+            - {name: CLEARANCE_AUDIENCE, value: clearance}
+            - {name: CLEARANCE_GATEWAY_URL, value: "http://clearance.@@CLUSTER_DOMAIN@@"}
+#@if tower.cluster
+            # Tower: its backend reads for the person it names (delegate) and reads the inbox feed (notifier).
+            - {name: BACKSTAGE_URL, value: "@@TOWER_BASE_URL@@"}
+            - {name: BACKSTAGE_TOKEN_FILE, value: /var/run/clearance/backstage-token}
+            - {name: TOWER_ISSUER, value: "@@TOWER_ISSUER@@"}
+            - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
+            - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: CLEARANCE_API_NOTIFIERS, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
+#@end
+#@if autopilot.people and components.gatewayRoutes
+            # People sign in as at the gateway (people-dex); cluster.yaml autopilot.people are this API's auditors.
+            - {name: CLEARANCE_OIDC_ISSUER, value: "http://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: CLEARANCE_OIDC_AUDIENCE, value: clearance}
+            - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+            - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
+            - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            - {name: CLEARANCE_API_AUDITORS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
+#@end
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 20m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: tokens, mountPath: /var/run/clearance, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        # Tower's catalog, as this pod (catalog-token-policy.yaml admits this service account too).
+        - name: tokens
+          projected:
+            sources:
+              - serviceAccountToken: {audience: backstage-catalog, expirationSeconds: 3600, path: backstage-token}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+spec:
+  selector: {app.kubernetes.io/name: clearance-api}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: clearance-api}
+---
+# Ingress to the read API: the Gateway (its route below) and pods in this cluster that carry the client label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels: {hangar.io/clearance-client: api}
+      ports:
+        - {protocol: TCP, port: 8080}
+#@if components.gatewayRoutes
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-api
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance-api.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: clearance-api
+          port: 8080
+#@end

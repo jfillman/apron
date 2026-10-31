@@ -12,8 +12,11 @@
 #                   CloudNativePG operator)
 #   argo-sync.yaml  argo.sync.lower's grant: patch on applications in argocd-apps, confined by an admission policy
 #                   to starting a sync of a -lower Application (sync wave -1)
-#   catalog-token-policy.yaml  only Clearance's pod may hold a token for Tower's catalog (audience
+#   catalog-token-policy.yaml  only Clearance's pods may hold a token for Tower's catalog (audience
 #                   backstage-catalog, catalog.read; sync wave -1)
+#   reader-credentials.yaml  clearance-api's read-only database role password, generated in-cluster (sync wave -1)
+#   api.yaml        clearance-api, the read API: its service account (TokenReview only), Deployment (2 replicas),
+#                   Service, PodDisruptionBudget, NetworkPolicy and route clearance-api.<domain> (sync wave 1)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
