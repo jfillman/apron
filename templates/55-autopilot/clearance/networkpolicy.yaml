@@ -32,9 +32,11 @@ spec:
         - namespaceSelector: {}
           podSelector:
             # agent-gates: POST /v1/provenance. clearance-gate: POST /v1/clearances (the deployment gate's check,
-            # glidepath docs/admin/clearance-gate.md). Both run in each app's -cicd namespace as pipeline-runner.
+            # glidepath docs/admin/clearance-gate.md). agent-definitions and agent-release: POST /v1/definitions/review
+            # and the agent release's POST /v1/clearances (glidepath docs/admin/agent-definitions.md). All run in each
+            # app's -cicd namespace as pipeline-runner.
             matchExpressions:
-              - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate]}
+              - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate, agent-definitions, agent-release]}
       ports:
         - {protocol: TCP, port: 8080}
 #@if autopilot.people and components.gatewayRoutes

@@ -75,6 +75,9 @@ spec:
           # portal's Clearances page. Clearance's URL and audience are agentGates' above.
           clearanceGate:
             towerUrl: "@@TOWER_BASE_URL@@"
+          # The agent release (glidepath docs/admin/agent-definitions.md): the cluster an agent release's change names.
+          agentRelease:
+            cluster: "@@CLUSTER_NAME@@"
 #@end
           # Issuers a Chains signing certificate may name. the dev cluster's public issuer (2026-10-16), plus the kind default
           # for images signed before the switch (glidepath docs/admin/image-signing.md).
