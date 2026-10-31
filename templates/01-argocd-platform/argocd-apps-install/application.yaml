@@ -198,6 +198,13 @@ spec:
             applicationsetcontroller.allowed.scm.providers: "https://api.@@SCM_HOST@@"
 #@end
             applicationsetcontroller.enable.new.git.file.globbing: "true"
+#@if argocd.light
+            # argocd.light: the same as 01-argocd-platform/install.yaml's argocd-cmd-params-cm (see its argocd-cm).
+            reposerver.parallelism.limit: "2"
+            controller.status.processors: "10"
+            controller.operation.processors: "5"
+            controller.repo.server.timeout.seconds: "180"
+#@end
           # Same health-check customizations as 01-argocd-platform/install.yaml's own
           # argocd-cm (see that ConfigMap's inline comments for rationale/sourcing) -
           # this instance is the one that actually owns the xr-requests-generated
@@ -218,6 +225,11 @@ spec:
             # backstage-ingestor-rbac's SA token
             # (00-bootstrap/backstage-ingestor-rbac/README.md).
             accounts.backstage: apiKey
+#@if argocd.light
+            # argocd.light: the same as 01-argocd-platform/install.yaml's argocd-cm.
+            timeout.reconciliation: 600s
+            timeout.reconciliation.jitter: 120s
+#@end
             # resource.exclusions is a single string value: setting it replaces the chart's
             # default list, so the default list is repeated here in full (it is identical to
             # 01-argocd-platform/install.yaml's) and the Upbound block is appended, same as

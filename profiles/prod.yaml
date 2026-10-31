@@ -38,6 +38,8 @@ aiTriage:
   cpuRequest: 10m
   memoryRequest: 100Mi
   memoryLimit: 500Mi
+argocd:
+  light: true                   # 2026-10-31 load spiral: 10-min app re-checks, 2 manifest builds at once (see 01-argocd-platform)
 cnpg:
   replicas: 1
 tower:

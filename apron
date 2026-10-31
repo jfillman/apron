@@ -309,6 +309,17 @@ runtime_kind() {
   [ -f "${cfg}" ] || [ "${DRY_RUN}" = true ] || die "kind config ${cfg} (from resolved values) is missing: apron render --out ${dir}"
   if [ "${DRY_RUN}" = false ] && kind_exists; then ok "kind cluster ${NAME} exists; not creating"; return; fi
   [ "${DRY_RUN}" = false ] || echo "  (skipped if kind get clusters lists ${NAME})"
+  # The kubeadm patches the kind config's InitConfiguration reads: kind wants an absolute host path, so the mount is
+  # added to a copy here rather than rendered into the cluster repo.
+  local patches="${dir}/hack/kubeadm-patches"
+  if [ -d "${patches}" ] && [ "${DRY_RUN}" = false ]; then
+    require yq
+    local mounted; mounted="$(mktemp)"
+    MOUNT_SRC="$(cd "${patches}" && pwd)" yq \
+      '(.nodes[] | select(.role == "control-plane") | .extraMounts) += [{"hostPath": strenv(MOUNT_SRC), "containerPath": "/kind/kubeadm-patches", "readOnly": true}]' \
+      "${cfg}" >"${mounted}"
+    cfg="${mounted}"
+  fi
   run kind create cluster --name "${NAME}" --config "${cfg}"
 }
 

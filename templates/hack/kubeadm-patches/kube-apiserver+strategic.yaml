@@ -1,0 +1,13 @@
+# hack/kubeadm-patches/kube-apiserver+strategic.yaml - rendered by Apron for runtime: kind. kubeadm applies it to the
+# kube-apiserver static Pod at `kind create cluster` (hack/kind-config.yaml's InitConfiguration patches; `apron up`
+# mounts this directory into the node at /kind/kubeadm-patches).
+#
+# livenessProbe: kubeadm's 15 s timeout x 8 failures got a slow but working API server killed (2026-10-31, hangar-prod
+# on a thermally throttled laptop: 38 restarts). Each restart made every client re-list at once, which starved the new
+# API server in turn. 30 s x 12 lets it ride out about 6 min of overload; a truly hung one is restarted that much later.
+spec:
+  containers:
+    - name: kube-apiserver
+      livenessProbe:
+        timeoutSeconds: 30
+        failureThreshold: 12

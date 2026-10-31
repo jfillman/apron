@@ -44,12 +44,17 @@ repo's name plus `-tenants`, same owner.
    - kiac: `kiac create cluster --name N --workers W --cni C --kernel K --cpus X --cp-memory Y`, from resolved
      `runtime.kiac`, never `--gateway` (Apron installs Traefik itself). Skipped when `kiac get clusters` lists N.
    - kind: `kind create cluster --name N --config <rendered kind config>`. Skipped when `kind get clusters` lists N.
+     The config is first copied with an extraMount of the rendered `hack/kubeadm-patches/` (absolute path, from this
+     checkout) at `/kind/kubeadm-patches`, where kubeadm reads its static Pod patches (the API server's liveness probe).
    - existing: `kubectl --context N get --raw /readyz`.
 2. **Context.** kiac/kind: when context N is missing, the one the runtime created (`kiac-N` / `kind-N`, looked up in
    `kubectl config get-contexts`) is renamed to N. existing: the context must already be N; otherwise
    `runtime.existing.context` (from `init --context`) or `--rename-context FROM` is renamed to N. Then N must answer `/readyz`.
 3. **Onboard** (every runtime): the CNI manifest when the resolved values name one (kind: Calico); namespace
-   `argocd`; `kubectl apply --server-side -n argocd -f <rendered 01-argocd-platform/install.yaml>`.
+   `argocd`; `kubectl apply --server-side -n argocd -f <rendered 01-argocd-platform/install.yaml>`. This is the only
+   place that install is applied (nothing syncs it), so re-run `up`, or that one apply, after any change to it, such as
+   `argocd.light` (prod profile: 10-min app re-checks, 2 manifest builds at a time, fewer controller workers), then
+   restart the Argo CD pods that read the changed ConfigMaps.
 4. **Hand-planted Secrets.** Each one is checked with `kubectl get secret` (existence only): the Argo CD repo-creds
    Secret; on the Infisical host `infisical/infisical-secrets` and `infisical/infisical-bootstrap-credentials`;
    elsewhere `crossplane-system/provider-infisical-creds`. The list and the commands come from `bootstrapSecrets` in

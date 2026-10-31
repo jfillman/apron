@@ -100,3 +100,4 @@
 
 # runtime files
 hack/kind-config.yaml                   runtime.type == 'kind'
+hack/kubeadm-patches/                   runtime.type == 'kind'
