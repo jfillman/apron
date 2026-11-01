@@ -79,6 +79,12 @@ spec:
             - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
             - {name: CLEARANCE_API_NOTIFIERS, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
+#@if autopilot.customImages
+            # Custom runtime images (cluster.yaml autopilot.customImages): globs a definition's runtime.image may match
+            # beyond the runtime catalog, listed at GET /v1/runtimes
+            # (custom_images) for New agent. The same value as the gateway's. Unset: catalog images only.
+            - {name: RUNTIME_IMAGES_EXTRA, value: "@@AUTOPILOT_CUSTOM_IMAGES@@"}
+#@end
 #@if autopilot.people and components.gatewayRoutes
             # People sign in as at the gateway (people-dex); cluster.yaml autopilot.people are this API's auditors.
             - {name: CLEARANCE_OIDC_ISSUER, value: "http://dex.@@CLUSTER_DOMAIN@@/dex"}
