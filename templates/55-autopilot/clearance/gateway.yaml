@@ -41,9 +41,10 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.20 = autopilot f6c16ee with clearance v0.23.0 (agent descriptions and runs-in, a person's
-          # Run, clearance register + GitHub Actions OIDC) and interval triggers; multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.20@sha256:22fea79daa31692e5322aa44d29db222c4d1d84a1a45c6dbc15f0974f66db84a
+          # gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
+          # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
+          # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.21@sha256:b193e4ae945528b3f366f9f271d6613b31e4b8473240b752dfa6f60b3e6d7cb9
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
