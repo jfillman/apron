@@ -41,9 +41,9 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.17 = autopilot a17ac35 with clearance v0.20.1 (definition review, the runtime catalog: GET
-          # /v1/runtimes); multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.17@sha256:edde830260a38ae18754de6f72617cacfac732fb0c112a5c1ecb075f7a80de0c
+          # gateway-v0.3.18 = autopilot ab1a122 with clearance v0.21.0 (the Clearance GitHub App, off unless
+          # autopilot.githubApp); multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.18@sha256:8d05054daf7adc9572aa0ab62d98a2da6f959ceaa3ab61a6d7c52bf9cefae566
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
