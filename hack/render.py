@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
+MAY_BE_EMPTY = {"AUTOPILOT_GITHUB_WORKFLOWS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
 
 
 def tokens(v):
@@ -76,6 +76,13 @@ def tokens(v):
         # lets nobody in.
         "AUTOPILOT_PEOPLE": ",".join(g("autopilot.people", None) or []),
         "AUTOPILOT_PEOPLE_PRINCIPALS": ",".join(f"user:{p}" for p in (g("autopilot.people", None) or [])),
+        # GitHub Actions workflows that may register deployments with Clearance (`clearance register`, clearance
+        # provenance-app.md phase 2b): globs on the OIDC token's sub (repo:<owner>/<repo>:...). Empty: none, and the
+        # gateway's GitHub OIDC verifier stays off.
+        "AUTOPILOT_GITHUB_WORKFLOWS": ",".join(g("autopilot.githubWorkflows", None) or []),
+        # The gateway's verifiers: Glidepath's gate checks, plus those workflows as Clearance principals (github:<sub>).
+        "CLEARANCE_VERIFIERS": ",".join(["app-*-cicd/pipeline-runner"]
+                                        + [f"github:{w}" for w in (g("autopilot.githubWorkflows", None) or [])]),
         # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
         "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
         "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),
