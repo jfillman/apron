@@ -88,6 +88,14 @@ spec:
             - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
             - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
+#@if autopilot.githubApp and components.gatewayRoutes
+            # The Clearance GitHub App (github-app.yaml): POST /v1/github/webhook and the two check runs. Comments off.
+            - name: CLEARANCE_GITHUB_APP_ID
+              valueFrom: {secretKeyRef: {name: clearance-github-app, key: app-id}}
+            - {name: CLEARANCE_GITHUB_APP_KEY_FILE, value: /etc/clearance-github-app/private-key}
+            - {name: CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE, value: /etc/clearance-github-app/webhook-secret}
+            - {name: CLEARANCE_GITHUB_APP_COMMENTS, value: "off"}
+#@end
 #@if autopilot.people and components.gatewayRoutes
             # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as
             # user:<GitHub login>, and only for cluster.yaml autopilot.people. The issuer is the browser-facing URL;
@@ -121,6 +129,9 @@ spec:
             - {name: tmp, mountPath: /tmp}
             - {name: clearance-tokens, mountPath: /var/run/clearance, readOnly: true}
             - {name: model-key, mountPath: /etc/clearance-model, readOnly: true}
+#@if autopilot.githubApp and components.gatewayRoutes
+            - {name: github-app, mountPath: /etc/clearance-github-app, readOnly: true}
+#@end
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
@@ -134,6 +145,14 @@ spec:
         - name: model-key
           secret:
             secretName: clearance-model-key
+#@if autopilot.githubApp and components.gatewayRoutes
+        - name: github-app
+          secret:
+            secretName: clearance-github-app
+            items:
+              - {key: private-key, path: private-key}
+              - {key: webhook-secret, path: webhook-secret}
+#@end
 ---
 apiVersion: v1
 kind: Service
