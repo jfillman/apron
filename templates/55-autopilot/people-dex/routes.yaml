@@ -1,6 +1,8 @@
 # Browser and laptop reach to people-dex (sign-in, the device flow) and to Clearance's MCP endpoint, through the
-# cluster's Gateway. HTTP, like every route on a lab cluster. clearance.<domain> serves /mcp only: the provenance
-# endpoint and /healthz stay in-cluster. Clearance still needs a bearer it accepts on every request.
+# cluster's Gateway. HTTP, like every route on a lab cluster. clearance.<domain> serves /mcp, the people API
+# (/v1/human/) and the person controls Tower's backend sends as the delegate (clear or deny a change, freeze or end a
+# session, hold or release an agent's triggers), each matched exactly by method and path. The provenance and
+# registration endpoints and /healthz stay in-cluster. Clearance still needs a bearer it accepts on every request.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -37,6 +39,16 @@ spec:
         - path: {type: PathPrefix, value: /mcp}
         # The human inbox's people API (Tower's backend, or a person with their own token).
         - path: {type: PathPrefix, value: /v1/human/}
+        # The person controls (clearance control.py, gate.py), from Tower's backend as the delegate
+        # (backstage plugins/clearance-backend proxy.ts WRITE_ROUTES).
+        - path: {type: RegularExpression, value: "^/v1/clearances/[A-Za-z0-9-]+/(clear|deny)$"}
+          method: POST
+        - path: {type: RegularExpression, value: "^/v1/sessions/[A-Za-z0-9-]+/(freeze|end)$"}
+          method: POST
+        - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/hold$"}
+          method: POST
+        - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/hold$"}
+          method: DELETE
       backendRefs:
         - name: clearance
           port: 8080
