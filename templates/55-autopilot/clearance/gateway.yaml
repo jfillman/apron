@@ -41,9 +41,9 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.3.19 = autopilot e90203b with clearance v0.22.0 (the GitHub App's deployment protection
-          # rule, off unless autopilot.githubApp); multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.19@sha256:b2cc67d7ea13eee8801d3d0c44098fc1e241a8f1f061311b99d11bb267c5cd2e
+          # gateway-v0.3.20 = autopilot f6c16ee with clearance v0.23.0 (agent descriptions and runs-in, a person's
+          # Run, clearance register + GitHub Actions OIDC) and interval triggers; multi-arch index digest (amd64, arm64).
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.20@sha256:22fea79daa31692e5322aa44d29db222c4d1d84a1a45c6dbc15f0974f66db84a
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
