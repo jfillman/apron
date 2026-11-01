@@ -75,7 +75,7 @@ spec:
             - {name: EVENTS_ENABLED, value: "1"}
             # The agent gates (glidepath docs/admin/agent-gates.md) ask POST /v1/provenance as their pipeline's service
             # account; only these principals may. Every app's -cicd namespace runs them.
-            - {name: CLEARANCE_VERIFIERS, value: "app-*-cicd/pipeline-runner"}
+            - {name: CLEARANCE_VERIFIERS, value: "@@CLEARANCE_VERIFIERS@@"}
 #@if tower.cluster
             # catalog.read: Tower's catalog, as this identity (the backstage-catalog token below, which Backstage checks
             # against this cluster's public issuer; catalog-token-policy.yaml keeps that audience to this pod).
@@ -95,6 +95,12 @@ spec:
             - {name: CLEARANCE_GITHUB_APP_KEY_FILE, value: /etc/clearance-github-app/private-key}
             - {name: CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE, value: /etc/clearance-github-app/webhook-secret}
             - {name: CLEARANCE_GITHUB_APP_COMMENTS, value: "off"}
+#@end
+#@if autopilot.githubWorkflows and components.gatewayRoutes
+            # GitHub Actions workflows' OIDC tokens (clearance register, phase 2b): cluster.yaml autopilot.githubWorkflows,
+            # globs on the token's sub. Each registers changes for its own repository only (DG-REPO).
+            - {name: CLEARANCE_GITHUB_OIDC_AUDIENCE, value: clearance}
+            - {name: CLEARANCE_GITHUB_OIDC_ALLOWED, value: "@@AUTOPILOT_GITHUB_WORKFLOWS@@"}
 #@end
 #@if autopilot.people and components.gatewayRoutes
             # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as

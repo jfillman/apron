@@ -108,6 +108,8 @@ the render with `file:line`.
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
+| `@@AUTOPILOT_GITHUB_WORKFLOWS@@` | `autopilot.githubWorkflows`, GitHub Actions workflows (globs on their OIDC token's `sub`, e.g. `repo:jfillman/*`) that may register deployments with Clearance (`clearance register`); comma-separated, empty when unset (the OIDC verifier is then off) - the gateway's `CLEARANCE_GITHUB_OIDC_ALLOWED` |
+| `@@CLEARANCE_VERIFIERS@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks) plus `github:<glob>` for each `autopilot.githubWorkflows` entry - the gateway's `CLEARANCE_VERIFIERS` |
 | `@@AUTOPILOT_PEOPLE_PRINCIPALS@@` | the same people as Clearance principals (`user:<login>`, comma-separated): clearance-api's auditors (`CLEARANCE_API_AUDITORS`) |
 | `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |
 

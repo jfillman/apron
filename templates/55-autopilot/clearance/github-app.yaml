@@ -27,8 +27,9 @@ spec:
     - secretKey: webhook-secret
       remoteRef: {key: clearance-github-app-webhook-secret}
 ---
-# GitHub's webhooks reach POST /v1/github/webhook through the cluster's Gateway, and nothing else of Clearance's
-# through this route. The gateway checks each body's X-Hub-Signature-256 against the webhook secret before reading it.
+# GitHub's webhooks reach POST /v1/github/webhook through the cluster's Gateway, and, with autopilot.githubWorkflows,
+# GitHub Actions workflows reach POST /v1/clearances (clearance register); nothing else of Clearance's through this
+# route. The gateway checks each body's X-Hub-Signature-256 against the webhook secret before reading it.
 # How GitHub reaches the Gateway is the cluster's (on hangar-dev, a Cloudflare tunnel hostname: autopilot docs).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -46,6 +47,11 @@ spec:
     - matches:
         - path: {type: Exact, value: /v1/github/webhook}
           method: POST
+#@if autopilot.githubWorkflows
+        # clearance register from GitHub's runners (phase 2b): a workflow's OIDC token, for its own repository only.
+        - path: {type: Exact, value: /v1/clearances}
+          method: POST
+#@end
       backendRefs:
         - name: clearance
           port: 8080
