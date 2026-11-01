@@ -70,6 +70,15 @@ cluster's registry record has `airframe.autopilotReady`, set after autopilot's `
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
 
+## Check names (`pipelinesAsCode.applicationName`)
+
+Pipelines-as-Code names every check run `<application-name> / <gate>-`. Apron sets the name from `cluster.yaml`
+`pipelinesAsCode.applicationName` (default `Glidepath`, so checks read `Glidepath / sast-`) in two places that must
+match: PaC's `pipelines-as-code` ConfigMap (`50-glidepath/tekton-operator/pipelines-as-code-vendored.yaml`) and the
+glidepath-catalog's `pipelinesAsCode.applicationName`, which the gate tasks find checks by. The PaC GitHub App can have
+any name; Backstage's `GLIDEPATH_GATE_COMMENT_APPS` must list its slug. See Glidepath's
+[github-app.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/github-app.md), including how to rename it.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),

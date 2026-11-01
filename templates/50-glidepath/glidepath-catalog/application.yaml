@@ -46,6 +46,11 @@ spec:
           # Gates that run and report for one app but do not hold its release (glidepath docs/admin/release-guardrails.md,
           # "One app only"), from cluster.yaml releaseGuardrailOverridesByApp. Admin-owned.
           releaseGuardrailOverridesByApp: @@GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP@@
+          # Pipelines-as-Code's application-name, the first half of every gate's check name (glidepath
+          # docs/admin/github-app.md), from cluster.yaml pipelinesAsCode.applicationName. The same token sets PaC's own
+          # ConfigMap (tekton-operator/pipelines-as-code-vendored.yaml): the two must match.
+          pipelinesAsCode:
+            applicationName: @@PAC_APPLICATION_NAME@@
 #@if itsm.provider == 'webhook'
           # Change management (glidepath docs/admin/change-management.md) from cluster.yaml itsm: the webhook provider
           # (the lab points it at the throwaway mock, glidepath hack/lab/itsm-mock.yaml). A real install sets provider
