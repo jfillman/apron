@@ -100,6 +100,11 @@ spec:
             - {name: CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE, value: /etc/clearance-github-app/webhook-secret}
             - {name: CLEARANCE_GITHUB_APP_COMMENTS, value: "off"}
 #@end
+#@if autopilot.customImages
+            # Custom runtime images (cluster.yaml autopilot.customImages): globs a definition's runtime.image may match
+            # beyond the runtime catalog. Unset: catalog images only.
+            - {name: RUNTIME_IMAGES_EXTRA, value: "@@AUTOPILOT_CUSTOM_IMAGES@@"}
+#@end
 #@if autopilot.githubWorkflows and components.gatewayRoutes
             # GitHub Actions workflows' OIDC tokens (clearance register, phase 2b): cluster.yaml autopilot.githubWorkflows,
             # globs on the token's sub. Each registers changes for its own repository only (DG-REPO).

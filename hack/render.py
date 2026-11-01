@@ -80,6 +80,10 @@ def tokens(v):
         # provenance-app.md phase 2b): globs on the OIDC token's sub (repo:<owner>/<repo>:...). Empty: none, and the
         # gateway's GitHub OIDC verifier stays off.
         "AUTOPILOT_GITHUB_WORKFLOWS": ",".join(g("autopilot.githubWorkflows", None) or []),
+        # Images a definition's runtime.image may pin beyond the runtime catalog (custom: an image built for an agent's
+        # own repo), globs, e.g. ghcr.io/<owner>/*@sha256:*: the gateway checks definitions against them and clearance-api
+        # lists them at GET /v1/runtimes for New agent. Empty: catalog images only.
+        "AUTOPILOT_CUSTOM_IMAGES": ",".join(g("autopilot.customImages", None) or []),
         # The gateway's verifiers: Glidepath's gate checks, plus those workflows as Clearance principals (github:<sub>).
         "CLEARANCE_VERIFIERS": ",".join(["app-*-cicd/pipeline-runner"]
                                         + [f"github:{w}" for w in (g("autopilot.githubWorkflows", None) or [])]),
