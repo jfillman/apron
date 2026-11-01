@@ -100,6 +100,18 @@ api:
       - hangar:@@TOWER_CLUSTER@@:tower-actor
     serviceAccounts:
       - { name: clearance, namespace: autopilot-system }
+#@if autopilot.people and components.gatewayRoutes
+  # People call glidepath-api directly over the Gateway with a people-dex ID token for its public client
+  # `glidepath-api` (55-autopilot/people-dex), as people:<GitHub login>, only for cluster.yaml autopilot.people; each
+  # reads every app (bindReaders), writes need an explicit grant. glidepath docs/admin/api.md "People".
+  oidc:
+    issuer: "http://dex.@@CLUSTER_DOMAIN@@/dex"
+    jwksUrl: "http://people-dex.autopilot-system.svc:5556/dex/keys"
+    audience: glidepath-api
+    allowedUsers: [@@AUTOPILOT_PEOPLE@@]
+  route:
+    hostname: glidepath-api.@@CLUSTER_DOMAIN@@
+#@end
 
 #@if promotion.promoter.repo
 # The Flight promoter (glidepath ADR-0029 phase 2, docs/admin/registries.md): the broker's /promoter-token for
