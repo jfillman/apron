@@ -37,7 +37,13 @@
 # Pipelines/Triggers/Chains/Dashboard - see that file's header), confirmed no resource
 # NAME collision with anything tekton-pipelines already holds before applying; (2) the
 # standalone `Namespace: pipelines-as-code` object removed outright, since
-# tekton-pipelines already exists.
+# tekton-pipelines already exists; (3) the `pipelines-as-code` ConfigMap's
+# application-name set from cluster.yaml pipelinesAsCode.applicationName (default
+# Glidepath, 2026-11-01) instead of upstream's "Pipelines as Code CI". It names every
+# check run ("<application-name> / <gate>-"), and the glidepath-catalog Application
+# passes the same value as pipelinesAsCode.applicationName, which the gate tasks match
+# checks by (glidepath docs/admin/github-app.md). The GitHub App's own name is
+# unrelated: despite the upstream comment below, nothing on the App needs changing.
 #
 # Real fix, once available: bump this cluster's vendored tektoncd/operator release past
 # whatever build fixes the TektonTrigger-readiness bug, delete this file, and flip
@@ -1086,7 +1092,7 @@ data:
 apiVersion: v1
 data:
   # The application name, you can customize this label. If using the Github App you will need to customize the label on the github app setting as well.
-  application-name: "Pipelines as Code CI"
+  application-name: @@PAC_APPLICATION_NAME@@
 
   # Whether to automatically create a secret with the token to be use by git-clone
   secret-auto-create: "true"
