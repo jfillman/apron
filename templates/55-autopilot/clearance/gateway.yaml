@@ -41,6 +41,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
+          # gateway-v0.3.25 = autopilot 5c3b950: scheduled runs get a t-<hex> task id the AgentRun accepts.
           # gateway-v0.3.24 = autopilot 254fcf9 with clearance v0.26.0 (model proxy streaming + anthropic-beta;
           # langgraph and claude-agent-sdk runtimes available in the catalog).
           # gateway-v0.3.23 = autopilot f318d07 with clearance v0.25.0 (run results: run_finish, 30-day answers;
@@ -48,7 +49,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.24@sha256:ac61c57c27e3b279cbef1782d0a8959962a994b01915ec2073d06c6fbbfe274b
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.25@sha256:63b9c3c39fdea76e42b9a5c0bfd97a694e5e6c0cd7ee33ac12fe4e47ffb92754
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
