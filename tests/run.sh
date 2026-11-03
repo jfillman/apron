@@ -203,6 +203,12 @@ expect "${K}/man" "eks-man" 66-tower-access/rbac.yaml '!50-glidepath' '!00-boots
 has "${LAB}/dev/00-bootstrap/backstage-ingestor-rbac/rbac.yaml" 'name: hangar:hangar-prod:backstage-ingestor$' "lab: Tower's structured-authn username unchanged"
 if grep -q 'loadBalancerClass\|aws-load-balancer' "${LAB}/prod/10-crds-operators/traefik/traefik.yaml"; then bad "lab: NLB keys leaked"; else ok "lab: no NLB keys"; fi
 has "${LAB}/prod/10-crds-operators/traefik/traefik.yaml" 'targetPort: websecure' "lab: 443 still reaches websecure"
+python3 hack/render.py --cluster "${K}/dev/cluster.yaml" --print-values | python3 -c '
+import json, sys
+r = json.load(sys.stdin)["runtime"]
+assert r["type"] == "eks" and r["eks"]["region"] == "us-east-1", r' \
+  && ok "eks: --print-values carries runtime.eks (apron up phase 1 reads its region)" \
+  || bad "eks: --print-values lacks runtime.eks.region"
 mkdir -p "${K}/badiss"
 sed "s#issuer: ${ISS}/AAA1#issuer: https://hangarplatform.dev/oidc/eks-dev#" "${K}/dev/cluster.yaml" >"${K}/badiss/cluster.yaml"
 python3 hack/check.py --cluster "${K}/badiss/cluster.yaml" >/dev/null 2>&1 && bad "eks: accepted a non-EKS issuer" \

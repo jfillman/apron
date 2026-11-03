@@ -328,6 +328,7 @@ def cli_values(v):
         "kiac": get(v, "runtime.kiac") or {},
         "kind": {**(get(v, "runtime.kind") or {}), "config": get(v, "runtime.kind.config")} if rt == "kind" else {},
         "existing": get(v, "runtime.existing") or {},
+        "eks": get(v, "runtime.eks") or {},
     }
     if rt == "kind" and get(v, "runtime.cni.manifest"):
         out["cni"] = {"name": get(v, "runtime.cni.name"), "version": get(v, "runtime.cni.version"),
