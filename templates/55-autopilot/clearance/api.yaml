@@ -60,7 +60,7 @@ spec:
       containers:
         - name: api
           # The gateway's image (gateway.yaml pins the same digest); `api` selects the read API.
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.26@sha256:b4f13d259fb3eaf34da52215bda2b8f32644c87a238bf2a806244991682dc391
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.27@sha256:afd540d929c339ffcb85f490ed91608871a47354a24a0386e131e5b908663d0f
           args: [api]
           ports:
             - {name: http, containerPort: 8080}
