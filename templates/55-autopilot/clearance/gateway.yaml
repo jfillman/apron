@@ -41,6 +41,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
+          # gateway-v0.4.1 = autopilot dd849aa: no clearance package in the image (autopilot#74); the read API reads
+          # only the gateway's gateway_* tables (autopilot#75).
           # gateway-v0.4.0 = autopilot 7afd5d3: the gateway calls the Clearance core (v0.29.0) for every decision and record,
           # keeps runtime state in its own database (autopilot-pg) and serves its own read API (R-3a..R-3f, R-5).
           # gateway-v0.3.27 = autopilot 51d86e8 with clearance v0.26.1: catalog.read says which query form filters.
@@ -53,7 +55,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.0@sha256:2f48ce0d55fe1b632742c25db759ae081e5d1b7c0f9d2aee20735ba7ee338b74
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.1@sha256:3945fe116dd9da89c7ee21fd2c906a5c594ecfc1aee69df68b2de0dcd10296d0
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
