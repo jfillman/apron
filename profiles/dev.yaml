@@ -26,6 +26,7 @@ components:
   observability: true
   glidepath: true               # the CI/CD control plane (Tekton/PaC/Chains/Rekor/Testkube)
   autopilot: true
+  clearance: true               # Clearance (55-clearance): the decision service, recorder and gate; any cluster role
   gatewayRoutes: true
   aiTriage: true
   backstage: false

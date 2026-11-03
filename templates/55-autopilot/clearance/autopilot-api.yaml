@@ -1,50 +1,51 @@
-# clearance-api (AP-B2c, clearance docs/clearance-api.md): Clearance's read API, the gateway's image run as
-# `autopilot-gateway api`, a separate Deployment. It reads the gateway's tables as the read-only role
-# (reader-credentials.yaml), never the writer lock, so Tower's reads never queue behind agents, and it runs two
-# replicas. It writes nothing: a human answer still goes to the gateway (clearance.<domain>/v1/human/...).
+# autopilot-api: the gateway's own read API (autopilot R-3c, `autopilot-gateway api`, read_api.py), a separate
+# Deployment of the gateway's image: agents (with their holds), sessions and run trees, a run's result, the inbox and
+# its feed, trigger history, the runtime catalog. It reads the gateway's own database (autopilot-pg, the gateway_*
+# tables) as the read-only role, never the writer lock, and runs two replicas. Clearance's reads (evidence,
+# clearances, policy) are clearance-api's, the Go `clearance api` of 55-clearance, named in /v1/contract.
+# Before R-4 this Deployment was autopilot-api, Clearance's Python api.py run from the gateway's image.
 #
-# Its own service account, `clearance-api`: TokenReview (to authenticate callers, as the gateway does) and the
-# catalog token (a person's teams and apps from Tower's catalog), nothing else. None of the gateway's grants (Argo
-# CD syncs, AgentRuns, GitHub, glidepath-api) are on it.
+# Its own service account, `autopilot-api`: TokenReview (to authenticate callers) and the catalog token (a
+# person's teams and apps from Tower's catalog), nothing else.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: autopilot-clearance-api-auth-delegator
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  name: autopilot-api-auth-delegator
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: system:auth-delegator
 subjects:
   - kind: ServiceAccount
-    name: clearance-api
+    name: autopilot-api
     namespace: autopilot-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {app.kubernetes.io/name: autopilot-api, hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 2
   selector:
-    matchLabels: {app.kubernetes.io/name: clearance-api}
+    matchLabels: {app.kubernetes.io/name: autopilot-api}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+      labels: {app.kubernetes.io/name: autopilot-api, hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
     spec:
-      serviceAccountName: clearance-api
+      serviceAccountName: autopilot-api
       automountServiceAccountToken: true
       enableServiceLinks: false
 #@if tower.hostAliasIP
@@ -59,14 +60,18 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: api
-          # The gateway's image (gateway.yaml pins the same digest); `api` selects the read API.
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.27@sha256:afd540d929c339ffcb85f490ed91608871a47354a24a0386e131e5b908663d0f
+          # The gateway's image (gateway.yaml pins the same digest); `api` selects its read API.
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.0@sha256:2f48ce0d55fe1b632742c25db759ae081e5d1b7c0f9d2aee20735ba7ee338b74
           args: [api]
           ports:
             - {name: http, containerPort: 8080}
           env:
-            - name: CLEARANCE_API_DSN
-              valueFrom: {secretKeyRef: {name: clearance-pg-reader, key: uri}}
+            - name: GATEWAY_API_DSN
+              valueFrom: {secretKeyRef: {name: autopilot-pg-reader, key: uri}}
+            # The gateway's own tables (gateway_*, R-3b), not clearance v0.26.1's.
+            - {name: GATEWAY_API_TABLES, value: gateway}
+            # Clearance's reads, named in /v1/contract.
+            - {name: CLEARANCE_API_URL, value: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
             - {name: CLEARANCE_GATEWAY_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@"}
 #@if tower.cluster
@@ -77,7 +82,7 @@ spec:
             - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
             - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
             - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
-            - {name: CLEARANCE_API_NOTIFIERS, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: GATEWAY_API_NOTIFIERS, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
 #@if autopilot.customImages
             # Custom runtime images (cluster.yaml autopilot.customImages): globs a definition's runtime.image may match
@@ -92,7 +97,7 @@ spec:
             - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
             - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
             - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
-            - {name: CLEARANCE_API_AUDITORS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
+            - {name: GATEWAY_API_AUDITORS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
 #@end
           readinessProbe:
             httpGet: {path: /readyz, port: http}
@@ -123,35 +128,35 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance-api, hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {app.kubernetes.io/name: autopilot-api, hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 spec:
-  selector: {app.kubernetes.io/name: clearance-api}
+  selector: {app.kubernetes.io/name: autopilot-api}
   ports:
     - {name: http, port: 8080, targetPort: http}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 spec:
   minAvailable: 1
   selector:
-    matchLabels: {app.kubernetes.io/name: clearance-api}
+    matchLabels: {app.kubernetes.io/name: autopilot-api}
 ---
 # Ingress to the read API: the Gateway (its route below) and pods in this cluster that carry the client label.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: clearance-api}
+    matchLabels: {app.kubernetes.io/name: autopilot-api}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -159,7 +164,7 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
         - namespaceSelector: {}
           podSelector:
-            matchLabels: {hangar.io/clearance-client: api}
+            matchLabels: {hangar.io/autopilot-client: api}
       ports:
         - {protocol: TCP, port: 8080}
 #@if components.gatewayRoutes
@@ -167,19 +172,19 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: clearance-api
+  name: autopilot-api
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance-api}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
 spec:
   parentRefs:
     - name: @@GATEWAY_NAME@@
       namespace: @@GATEWAY_NAMESPACE@@
   hostnames:
-    - clearance-api.@@CLUSTER_DOMAIN@@
+    - autopilot-api.@@CLUSTER_DOMAIN@@
   rules:
     - matches:
         - path: {type: PathPrefix, value: /}
       backendRefs:
-        - name: clearance-api
+        - name: autopilot-api
           port: 8080
 #@end

@@ -187,8 +187,8 @@ has "${K}/dev/00-bootstrap/backstage-ingestor-rbac/rbac.yaml" \
 has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" \
   'hangar:eks-man:system:serviceaccount:app-backstage-prod:tower-actor' "eks-dev: glidepath-api allows Tower's actor"
 has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" "${ISS}/AAA1" "eks-dev: Fulcio trusts the EKS issuer"
-has "${K}/dev/55-autopilot/clearance/api.yaml" 'value: "https://clearance\.eks-dev\.aws\.example\.dev"' "eks-dev: Clearance's URL over https"
-has "${LAB}/dev/55-autopilot/clearance/api.yaml" 'value: "http://clearance\.hangar-dev\.local"' "lab: Clearance's URL stays http"
+has "${K}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "https://clearance\.eks-dev\.aws\.example\.dev"' "eks-dev: Clearance's URL over https"
+has "${LAB}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "http://clearance\.hangar-dev\.local"' "lab: Clearance's URL stays http"
 expect "${K}/prod" "eks-prod" 00-bootstrap/backstage-ingestor-rbac/rbac.yaml 10-crds-operators/external-secrets/cluster-secret-store.yaml \
   '!66-tower-access' '!50-glidepath' '!60-gateway-routes/glidepath-relay-httproute.yaml'
 if grep -q 'resourceNames:.*glidepath-api\|- glidepath-api$' "${K}/prod/00-bootstrap/backstage-ingestor-rbac/rbac.yaml" "${K}/prod/00-bootstrap/backstage-ingestor-rbac/tower-actor-rbac.yaml"; then

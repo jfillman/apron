@@ -1,0 +1,31 @@
+# Clearance's own objects beside the chart (55-clearance/clearance): a directory source of this folder, everything
+# but this file.
+#   postgres.yaml            clearance-pg, the evidence store (CloudNativePG; never pruned with an Application)
+#   reader-credentials.yaml  clearance-api's read-only role password, generated in-cluster
+#   github-app.yaml          the Clearance GitHub App's Secret and its webhook route (only with the App)
+#   routes.yaml              clearance-api.<domain> and the gate's clear/deny on clearance.<domain>
+#   networkpolicy.yaml       who reaches clearance-pg: the core, the api, the CloudNativePG operator
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-config
+  namespace: argocd
+  labels:
+    hangar.io/component: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 55-clearance/clearance-config
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: "@@CLEARANCE_NAMESPACE@@"
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]

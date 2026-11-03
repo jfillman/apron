@@ -113,6 +113,8 @@ def violations(v, fleet=None):
                 "XRDs); use attached-tier-only")
     if get(v, "components.serviceCatalog.scope") not in ("full", "attached-tier-only"):
         add("components.serviceCatalog.scope must be full or attached-tier-only")
+    if on("components.autopilot") and not on("components.clearance"):
+        add("components.autopilot needs components.clearance: the gateway asks the Clearance core for every decision")
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

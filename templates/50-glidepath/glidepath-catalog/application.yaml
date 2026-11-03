@@ -71,11 +71,11 @@ spec:
               @@TOWER_CLUSTER@@:
                 url: http://thanos-query-frontend.observability.svc.cluster.local:9090
 #@end
-#@if components.autopilot
+#@if components.clearance
           # The agent gates (glidepath docs/admin/agent-gates.md): every PR checked against Clearance's record of agent
-          # PRs. Clearance runs on this cluster (55-autopilot/clearance); without it the gate fails agent-looking PRs.
+          # PRs. The Clearance core runs on this cluster (55-clearance); without it the gate fails agent-looking PRs.
           agentGates:
-            clearanceUrl: http://clearance.autopilot-system.svc.cluster.local:8080
+            clearanceUrl: http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc.cluster.local:8080
           # The deployment gate (glidepath docs/admin/clearance-gate.md): the PR comment links a holding change to the
           # portal's Clearances page. Clearance's URL and audience are agentGates' above.
           clearanceGate:

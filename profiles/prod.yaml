@@ -24,6 +24,7 @@ components:
   observability: true
   glidepath: false
   autopilot: false
+  clearance: false              # Clearance (55-clearance): turn on where the gate or the ledger runs here
   gatewayRoutes: true
   aiTriage: true
   backstage: false              # Tower is an Airframe app now; 65-backstage stays for reference only

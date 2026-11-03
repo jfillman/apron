@@ -116,11 +116,28 @@ the render with `file:line`.
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
-| `@@AUTOPILOT_GITHUB_WORKFLOWS@@` | `autopilot.githubWorkflows`, GitHub Actions workflows (globs on their OIDC token's `sub`, e.g. `repo:jfillman/*`) that may register deployments with Clearance (`clearance register`); comma-separated, empty when unset (the OIDC verifier is then off) - the gateway's `CLEARANCE_GITHUB_OIDC_ALLOWED` |
-| `@@AUTOPILOT_CUSTOM_IMAGES@@` | `autopilot.customImages`, globs a definition's `runtime.image` may match beyond the runtime catalog (custom images built for an agent's own repo, e.g. `ghcr.io/jfillman/*@sha256:*`); comma-separated; rendered only when set - `RUNTIME_IMAGES_EXTRA` on the gateway and clearance-api |
-| `@@CLEARANCE_VERIFIERS@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks) plus `github:<glob>` for each `autopilot.githubWorkflows` entry - the gateway's `CLEARANCE_VERIFIERS` |
-| `@@AUTOPILOT_PEOPLE_PRINCIPALS@@` | the same people as Clearance principals (`user:<login>`, comma-separated): clearance-api's auditors (`CLEARANCE_API_AUDITORS`) |
+| `@@AUTOPILOT_CUSTOM_IMAGES@@` | `autopilot.customImages`, globs a definition's `runtime.image` may match beyond the runtime catalog (custom images built for an agent's own repo, e.g. `ghcr.io/jfillman/*@sha256:*`); comma-separated; rendered only when set - `RUNTIME_IMAGES_EXTRA` on the gateway and its read API |
+| `@@AUTOPILOT_PEOPLE_PRINCIPALS@@` | the same people as Clearance principals (`user:<login>`, comma-separated): the gateway read API's auditors (`GATEWAY_API_AUDITORS`) |
 | `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |
+
+## Clearance (55-clearance, cluster.yaml `clearance:`; each key falls back to the `autopilot:` key it replaced)
+
+| Token | Value from |
+|---|---|
+| `@@CLEARANCE_CHART_VERSION@@` | `versions.clearance.chart`, the clearance chart's version (OCI, `<registry>/<owner>/charts/clearance`) |
+| `@@CLEARANCE_IMAGE_DIGEST@@` | `versions.clearance.imageDigest`, the image index the chart's default tag is pinned to |
+| `@@CLEARANCE_NAMESPACE@@` | `clearance.namespace`, default `clearance-system` (hangar-dev: `autopilot-system`, where clearance-pg lives) |
+| `@@CLEARANCE_PROVIDERS@@` | the registered runtime provider, the Autopilot gateway (`autopilot-system/clearance`, version `versions.autopilot.gateway`, `"definitions": true`), a YAML flow list |
+| `@@CLEARANCE_VERIFIERS_LIST@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks), `github:<glob>` for each `clearance.githubWorkflows` entry, and `clearance.verifiers` |
+| `@@CLEARANCE_DELEGATES_LIST@@` | Tower's backend (`<tower.cluster>/<tower.namespace>/backstage-ingestor`) when `tower.cluster` is set, plus `clearance.delegates` |
+| `@@CLEARANCE_NOTIFIERS_LIST@@` | the same Tower backend plus `clearance.notifiers`: clearance-api's notifiers |
+| `@@CLEARANCE_PEOPLE_LIST@@` | `clearance.people` (else `autopilot.people`): people-dex logins the core and clearance-api accept |
+| `@@CLEARANCE_ADMINS_LIST@@` | `clearance.admins` (else the people) as `user:<login>`: who may deny any held change |
+| `@@CLEARANCE_AUDITORS_LIST@@` | `clearance.auditors` (else the people) as `user:<login>`: clearance-api's auditors |
+| `@@CLEARANCE_GITHUB_WORKFLOWS_LIST@@` | `clearance.githubWorkflows` (else `autopilot.githubWorkflows`): globs on a GitHub Actions OIDC token's `sub` that may `clearance register` |
+| `@@CLEARANCE_RUNTIME_IMAGES_LIST@@` | `autopilot.customImages`, as the gate's `runtimeImagesExtra` |
+| `@@CLEARANCE_TRUSTED_REGISTRIES_LIST@@` | `clearance.trustedRegistries`, default `[<registries.flight.host>/<registries.flight.namespace>/]` (decided 2026-11-03): an image bump from them is tier 1, from anywhere else tier 2; each ends in `/` |
+| `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)
 

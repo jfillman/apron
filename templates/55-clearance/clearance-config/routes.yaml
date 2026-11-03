@@ -1,0 +1,42 @@
+# clearance-api.<domain>: Clearance's read API, for Tower (hangar-prod reaches it through a hostAlias) and people.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-api
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance-api.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: clearance-api
+          port: 8080
+---
+# The deployment gate's people actions on clearance.<domain>: a person, or Tower's backend as the delegate, clears or
+# denies a held change (backstage plugins/clearance-backend proxy.ts WRITE_ROUTES). The Autopilot gateway's routes on
+# the same host (/mcp, the inbox, person controls, runs) are 55-autopilot's.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-gate
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: RegularExpression, value: "^/v1/clearances/[A-Za-z0-9-]+/(clear|deny)$"}
+          method: POST
+      backendRefs:
+        - name: clearance-core
+          port: 8080

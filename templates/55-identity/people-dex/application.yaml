@@ -5,8 +5,7 @@
 #   github-oauth.yaml  the GitHub OAuth App's client id and secret, from Infisical (sync wave 0)
 #   dex.yaml           Dex: config, a 1 Gi volume for its sqlite store (signing keys survive a restart), the
 #                      Deployment and its Service
-#   routes.yaml        dex.<domain> (the browser's sign-in and the device flow) and clearance.<domain>/mcp (people's
-#                      MCP clients), both through the cluster's Gateway
+#   routes.yaml        dex.<domain> (the browser's sign-in and the device flow), through the cluster's Gateway
 # Signing in from a laptop: autopilot tools/hangar-login (the device flow), docs in the autopilot README.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -21,7 +20,7 @@ spec:
   source:
     repoURL: @@REPO_URL@@
     targetRevision: main
-    path: 55-autopilot/people-dex
+    path: 55-identity/people-dex
     directory:
       exclude: "application.yaml"
   destination:

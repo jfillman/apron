@@ -1,0 +1,24 @@
+# clearance-pg: only the core (the one writer), the api (its read-only role) and the CloudNativePG operator. The
+# chart's own NetworkPolicies cover the core's and the api's pods; this one covers the database's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-pg
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: clearance-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: clearance-core, app.kubernetes.io/instance: clearance}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cnpg-system}
+      ports:
+        - {protocol: TCP, port: 8000}
+        - {protocol: TCP, port: 5432}
