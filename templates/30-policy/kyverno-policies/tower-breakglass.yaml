@@ -48,12 +48,12 @@ spec:
     - name: breakglass-or-backstage
       expression: >-
         (has(object.metadata.name) && object.metadata.name.startsWith('tower-breakglass-')) ||
-        (has(request.userInfo.username) && request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor'])
+        (has(request.userInfo.username) && request.userInfo.username in ['@@TOWER_USER_ACTOR@@'])
   variables:
     - name: isBackstage
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+        request.userInfo.username in ['@@TOWER_USER_ACTOR@@']
     - name: isBreakglass
       expression: has(object.metadata.name) && object.metadata.name.startsWith('tower-breakglass-')
   validations:
@@ -64,13 +64,13 @@ spec:
           object.roleRef.kind == 'ClusterRole' &&
           object.roleRef.name in ['tower-breakglass-debug-live', 'tower-breakglass-debug-copy'] &&
           has(object.subjects) && size(object.subjects) == 1 &&
-          object.subjects[0].kind == 'User' && object.subjects[0].name == 'hangar:@@TOWER_CLUSTER@@:tower-actor' &&
+          object.subjects[0].kind == 'User' && object.subjects[0].name == '@@TOWER_USER_ACTOR@@' &&
           has(object.metadata.labels) && 'cleanup.kyverno.io/ttl' in object.metadata.labels &&
           object.metadata.labels['cleanup.kyverno.io/ttl'] in ['15m', '30m', '45m', '60m', '75m']
         )
       message: >-
         A tower-breakglass RoleBinding binds tower-breakglass-debug-live or -copy (a ClusterRole) to Tower's write
-        identity only (the federated user hangar:@@TOWER_CLUSTER@@:tower-actor), with cleanup.kyverno.io/ttl of 15m to 75m (a session plus its one
+        identity only (the federated user @@TOWER_USER_ACTOR@@), with cleanup.kyverno.io/ttl of 15m to 75m (a session plus its one
         15-minute extension).
     - expression: >-
         !variables.isBreakglass || (
@@ -229,7 +229,7 @@ spec:
     - name: backstage-only
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+        request.userInfo.username in ['@@TOWER_USER_ACTOR@@']
   validations:
     # On a DELETE the pod is oldObject (object is null).
     - expression: >-
@@ -272,7 +272,7 @@ spec:
     - name: backstage-main-resource
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor'] &&
+        request.userInfo.username in ['@@TOWER_USER_ACTOR@@'] &&
         (!has(request.subResource) || request.subResource == '')
   variables:
     - name: key

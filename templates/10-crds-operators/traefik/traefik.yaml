@@ -89,6 +89,9 @@ spec:
       serviceAccountName: traefik
       terminationGracePeriodSeconds: 30
 ---
+# On a cloud load balancer (traefik.loadBalancer.certificateArn, runtime eks): the AWS Load Balancer Controller's NLB
+# ends TLS on 443 with the ACM certificate and forwards it to the plain-HTTP `web` entrypoint, the Gateway's one
+# listener. It admits only traefik.loadBalancer.sourceRanges (admin CIDRs, the fleet's NAT addresses, GitHub's hooks).
 apiVersion: v1
 kind: Service
 metadata:
@@ -96,7 +99,20 @@ metadata:
     app: traefik
   name: traefik
   namespace: @@GATEWAY_NAMESPACE@@
+#@if traefik.loadBalancer.certificateArn
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: @@TRAEFIK_LB_SCHEME@@
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: @@TRAEFIK_LB_CERT_ARN@@
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+#@end
 spec:
+#@if traefik.loadBalancer.class
+  loadBalancerClass: @@TRAEFIK_LB_CLASS@@
+#@end
+#@if traefik.loadBalancer.sourceRanges
+  loadBalancerSourceRanges: @@TRAEFIK_LB_SOURCE_RANGES@@
+#@end
   ports:
   - name: web
 #@if traefik.fixedNodePorts
@@ -109,7 +125,12 @@ spec:
     nodePort: @@TRAEFIK_HTTPS_NODEPORT@@
 #@end
     port: 443
+#@if traefik.loadBalancer.certificateArn
+    targetPort: web
+#@end
+#@if not traefik.loadBalancer.certificateArn
     targetPort: websecure
+#@end
   selector:
     app: traefik
   type: @@TRAEFIK_SERVICE_TYPE@@

@@ -23,7 +23,7 @@ roleRef:
 subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:tower-actor
+    name: @@TOWER_USER_ACTOR@@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -36,8 +36,9 @@ roleRef:
 subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:tower-actor
+    name: @@TOWER_USER_ACTOR@@
 ---
+#@if isControlPlane
 # Glidepath API spec phase 3 (2026-10-28): Tower's Re-run and Cancel (and since P4, Promote and Roll back) go through
 # glidepath-api, called as this identity
 # through the API server's service proxy (the proxy drops Authorization; glidepath-api checks the token again from
@@ -52,7 +53,9 @@ rules:
     resources: ["services/proxy"]
     resourceNames: ["glidepath-api", "glidepath-api:8080"]
     verbs: ["get", "create"]
+#@end
 ---
+#@if isControlPlane
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -65,4 +68,5 @@ roleRef:
 subjects:
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:tower-actor
+    name: @@TOWER_USER_ACTOR@@
+#@end

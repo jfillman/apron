@@ -71,6 +71,8 @@ def tokens(v):
         "TOWER_NAMESPACE": g("tower.namespace"),
         "TOWER_BASE_URL": g("tower.baseUrl", ""),
         "TOWER_HOST_ALIAS_IP": g("tower.hostAliasIP", ""),
+        **tower_user_tokens(g),
+        **traefik_lb_tokens(g),
         "AWS_ACCOUNT_ID": g("aws.accountId", ""),
         # Who may sign in to Clearance as a person (D19 interim: people-dex's GitHub logins), comma-separated; empty
         # lets nobody in.
@@ -137,6 +139,38 @@ def tokens(v):
         "KIND_HOST_HTTPS_PORT": g("runtime.kind.hostHttpsPort", ""),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
+
+
+def tower_user_tokens(g):
+    """The Kubernetes user Tower's ServiceAccounts become on a cluster that trusts Tower's cluster.
+
+    tower.trust structured (kubeadm/kind/kiac): 00-bootstrap/cluster-identity's JWT authenticator maps the token to
+    hangar:<tower cluster>:<serviceAccount>. tower.trust eks-oidc (EKS, which takes no API server flags): an EKS OIDC
+    identity provider config for Tower's cluster's issuer, usernameClaim sub and usernamePrefix hangar:<tower cluster>:,
+    so the user is hangar:<tower cluster>:system:serviceaccount:<namespace>:<serviceAccount>."""
+    tower, ns = g("tower.cluster", "") or "", g("tower.namespace", "") or ""
+    eks = (g("tower.trust", "") or "structured") == "eks-oidc"
+
+    def user(namespace, sa):
+        if not tower:
+            return ""
+        return f"hangar:{tower}:system:serviceaccount:{namespace}:{sa}" if eks else f"hangar:{tower}:{sa}"
+    return {
+        "TOWER_USER_INGESTOR": user(ns, "backstage-ingestor"),
+        "TOWER_USER_ACTOR": user(ns, "tower-actor"),
+        "TOWER_USER_PROMETHEUS": user("observability", "kube-prometheus-stack-prometheus"),
+    }
+
+
+def traefik_lb_tokens(g):
+    """Traefik's Service on a cloud load balancer (runtime eks): EKS Auto Mode's NLB, TLS ending at the NLB with an ACM
+    certificate and forwarded to Traefik's plain-HTTP entrypoint, reachable only from traefik.loadBalancer.sourceRanges."""
+    return {
+        "TRAEFIK_LB_CLASS": g("traefik.loadBalancer.class", "") or "",
+        "TRAEFIK_LB_SCHEME": g("traefik.loadBalancer.scheme", "") or "internet-facing",
+        "TRAEFIK_LB_CERT_ARN": g("traefik.loadBalancer.certificateArn", "") or "",
+        "TRAEFIK_LB_SOURCE_RANGES": json.dumps(list(g("traefik.loadBalancer.sourceRanges", None) or [])),
+    }
 
 
 def flight_admission_tokens(g):
@@ -339,6 +373,8 @@ def cli_values(v):
         hosts.append("infisical")
     if get(v, "components.glidepath"):
         hosts += ["tekton", "rekor"]
+        if get(v, "gateway.fleetRoutes"):
+            hosts += ["relay", "pac"]
     if get(v, "components.observability") and get(v, "observability.full"):
         hosts += ["grafana", "minio-console", "minio"]
     out["hostnames"] = [f"{h}.{v['domain']}" for h in hosts] if get(v, "components.gatewayRoutes") else []

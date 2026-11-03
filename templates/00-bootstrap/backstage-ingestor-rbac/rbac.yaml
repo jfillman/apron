@@ -25,7 +25,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -49,7 +49,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -64,7 +64,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Argo Rollouts visualization (2026-09-04, redhat-argocd plugin's Rollouts
 # feature - app-config.yaml's kubernetes.customResources in the backstage repo).
@@ -95,7 +95,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Gateway API (2026-09-06, Glidepath's Config-tab route URL - app-config.yaml's
 # kubernetes.customResources in the backstage repo). Same reasoning as the Argo
@@ -126,7 +126,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Crossplane GitHub managed resources (Tower's Provisioning tab). A new
 # application XR composes Repository and RepositoryFile objects; the XR itself
@@ -159,7 +159,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Infisical project read (2026-10-03, Tower's Provisioning tab). The "Infisical secrets
 # resources" step links the app's Infisical project, whose id is the Project managed
@@ -189,7 +189,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Prometheus query proxy (2026-09-24 bug: "the workload performance metrics/graphs
 # are not working for ground and preview envs"). Tower's Topology-tab
@@ -235,7 +235,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Tower's Topology tab "all resources" gallery (2026-09-17) - RBAC objects
 # (Roles/RoleBindings/ClusterRoles/ClusterRoleBindings) are deliberately
@@ -275,7 +275,7 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
 # Same Topology-tab resource gallery, the two CRD kinds it also wants:
 # ExternalSecret (external-secrets.io - this platform's Infisical-backed
@@ -311,8 +311,9 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
 ---
+#@if isControlPlane
 # glidepath-api through the API server's services/proxy (2026-10-25, glidepath docs/admin/api.md): Tower's every CI/CD
 # read (runs, live runs and logs, release state, image evidence, tests). glidepath-api checks the token again itself
 # (sent in X-Glidepath-Authorization, since the proxy drops Authorization) and authorizes every read, so this grant
@@ -332,7 +333,9 @@ rules:
       - glidepath-api
       - glidepath-api:8080
     verbs: ["get"]
+#@end
 ---
+#@if isControlPlane
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -347,7 +350,8 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@
+#@end
 ---
 # ArgoCD Applications in the platform instance (2026-10-04, Tower's Provisioning tab). The
 # "CI/CD onboarded" step is only true once the <app>-cicd Application is Synced and Healthy:
@@ -380,4 +384,4 @@ subjects:
   # presenting its own short-lived projected token, accepted by 00-bootstrap/cluster-identity/.
   - kind: User
     apiGroup: rbac.authorization.k8s.io
-    name: hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+    name: @@TOWER_USER_INGESTOR@@

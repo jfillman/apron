@@ -70,7 +70,7 @@ load_values() {
   RUNTIME="$(val '.runtime.type')"
   CONTEXT="$(val '.context // .name')"
   [ "${CONTEXT}" = "${NAME}" ] || die "context '${CONTEXT}' differs from name '${NAME}': one name for cluster, context, registry entry"
-  case "${RUNTIME}" in existing|kiac|kind) ;; *) die "unknown runtime '${RUNTIME}' (existing|kiac|kind)" ;; esac
+  case "${RUNTIME}" in existing|eks|kiac|kind) ;; *) die "unknown runtime '${RUNTIME}' (existing|eks|kiac|kind)" ;; esac
 }
 # val JQ: one field of the resolved values, empty string for null.
 val() { jq -r "($1) // empty | if type == \"array\" then join(\",\") else . end" <<<"${VALUES}"; }
@@ -79,7 +79,7 @@ rt() { val ".runtime.${RUNTIME}.$1"; }
 
 # --- subcommand: init -----------------------------------------------------------------------------------------------
 usage_init() { cat <<'EOF'
-apron init <dev|prod> --name N --runtime existing|kiac|kind --out DIR --repo-url URL --scm-owner OWNER
+apron init <dev|prod|platform> --name N --runtime existing|eks|kiac|kind --out DIR --repo-url URL --scm-owner OWNER
            [--tenants-repo URL] [--registry-owner OWNER] [--domain D] [--context CTX]
            [--fleet-hub NAME --fleet-repo-url URL] [--tower-cluster NAME] [--set k=v]... [--create-repos] [--push]
 Writes DIR/cluster.yaml (hack/new_cluster.py), validates it (hack/check.py), renders the cluster repo into DIR
@@ -111,9 +111,9 @@ cmd_init() {
       -h|--help) usage_init; return 0 ;;       *) die "init: unknown argument $1 (apron init --help)" ;;
     esac
   done
-  case "${profile}" in dev|prod) ;; *) die "init: profile must be dev or prod (apron init --help)" ;; esac
+  case "${profile}" in dev|prod|platform) ;; *) die "init: profile must be dev, prod or platform (apron init --help)" ;; esac
   [ -n "${name}" ] || die "init: --name is required"; check_name "${name}"
-  case "${runtime}" in existing|kiac|kind) ;; *) die "init: --runtime must be existing, kiac or kind" ;; esac
+  case "${runtime}" in existing|eks|kiac|kind) ;; *) die "init: --runtime must be existing, eks, kiac or kind" ;; esac
   [ -n "${out}" ] || die "init: --out is required"
   [ -n "${repo_url}" ] || die "init: --repo-url is required"
   [ -n "${scm_owner}" ] || die "init: --scm-owner is required (there is no default owner)"
@@ -243,6 +243,7 @@ cmd_up() {
   step "phase 1: runtime (${RUNTIME})"
   case "${RUNTIME}" in
     kiac) runtime_kiac ;; kind) runtime_kind "${out}" ;; existing) runtime_existing "${rename_from}" ;;
+    eks) runtime_eks ;;
   esac
   ensure_context "${rename_from}"
   kiac_max_pods
@@ -333,6 +334,18 @@ runtime_existing() {
   ok "${ctx} is ready"
 }
 
+# runtime_eks: an EKS cluster Terraform created (hangar-infra). Write its kubeconfig entry with the cluster's name as the
+# context (aws eks update-kubeconfig --alias), then check it answers. The caller's AWS credentials need an EKS access
+# entry on the cluster (hangar-infra grants the admin role cluster-admin).
+runtime_eks() {
+  local region profile; region="$(rt region)"; profile="$(rt awsProfile)"
+  [ -n "${region}" ] || die "runtime eks needs runtime.eks.region"
+  local -a args=(eks update-kubeconfig --name "${NAME}" --region "${region}" --alias "${NAME}")
+  [ -z "${profile}" ] || args+=(--profile "${profile}")
+  require aws
+  run aws "${args[@]}"
+}
+
 # ensure_context [FROM]: make the cluster's kubectl context be its name. Looks at what exists rather than assuming.
 ensure_context() {
   local from="$1" have cand
@@ -341,6 +354,7 @@ ensure_context() {
     case "${RUNTIME}" in
       kiac|kind) echo "  + kubectl config rename-context ${RUNTIME}-${NAME} ${NAME}   (if ${NAME} is missing and ${RUNTIME}-${NAME} exists)" ;;
       existing) [ -z "${from}" ] || echo "  + kubectl config rename-context ${from} ${NAME}" ;;
+      eks) ;;
     esac
     echo "  + kubectl --context ${NAME} get --raw /readyz"; return
   fi
@@ -350,6 +364,7 @@ ensure_context() {
       kiac|kind) cand="${RUNTIME}-${NAME}" ;;
       existing) [ -n "${from}" ] || die "no context named ${NAME}. The context must equal the cluster name: pass --rename-context <current-context>"
                 cand="${from}" ;;
+      eks) die "no context named ${NAME} after aws eks update-kubeconfig (check runtime.eks.region and your AWS credentials)" ;;
     esac
     grep -qx "${cand}" <<<"${have}" || die "neither context ${NAME} nor ${cand} exists (kubectl config get-contexts)"
     run kubectl config rename-context "${cand}" "${NAME}"
@@ -483,7 +498,7 @@ cmd_identity() {
       -h|--help) usage_identity; return 0 ;; *) die "identity: unknown argument $1" ;; esac
   done
   need_cluster_dir "${out}"; load_values "${out}"
-  [ "${RUNTIME}" != existing ] || die "runtime existing: a managed cluster publishes its own issuer and its API server flags are not ours to change (docs/cluster-identity.md, Managed clusters)"
+  case "${RUNTIME}" in existing|eks) die "runtime ${RUNTIME}: a managed cluster publishes its own issuer and its API server flags are not ours to change (docs/cluster-identity.md, Managed clusters)" ;; esac
   local issuer node prefix
   issuer="$(val '.issuer')"; [ -n "${issuer}" ] || die "resolved values have no issuer"
   [ "${issuer}" = "https://$(val '.issuerBase')/oidc/${NAME}" ] || warn "issuer ${issuer} is not https://<issuerBase>/oidc/${NAME}"
@@ -529,7 +544,7 @@ cmd_resume() {
           [ -n "${ids}" ] || die "no ${engine} containers for kind cluster ${NAME}"
           # shellcheck disable=SC2086
           run "${engine}" start ${ids} ;;
-    existing) die "runtime existing: nothing to resume" ;;
+    existing|eks) die "runtime ${RUNTIME}: nothing to resume" ;;
   esac
   ensure_context ""
   kiac_max_pods
@@ -550,7 +565,7 @@ cmd_down() {
   case "${RUNTIME}" in
     kiac) run kiac delete cluster --name "${NAME}" ;;
     kind) run kind delete cluster --name "${NAME}" ;;
-    existing) die "runtime existing: apron never deletes a cluster it did not create" ;;
+    existing|eks) die "runtime ${RUNTIME}: apron never deletes a cluster it did not create (an eks cluster: terraform destroy in hangar-infra)" ;;
   esac
   if kubectl config get-contexts -o name 2>/dev/null | grep -qx "${NAME}"; then run kubectl config delete-context "${NAME}"; fi
 }

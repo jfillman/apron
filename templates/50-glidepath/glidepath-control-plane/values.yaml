@@ -55,6 +55,17 @@ tektonChainsNamespace: tekton-pipelines
 # Real onboarded Applications' secret stores - moved here from platform-cicd's own
 # chart defaults (cluster state, not chart source - see that chart's values.yaml).
 appSecretStores: []
+#@if not infisical.host
+
+# Infisical runs off this cluster (its own service, e.g. the AWS build's secrets account): platform-secret-store reaches
+# it at infisical.url with the universal-auth identity the SecretStore Composition composes here (glidepath
+# docs/admin/secrets-management.md). Apron's own consumer store (10-crds-operators/external-secrets) stays off on a
+# control plane: this chart renders the same platform-secret-store.
+secretStore:
+  infisical:
+    hostAPI: "@@INFISICAL_URL@@"
+    auth: universal
+#@end
 
 fulcio:
   publicIssuers:
@@ -73,14 +84,14 @@ chains:
 # and still has to the ConfigMaps; both Tower identities may name the person they act for. Nothing else is granted.
 api:
   delegates:
-    - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
-    - hangar:@@TOWER_CLUSTER@@:tower-actor
+    - @@TOWER_USER_INGESTOR@@
+    - @@TOWER_USER_ACTOR@@
     # Clearance names the session's principal on every call, so a write's audit line carries both identities.
     # Clearance's deployed identity (55-autopilot/clearance).
     - system:serviceaccount:autopilot-system:clearance
   readers:
     users:
-      - hangar:@@TOWER_CLUSTER@@:backstage-ingestor
+      - @@TOWER_USER_INGESTOR@@
     # Clearance's glidepath.* tools (55-autopilot/clearance): reads only; each agent is narrowed further by
     # its definition's profile.glidepath.apps before any call.
     serviceAccounts:
@@ -89,7 +100,7 @@ api:
   # tower-actor, owner-checked in Tower first; Clearance's glidepath.run.rerun/.cancel are T1, per agent definition.
   operators:
     users:
-      - hangar:@@TOWER_CLUSTER@@:tower-actor
+      - @@TOWER_USER_ACTOR@@
     serviceAccounts:
       - { name: clearance, namespace: autopilot-system }
   # Who may promote and roll back through the API (glidepath-api-releaser, cluster-wide; glidepath docs/admin/api.md
@@ -97,7 +108,7 @@ api:
   # owner-checks first; Clearance's glidepath.promote/.rollback are per agent definition.
   releasers:
     users:
-      - hangar:@@TOWER_CLUSTER@@:tower-actor
+      - @@TOWER_USER_ACTOR@@
     serviceAccounts:
       - { name: clearance, namespace: autopilot-system }
 #@if autopilot.people and components.gatewayRoutes

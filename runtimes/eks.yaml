@@ -1,0 +1,25 @@
+# runtimes/eks.yaml - an EKS cluster Terraform created (jfillman/hangar-infra, stacks/clusters). `apron up` runs
+#   aws eks update-kubeconfig --name <name> --region <runtime.eks.region> --alias <name>
+# then onboards it like any existing cluster. EKS takes no API server flags, so the cluster keeps its own issuer
+# (set `issuer` in cluster.yaml to Terraform's oidc_issuer output) and trusts Tower's cluster through an EKS OIDC
+# identity provider config that Terraform associates (tower.trust: eks-oidc).
+runtime:
+  type: eks
+  nodeExec: ""
+  eks:
+    region: us-east-1
+    awsProfile: ""              # the AWS CLI profile `apron up` passes to update-kubeconfig (empty: your default)
+traefik:
+  serviceType: LoadBalancer
+  fixedNodePorts: false
+  loadBalancer:
+    class: service.k8s.aws/nlb  # the AWS Load Balancer Controller (Terraform installs it); never the in-tree CLB
+    scheme: internet-facing
+    certificateArn: ""          # ACM wildcard cert for *.<domain>: TLS ends at the NLB, Traefik serves plain HTTP
+    sourceRanges: []            # who may reach the gateway: admin CIDRs, every cluster's NAT IPs, GitHub hooks (hub)
+gateway:
+  fleetRoutes: true             # relay.<domain> and pac.<domain> on the hub's gateway (no NodePorts between VPCs)
+tower:
+  trust: eks-oidc               # Tower's users are hangar:<tower>:system:serviceaccount:<ns>:<sa> (EKS username prefix)
+components:
+  metricsServer: false          # Terraform installs the EKS metrics-server add-on
