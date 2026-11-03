@@ -1,0 +1,15 @@
+# Cilium does not match the API server with a NetworkPolicy ipBlock (policy-cidr-match-mode is empty on kiac), so the
+# clearance chart's kubeAPIServer egress rule (0.0.0.0/0 on 443 and 6443) leaves TokenReview blocked: every caller
+# answers 401 after a 10 s timeout (found at the R-4 cutover, 2026-11-03). This allows the core's and the api's pods
+# to reach the kube-apiserver entity, and nothing else. Rendered only where the runtime brings Cilium.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: clearance-kube-apiserver
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  endpointSelector:
+    matchLabels: {app.kubernetes.io/instance: clearance, app.kubernetes.io/name: clearance-core}
+  egress:
+    - toEntities: [kube-apiserver]
