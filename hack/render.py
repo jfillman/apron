@@ -122,6 +122,7 @@ def tokens(v):
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
         **flight_admission_tokens(g),
+        **clearance_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
@@ -173,6 +174,46 @@ def traefik_lb_tokens(g):
         "TRAEFIK_LB_SCHEME": g("traefik.loadBalancer.scheme", "") or "internet-facing",
         "TRAEFIK_LB_CERT_ARN": g("traefik.loadBalancer.certificateArn", "") or "",
         "TRAEFIK_LB_SOURCE_RANGES": json.dumps(list(g("traefik.loadBalancer.sourceRanges", None) or [])),
+    }
+
+
+def clearance_tokens(g):
+    """Clearance as its own component (55-clearance, spec R-7): the clearance chart's pins and its values, from
+    cluster.yaml's clearance: block. Each key falls back to the autopilot: key that configured Clearance before the
+    split, so a cluster.yaml written for the old layout renders the same people and workflows. Lists render as YAML
+    flow lists (JSON) for the Application's valuesObject."""
+    c = lambda k, d=None: g(f"clearance.{k}", None) if g(f"clearance.{k}", None) is not None else d  # noqa: E731
+    people = c("people", g("autopilot.people", None)) or []
+    workflows = c("githubWorkflows", g("autopilot.githubWorkflows", None)) or []
+    tower = g("tower.cluster", "")
+    tower_sa = f"{tower}/{g('tower.namespace')}/backstage-ingestor" if tower else ""
+    flight = g("registries.flight.namespace", "") or ""
+    flight_default = [f"{g('registries.flight.host', '') or 'ghcr.io'}/{flight}/"] if flight else []
+    registries = c("flightRegistries", flight_default) or []
+    for r in registries:
+        if not str(r).endswith("/"):
+            raise ApronError(f"clearance.flightRegistries: {r!r} must end in '/' (the core's check is a prefix test)")
+    return {
+        "CLEARANCE_CHART_VERSION": g("versions.clearance.chart"),
+        "CLEARANCE_IMAGE_DIGEST": g("versions.clearance.imageDigest"),
+        # The namespace the chart installs into: clearance-system unless set. hangar-dev keeps autopilot-system,
+        # where its evidence database (clearance-pg) has lived since AP-A2.
+        "CLEARANCE_NAMESPACE": c("namespace", "clearance-system"),
+        # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
+        "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
+                                            "principals": ["autopilot-system/clearance"]}]),
+        "CLEARANCE_VERIFIERS_LIST": json.dumps(["app-*-cicd/pipeline-runner"] + [f"github:{w}" for w in workflows]
+                                               + list(c("verifiers", []) or [])),
+        "CLEARANCE_DELEGATES_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("delegates", []) or [])),
+        "CLEARANCE_NOTIFIERS_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("notifiers", []) or [])),
+        "CLEARANCE_PEOPLE_LIST": json.dumps(list(people)),
+        "CLEARANCE_ADMINS_LIST": json.dumps([f"user:{p}" for p in (c("admins", people) or [])]),
+        "CLEARANCE_AUDITORS_LIST": json.dumps([f"user:{p}" for p in (c("auditors", people) or [])]),
+        "CLEARANCE_GITHUB_WORKFLOWS_LIST": json.dumps(list(workflows)),
+        "CLEARANCE_RUNTIME_IMAGES_LIST": json.dumps(list(g("autopilot.customImages", None) or [])),
+        "CLEARANCE_FLIGHT_REGISTRIES_LIST": json.dumps(list(registries)),
+        # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
+        "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }
 
 

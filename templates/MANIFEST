@@ -81,8 +81,15 @@
 # 50 glidepath (the CI/CD control plane)
 50-glidepath/                           components.glidepath
 55-autopilot/                           components.autopilot
-55-autopilot/people-dex/                components.autopilot and autopilot.people and components.gatewayRoutes
-55-autopilot/clearance/github-app.yaml  components.autopilot and autopilot.githubApp and components.gatewayRoutes
+55-autopilot/clearance/routes.yaml      components.autopilot and components.gatewayRoutes
+
+# 55 identity: people-dex, the people sign-in both products use (D19 interim; spec R-7 open question 13)
+55-identity/                            (components.autopilot or components.clearance) and (clearance.people or autopilot.people) and components.gatewayRoutes
+
+# 55 clearance (its own component: may run on any cluster role, spec R-7)
+55-clearance/                           components.clearance
+55-clearance/clearance-config/routes.yaml      components.clearance and components.gatewayRoutes
+55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
 
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes

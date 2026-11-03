@@ -1,0 +1,33 @@
+# The Autopilot gateway on clearance.<domain>: the MCP surface agents and people's MCP clients connect to, the human
+# inbox's people API, the person controls and Run. (autopilot.<domain> is the gateway's own host from R-4.)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-mcp
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /mcp}
+        # The human inbox's people API (Tower's backend, or a person with their own token).
+        - path: {type: PathPrefix, value: /v1/human/}
+        # The person controls (control.py), from Tower's backend as the delegate (backstage
+        # plugins/clearance-backend proxy.ts WRITE_ROUTES). The gate's clear/deny are the core's (55-clearance).
+        - path: {type: RegularExpression, value: "^/v1/sessions/[A-Za-z0-9-]+/(freeze|end)$"}
+          method: POST
+        - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/hold$"}
+          method: POST
+        - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/hold$"}
+          method: DELETE
+        # Run: a person starts an in-cluster run of a task agent (clearance v0.23.0 Gateway.run_agent).
+        - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/runs$"}
+          method: POST
+      backendRefs:
+        - name: clearance
+          port: 8080

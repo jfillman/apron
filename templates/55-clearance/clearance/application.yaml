@@ -1,0 +1,138 @@
+# Clearance, Hangar's change-assurance product, as its own component (Clearance & Autopilot build spec R-7): the
+# clearance chart (oci://ghcr.io/jfillman/charts/clearance, the clearance repo's charts/clearance) pinned by
+# versions.clearance, with its image index pinned by digest. Two workloads:
+#   clearance-core  the core (`clearance core`): decisions, records, the deployment gate, provenance, the GitHub App
+#                   webhook. One replica, Recreate: it is the only writer of clearance-pg and the evidence chain.
+#   clearance-api   the read API (`clearance api`): evidence, clearances, policy; two replicas, read-only role.
+# The database, its reader role, the GitHub App's Secret and the routes are clearance-config's (beside this file).
+#
+# Names: fullnameOverride clearance gives the Services clearance-core and clearance-api; nameOverride clearance-core
+# keeps the chart's app.kubernetes.io/name off `clearance`, which in autopilot-system means the Autopilot gateway
+# (its Service selector, and function-agentrun's run-pod egress, both match app.kubernetes.io/name=clearance).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance
+  namespace: argocd
+  labels:
+    hangar.io/component: clearance
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`; 65-backstage/postgres's header).
+    repoURL: ghcr.io/jfillman/charts
+    chart: clearance
+    targetRevision: "@@CLEARANCE_CHART_VERSION@@"
+    helm:
+      releaseName: clearance
+      valuesObject:
+        fullnameOverride: clearance
+        nameOverride: clearance-core
+        commonLabels: {hangar.io/component: clearance}
+        image:
+          digest: "@@CLEARANCE_IMAGE_DIGEST@@"
+        providers: @@CLEARANCE_PROVIDERS@@
+        verifiers: @@CLEARANCE_VERIFIERS_LIST@@
+        delegates: @@CLEARANCE_DELEGATES_LIST@@
+        admins: @@CLEARANCE_ADMINS_LIST@@
+        packs: [hangar]
+        audience: clearance
+        gate:
+          runtimeImagesExtra: @@CLEARANCE_RUNTIME_IMAGES_LIST@@
+          # Flight (decided 2026-11-03): an image bump from these prefixes is tier 1, from anywhere else tier 2.
+          flightRegistries: @@CLEARANCE_FLIGHT_REGISTRIES_LIST@@
+          modelRoutes: ["claude-sonnet-5-5=claude-sonnet-5-5"]
+#@if (clearance.people or autopilot.people) and components.gatewayRoutes
+        # People (D19 interim): ID tokens from people-dex (GitHub sign-in), public client `clearance`.
+        oidc:
+          issuer: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"
+          audience: clearance
+          jwksURL: "http://people-dex.autopilot-system.svc:5556/dex/keys"
+          userClaim: preferred_username
+          allowedUsers: @@CLEARANCE_PEOPLE_LIST@@
+#@end
+#@if tower.cluster
+        # Tower's backend (Backstage's service account on Tower's cluster) acts for the person it names.
+        tower:
+          issuer: "@@TOWER_ISSUER@@"
+          cluster: "@@TOWER_CLUSTER@@"
+          serviceAccounts: ["@@TOWER_NAMESPACE@@/backstage-ingestor"]
+        # The gate's group directory and app owners: Tower's catalog, with a token for audience backstage-catalog
+        # (55-autopilot catalog-token-policy.yaml admits clearance-core and clearance-api).
+        backstage:
+          url: "@@TOWER_BASE_URL@@"
+          tokenAudience: backstage-catalog
+#@end
+#@if (clearance.githubWorkflows or autopilot.githubWorkflows) and components.gatewayRoutes
+        githubActions:
+          audience: clearance
+          allowed: @@CLEARANCE_GITHUB_WORKFLOWS_LIST@@
+#@end
+#@if (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
+        # The Clearance GitHub App: its Secret is clearance-config's github-app.yaml (app-id, private-key,
+        # webhook-secret from Infisical).
+        githubApp:
+          enabled: true
+          appId: "@@CLEARANCE_GITHUB_APP_ID@@"
+          existingSecret: clearance-github-app
+          privateKeyKey: private-key
+          webhookSecretKey: webhook-secret
+          comments: "off"
+#@end
+        database:
+          existingSecret: clearance-pg-app
+          key: uri
+          reader:
+            existingSecret: clearance-pg-reader
+            key: uri
+        core:
+#@if tower.hostAliasIP
+          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]
+#@end
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+        api:
+          replicas: 2
+          auditors: @@CLEARANCE_AUDITORS_LIST@@
+          notifiers: @@CLEARANCE_NOTIFIERS_LIST@@
+          gatewayURL: "@@GATEWAY_SCHEME@@://autopilot.@@CLUSTER_DOMAIN@@"
+#@if tower.hostAliasIP
+          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]
+#@end
+        networkPolicy:
+          enabled: true
+          core:
+            from:
+              # The Autopilot gateway, the one registered provider.
+              - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+              # Glidepath's gates in each app's -cicd namespace (agent-gates, clearance-gate, agent-definitions,
+              # agent-release), as pipeline-runner.
+              - namespaceSelector: {}
+                podSelector:
+                  matchExpressions:
+                    - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate, agent-definitions, agent-release]}
+              # The cluster's Gateway: GitHub's webhooks, clearance register, Tower's clear/deny.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
+          api:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
+              - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+          postgres:
+            to:
+              - podSelector: {matchLabels: {cnpg.io/cluster: clearance-pg}}
+          extraEgress:
+            # people-dex's keys, Tower's catalog and JWKS, GitHub's API: outside the namespace or the cluster.
+            - to:
+                - podSelector: {matchLabels: {app.kubernetes.io/name: people-dex}}
+              ports: [{protocol: TCP, port: 5556}]
+            - ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 80}]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: "@@CLEARANCE_NAMESPACE@@"
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]
