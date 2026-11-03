@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """apron new-cluster: print a starter cluster.yaml for one cluster (`apron init` writes it into the cluster repo).
 
-    python3 hack/new_cluster.py --profile dev|prod --name NAME --runtime kiac|kind|existing \
+    python3 hack/new_cluster.py --profile dev|prod|platform --name NAME --runtime kiac|kind|existing|eks \
         --repo-url URL --scm-owner OWNER [--registry-owner OWNER] [--tenants-repo NAME] [--domain D] \
         [--fleet-hub NAME] [--tower-cluster NAME] [--set key=value ...] > cluster.yaml
 
@@ -36,7 +36,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--profile", required=True)
     ap.add_argument("--name", required=True)
-    ap.add_argument("--runtime", required=True, help="kiac, kind or existing (no default: independent of profile)")
+    ap.add_argument("--runtime", required=True, help="kiac, kind, existing or eks (no default: independent of profile)")
     ap.add_argument("--repo-url", default="")
     ap.add_argument("--tenants-repo", default="")
     ap.add_argument("--scm-owner", default="")

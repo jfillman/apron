@@ -292,8 +292,8 @@ def layered(cluster, root=ROOT):
     names = {"profile": cluster.get("profile"), "runtime": runtime_name(cluster)}
     for k, n in names.items():
         if not n:
-            raise ApronError(f"cluster.yaml: '{k}' is required" + (" (runtime.type: kiac, kind or existing)"
-                                                                   if k == "runtime" else " (dev or prod)"))
+            raise ApronError(f"cluster.yaml: '{k}' is required" + (" (runtime.type: kiac, kind, existing or eks)"
+                                                                   if k == "runtime" else " (dev, prod or platform)"))
     prof = os.path.join(root, "profiles", f"{names['profile']}.yaml")
     rt = os.path.join(root, "runtimes", f"{names['runtime']}.yaml")
     for p, what in ((prof, "profile"), (rt, "runtime")):

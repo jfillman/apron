@@ -53,6 +53,8 @@ the render with `file:line`.
 | `@@TOWER_NAMESPACE@@` | `tower.namespace`, derived `app-backstage-<tower.env>` (Airframe's `app-<app>-<env>`; env default `prod`) |
 | `@@TOWER_BASE_URL@@` | `tower.baseUrl`, derived `http://backstage.<tower.cluster>.local` (optional) |
 | `@@TOWER_HOST_ALIAS_IP@@` | `tower.hostAliasIP` - only when pods can't resolve Tower's hostname (optional, empty by default) |
+| `@@TOWER_USER_INGESTOR@@`, `@@TOWER_USER_ACTOR@@` | the Kubernetes user Tower's `backstage-ingestor` / `tower-actor` become here: `hangar:<tower.cluster>:<sa>` (`tower.trust` structured, kubeadm's JWT authenticator), or `hangar:<tower.cluster>:system:serviceaccount:<tower.namespace>:<sa>` (`tower.trust: eks-oidc`, an EKS OIDC identity provider config with username prefix `hangar:<tower.cluster>:`) |
+| `@@TOWER_USER_PROMETHEUS@@` | the same for Tower's cluster's `observability/kube-prometheus-stack-prometheus` (Thanos Receive) |
 
 ## Gateway (Traefik, every runtime)
 
@@ -60,8 +62,13 @@ the render with `file:line`.
 |---|---|
 | `@@GATEWAY_NAMESPACE@@` | `gateway.namespace`, default `hangar-gateway` |
 | `@@GATEWAY_NAME@@` | `gateway.name`, default `hangar` |
+| `@@GATEWAY_SCHEME@@` | `gateway.scheme`, default `http` (runtime eks: `https`, TLS at the NLB) - URLs built on `<service>.<domain>` (Clearance, people-dex) |
 | `@@TRAEFIK_SERVICE_TYPE@@` | `traefik.serviceType` - runtime: NodePort (kiac, kind), LoadBalancer (existing) |
 | `@@TRAEFIK_HTTP_NODEPORT@@` / `@@TRAEFIK_HTTPS_NODEPORT@@` | `traefik.httpNodePort` / `httpsNodePort` (runtime; used only with `traefik.fixedNodePorts`) |
+| `@@TRAEFIK_LB_CLASS@@` | `traefik.loadBalancer.class` - the Service's `loadBalancerClass` (runtime eks: `service.k8s.aws/nlb`) |
+| `@@TRAEFIK_LB_SCHEME@@` | `traefik.loadBalancer.scheme`, default `internet-facing` |
+| `@@TRAEFIK_LB_CERT_ARN@@` | `traefik.loadBalancer.certificateArn` - ACM certificate; TLS ends at the NLB and 443 forwards to Traefik's `web` entrypoint |
+| `@@TRAEFIK_LB_SOURCE_RANGES@@` | `traefik.loadBalancer.sourceRanges`, a YAML flow list - the Service's `loadBalancerSourceRanges` |
 
 ## Runtime (kind only)
 

@@ -1,4 +1,4 @@
-# The GitHub OAuth App people-dex signs people in with (callback http://dex.@@CLUSTER_DOMAIN@@/dex/callback). Its
+# The GitHub OAuth App people-dex signs people in with (callback @@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex/callback). Its
 # client id and secret are created in this cluster's Infisical project by a person, never in git.
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

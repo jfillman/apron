@@ -52,7 +52,7 @@ spec:
     - name: writers
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor', 'system:serviceaccount:platform-system:glidepath-api']
+        request.userInfo.username in ['@@TOWER_USER_ACTOR@@', 'system:serviceaccount:platform-system:glidepath-api']
   variables:
     - name: isCreate
       expression: request.operation == 'CREATE'
@@ -61,7 +61,7 @@ spec:
     - name: refParams
       expression: "has(variables.ref.params) ? variables.ref.params : []"
   validations:
-    - expression: request.userInfo.username != 'hangar:@@TOWER_CLUSTER@@:tower-actor'
+    - expression: request.userInfo.username != '@@TOWER_USER_ACTOR@@'
       message: Tower writes PipelineRuns only through glidepath-api (Glidepath API P6).
     - expression: request.namespace.matches('^(app|infra)-[a-z0-9-]+-cicd$')
       message: glidepath-api may only start or cancel PipelineRuns in an app's or InfraService's -cicd namespace.
@@ -143,7 +143,7 @@ spec:
     - name: backstage
       expression: >-
         has(request.userInfo.username) &&
-        request.userInfo.username in ['hangar:@@TOWER_CLUSTER@@:tower-actor']
+        request.userInfo.username in ['@@TOWER_USER_ACTOR@@']
   validations:
     - expression: oldObject != null && oldObject.metadata.name.startsWith('tower-breakglass-')
       message: Backstage may only delete RoleBindings named tower-breakglass-*.

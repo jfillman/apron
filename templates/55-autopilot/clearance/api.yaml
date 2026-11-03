@@ -68,7 +68,7 @@ spec:
             - name: CLEARANCE_API_DSN
               valueFrom: {secretKeyRef: {name: clearance-pg-reader, key: uri}}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
-            - {name: CLEARANCE_GATEWAY_URL, value: "http://clearance.@@CLUSTER_DOMAIN@@"}
+            - {name: CLEARANCE_GATEWAY_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@"}
 #@if tower.cluster
             # Tower: its backend reads for the person it names (delegate) and reads the inbox feed (notifier).
             - {name: BACKSTAGE_URL, value: "@@TOWER_BASE_URL@@"}
@@ -87,7 +87,7 @@ spec:
 #@end
 #@if autopilot.people and components.gatewayRoutes
             # People sign in as at the gateway (people-dex); cluster.yaml autopilot.people are this API's auditors.
-            - {name: CLEARANCE_OIDC_ISSUER, value: "http://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: CLEARANCE_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
             - {name: CLEARANCE_OIDC_AUDIENCE, value: clearance}
             - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
             - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}

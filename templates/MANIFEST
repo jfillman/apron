@@ -6,7 +6,8 @@
 # 00 bootstrap
 00-bootstrap/backstage-ingestor-rbac/   components.towerAccessHub
 00-bootstrap/binfmt/                    components.binfmt
-00-bootstrap/cluster-identity/          components.towerAccessHub and tower.cluster
+# kubeadm API servers only: EKS trusts Tower's cluster through an EKS OIDC identity provider config (tower.trust eks-oidc)
+00-bootstrap/cluster-identity/          components.towerAccessHub and tower.cluster and tower.trust != 'eks-oidc'
 00-bootstrap/cluster-registry/          components.serviceCatalog.enabled
 
 # 02 argocd-apps
@@ -41,10 +42,10 @@
 10-crds-operators/crossplane/provider-kubernetes-runtime.yaml         components.autopilot
 10-crds-operators/crossplane/function-agentrun-runtime.yaml           components.autopilot
 10-crds-operators/external-secrets/     components.externalSecrets
-10-crds-operators/external-secrets/cluster-secret-store.yaml          components.externalSecrets and not infisical.host
-10-crds-operators/external-secrets/packages-application.yaml          components.externalSecrets and not infisical.host
-10-crds-operators/external-secrets/registry-credentials-cluster-external-secret.yaml   components.externalSecrets and not infisical.host
-10-crds-operators/external-secrets/secretstore-xr.yaml                components.externalSecrets and not infisical.host
+10-crds-operators/external-secrets/cluster-secret-store.yaml          components.externalSecrets and not infisical.host and not components.glidepath
+10-crds-operators/external-secrets/packages-application.yaml          components.externalSecrets and not infisical.host and not components.glidepath
+10-crds-operators/external-secrets/registry-credentials-cluster-external-secret.yaml   components.externalSecrets and not infisical.host and not components.glidepath
+10-crds-operators/external-secrets/secretstore-xr.yaml                components.externalSecrets and not infisical.host and not components.glidepath
 10-crds-operators/infisical/            infisical.host
 10-crds-operators/infisical-shared-k8s-auth/   infisical.host
 
@@ -91,6 +92,10 @@
 60-gateway-routes/infisical-httproute.yaml        components.gatewayRoutes and infisical.host
 60-gateway-routes/rekor-httproute.yaml            components.gatewayRoutes and components.glidepath
 60-gateway-routes/tekton-dashboard-httproute.yaml components.gatewayRoutes and components.glidepath
+# gateway.fleetRoutes (runtime eks): the hub's release relay and the PaC webhook listener on the gateway, for clusters
+# and GitHub that reach the hub over the network instead of a NodePort or a laptop tunnel
+60-gateway-routes/glidepath-relay-httproute.yaml  components.gatewayRoutes and components.glidepath and gateway.fleetRoutes
+60-gateway-routes/pac-webhook-httproute.yaml      components.gatewayRoutes and components.glidepath and gateway.fleetRoutes
 
 # 65/66 Tower (Backstage)
 65-backstage/                           components.backstage

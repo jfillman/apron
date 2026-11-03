@@ -1,0 +1,57 @@
+# profiles/platform.yaml - WHAT a platform cluster runs: the upper zone's platform services only, Tower (Backstage, an
+# Airframe app in app-backstage-<env>) and its database, with no application environments of its own. A fleet with a
+# platform cluster gives prod the workloads role alone (cluster.yaml roles: [workloads]). It consumes the fleet's
+# Infisical; Tower reads the other clusters with its own short-lived tokens (tower.trust).
+zone: upper
+roles: [platform-services]
+infisical:
+  host: false
+components:
+  crossplane:
+    providerGithub: false
+  cloudTargets: false
+  certManager: true
+  externalSecrets: true
+  argoRollouts: true            # Tower's own release is a Rollout like any Airframe app
+  sloth: true
+  cloudnativePg: true           # Tower's PostgreSQL XR
+  mongodb: false
+  rabbitmq: false
+  dex: true
+  binfmt: false
+  serviceCatalog:
+    enabled: true
+    scope: attached-tier-only
+  policy: true
+  observability: true
+  glidepath: false
+  autopilot: false
+  gatewayRoutes: true
+  aiTriage: false
+  backstage: false
+  towerAccess: true             # Tower's cluster-scoped grants where it runs
+  towerAccessHub: false
+observability:
+  full: false
+  tracing: true
+  tempo: false
+  remoteWrite: true             # trace metrics to the hub's Thanos Receive (Tower's Airspace edges)
+aiTriage:
+  cpuRequest: 10m
+  memoryRequest: 100Mi
+  memoryLimit: 500Mi
+argocd:
+  light: true
+cnpg:
+  replicas: 1
+tower:
+  env: prod
+admission:
+  flight:
+    enabled: false
+    enforce: false
+    pullFromFlight: false
+    allowedPrefixes:
+      - ghcr.io/cloudnative-pg/
+      - ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-
+      - docker.io/bitnamilegacy/

@@ -17,6 +17,8 @@ from apronlib import ApronError, get, load_yaml, resolve  # noqa: E402
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 ROLES = ("control-plane", "workloads", "platform-services")
+# A managed cluster's own issuer: EKS publishes https://oidc.eks.<region>.amazonaws.com/id/<hex> for every cluster.
+EKS_ISSUER = re.compile(r"^https://oidc\.eks\.[a-z0-9-]+\.amazonaws\.com/id/[0-9A-Fa-f]+$")
 
 
 def violations(v, fleet=None):
@@ -31,10 +33,11 @@ def violations(v, fleet=None):
     elif not DNS1123.match(name):
         add(f"name '{name}' must be a DNS-1123 label: lowercase letters, digits and '-', start and end alphanumeric, "
             "at most 63 characters (it is the kubectl context, registry name, Infisical stem and issuer path)")
-    if v.get("profile") not in ("dev", "prod"):
-        add(f"profile must be dev or prod (got {v.get('profile')!r})")
-    if get(v, "runtime.type") not in ("kiac", "kind", "existing"):
-        add(f"runtime must be kiac, kind or existing (got {get(v, 'runtime.type')!r})")
+    if v.get("profile") not in ("dev", "prod", "platform"):
+        add(f"profile must be dev, prod or platform (got {v.get('profile')!r})")
+    eks = get(v, "runtime.type") == "eks"
+    if get(v, "runtime.type") not in ("kiac", "kind", "existing", "eks"):
+        add(f"runtime must be kiac, kind, existing or eks (got {get(v, 'runtime.type')!r})")
     for key in ("scm.owner", "registry.owner"):
         if not get(v, key):
             add(f"{key} is required (no default owner): pass --scm-owner (and --registry-owner if it differs)")
@@ -54,6 +57,10 @@ def violations(v, fleet=None):
     elif issuer == DEFAULT_ISSUER:
         add("issuer must be unique to this cluster, not the Kubernetes default - two clusters with the same issuer "
             "cannot trust each other (docs/cluster-identity.md)")
+    elif eks:
+        if not EKS_ISSUER.match(issuer):
+            add(f"runtime eks: issuer must be the cluster's EKS OIDC issuer, https://oidc.eks.<region>.amazonaws.com/id/<id> "
+                f"(terraform output oidc_issuer in hangar-infra; got {issuer})")
     elif name and not issuer.rstrip("/").endswith("/" + name):
         add(f"issuer must end in /{name} (one-name rule: https://<issuerBase>/oidc/<name>; got {issuer})")
     # a pod CIDR that contains a LAN address the pods must reach routes that traffic inside the cluster instead
@@ -70,6 +77,14 @@ def violations(v, fleet=None):
     if get(v, "runtime.type") == "existing" and ctx and ctx != name and not on("runtime.existing.renameContext"):
         add(f"runtime.existing.context '{ctx}' is not the cluster name '{name}': a cluster's kubectl context IS its "
             "name (one-name rule). Rename the context, or run `apron up --rename-context`")
+
+    if eks and not get(v, "runtime.eks.region"):
+        add("runtime eks needs runtime.eks.region")
+    if get(v, "tower.cluster") and get(v, "tower.trust") == "eks-oidc" and not EKS_ISSUER.match(str(get(v, "tower.issuer") or "")):
+        add("tower.trust eks-oidc needs tower.issuer: the EKS OIDC issuer of the cluster Tower runs on (its EKS OIDC "
+            "identity provider config on this cluster trusts that issuer)")
+    if get(v, "traefik.loadBalancer.certificateArn") and get(v, "traefik.serviceType") != "LoadBalancer":
+        add("traefik.loadBalancer.certificateArn needs traefik.serviceType: LoadBalancer")
 
     # zone and roles
     zone, roles = v.get("zone"), v.get("roles") or []
@@ -183,8 +198,9 @@ def fleet_violations(fleet, v=None):
         if get(r, "airframe.autopilotReady") and "control-plane" not in (r.get("roles") or []):
             add(f"fleet file: {n}: airframe.autopilotReady is only allowed on the control-plane cluster")
         iss = r.get("serviceAccountIssuer")
-        if iss and not (str(iss).startswith("https://") and str(iss).rstrip("/").endswith("/" + str(n))):
-            add(f"fleet file: {n}: serviceAccountIssuer must be https://<issuerBase>/oidc/{n}")
+        if iss and not EKS_ISSUER.match(str(iss)) and not (str(iss).startswith("https://")
+                                                            and str(iss).rstrip("/").endswith("/" + str(n))):
+            add(f"fleet file: {n}: serviceAccountIssuer must be https://<issuerBase>/oidc/{n} (or the cluster's EKS issuer)")
     inf = fleet.get("infisical")
     if isinstance(inf, dict):
         for k in ("orgId", "url", "inClusterUrl"):

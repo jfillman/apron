@@ -149,6 +149,31 @@ cluster first, then onboards it exactly as above.
 ([docs/after-up.md](docs/after-up.md)) and add the cluster to the fleet with
 `./apron fleet add --from ../gitops-<name> --fleet <control-plane repo>/clusters.yaml`.
 
+## AWS (`--runtime eks`, the `platform` profile)
+
+[hangar-infra](https://github.com/jfillman/hangar-infra) (Terraform) builds the accounts, networks, Infisical as its own
+service and the EKS clusters; Apron onboards each cluster like any existing one. Its `docs/install.md` is the walkthrough.
+What changes on EKS:
+
+- **Runtime `eks`** (`runtimes/eks.yaml`): `apron up` runs `aws eks update-kubeconfig --alias <name>` instead of creating
+  a cluster. Traefik's Service is an NLB from the AWS Load Balancer Controller (`traefik.loadBalancer`): TLS ends at
+  the NLB with an ACM certificate, 443 forwards to Traefik's HTTP entrypoint, and only `sourceRanges` get in.
+  `gateway.fleetRoutes` puts the hub's release relay (`relay.<domain>`) and the PaC webhook (`pac.<domain>`) on the
+  gateway, since there are no shared NodePorts between VPCs. `gateway.scheme: https` makes the URLs Apron builds on
+  `<service>.<domain>` (Clearance, people-dex) https.
+- **Issuers**: EKS takes no API server flags, so `issuer` is the cluster's own EKS OIDC issuer (`apron check` refuses
+  anything else on `eks`), and `apron identity` is refused. Tower's cluster is trusted through an EKS OIDC identity
+  provider config (Terraform) with username prefix `hangar:<tower cluster>:`, so with `tower.trust: eks-oidc` the RBAC
+  subjects are `hangar:<tower>:system:serviceaccount:<ns>:<sa>` (`@@TOWER_USER_*@@`). Set `tower.issuer` to Tower's
+  cluster's EKS issuer.
+- **Infisical off every cluster**: `infisical.host: false` everywhere and `infisical.url` set to the service. On the
+  control plane, Glidepath's chart renders `platform-secret-store` with universal auth (glidepath
+  `secretStore.infisical.auth`), and Apron's own consumer store stays off. Every cluster gets `provider-infisical-creds`
+  planted by hand (`apron up` prints the command).
+- **Profile `platform`**: upper zone, `roles: [platform-services]`, Tower (`towerAccess`) and its database, no app
+  workloads, no Mongo/RabbitMQ/AI triage. With a platform cluster, prod sets `roles: [workloads]`,
+  `components.towerAccess: false` and `components.towerAccessHub: true` (Tower reads it from the platform cluster).
+
 ## Rebuilding the lab
 
 The lab's dev cluster runs on a Mac with kiac, its prod cluster on a second MacBook with kind. That is a hardware
