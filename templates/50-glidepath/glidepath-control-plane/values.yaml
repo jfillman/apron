@@ -116,7 +116,7 @@ api:
   # `glidepath-api` (55-autopilot/people-dex), as people:<GitHub login>, only for cluster.yaml autopilot.people; each
   # reads every app (bindReaders), writes need an explicit grant. glidepath docs/admin/api.md "People".
   oidc:
-    issuer: "http://dex.@@CLUSTER_DOMAIN@@/dex"
+    issuer: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"
     jwksUrl: "http://people-dex.autopilot-system.svc:5556/dex/keys"
     audience: glidepath-api
     allowedUsers: [@@AUTOPILOT_PEOPLE@@]

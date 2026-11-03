@@ -62,6 +62,7 @@ the render with `file:line`.
 |---|---|
 | `@@GATEWAY_NAMESPACE@@` | `gateway.namespace`, default `hangar-gateway` |
 | `@@GATEWAY_NAME@@` | `gateway.name`, default `hangar` |
+| `@@GATEWAY_SCHEME@@` | `gateway.scheme`, default `http` (runtime eks: `https`, TLS at the NLB) - URLs built on `<service>.<domain>` (Clearance, people-dex) |
 | `@@TRAEFIK_SERVICE_TYPE@@` | `traefik.serviceType` - runtime: NodePort (kiac, kind), LoadBalancer (existing) |
 | `@@TRAEFIK_HTTP_NODEPORT@@` / `@@TRAEFIK_HTTPS_NODEPORT@@` | `traefik.httpNodePort` / `httpsNodePort` (runtime; used only with `traefik.fixedNodePorts`) |
 | `@@TRAEFIK_LB_CLASS@@` | `traefik.loadBalancer.class` - the Service's `loadBalancerClass` (runtime eks: `service.k8s.aws/nlb`) |

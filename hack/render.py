@@ -46,6 +46,9 @@ def tokens(v):
         "REGISTRY_OWNER": g("registry.owner"),
         "GATEWAY_NAMESPACE": g("gateway.namespace", "hangar-gateway"),
         "GATEWAY_NAME": g("gateway.name", "hangar"),
+        # How browsers and other clusters reach this gateway's hostnames: https where TLS ends at a cloud load balancer
+        # (runtime eks), http on the lab's NodePorts.
+        "GATEWAY_SCHEME": g("gateway.scheme", "") or "http",
         "TRAEFIK_SERVICE_TYPE": g("traefik.serviceType"),
         "TRAEFIK_HTTP_NODEPORT": g("traefik.httpNodePort", ""),
         "TRAEFIK_HTTPS_NODEPORT": g("traefik.httpsNodePort", ""),

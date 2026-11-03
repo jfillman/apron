@@ -159,7 +159,8 @@ What changes on EKS:
   a cluster. Traefik's Service is an NLB from the AWS Load Balancer Controller (`traefik.loadBalancer`): TLS ends at
   the NLB with an ACM certificate, 443 forwards to Traefik's HTTP entrypoint, and only `sourceRanges` get in.
   `gateway.fleetRoutes` puts the hub's release relay (`relay.<domain>`) and the PaC webhook (`pac.<domain>`) on the
-  gateway, since there are no shared NodePorts between VPCs.
+  gateway, since there are no shared NodePorts between VPCs. `gateway.scheme: https` makes the URLs Apron builds on
+  `<service>.<domain>` (Clearance, people-dex) https.
 - **Issuers**: EKS takes no API server flags, so `issuer` is the cluster's own EKS OIDC issuer (`apron check` refuses
   anything else on `eks`), and `apron identity` is refused. Tower's cluster is trusted through an EKS OIDC identity
   provider config (Terraform) with username prefix `hangar:<tower cluster>:`, so with `tower.trust: eks-oidc` the RBAC

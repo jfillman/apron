@@ -18,6 +18,7 @@ traefik:
     certificateArn: ""          # ACM wildcard cert for *.<domain>: TLS ends at the NLB, Traefik serves plain HTTP
     sourceRanges: []            # who may reach the gateway: admin CIDRs, every cluster's NAT IPs, GitHub hooks (hub)
 gateway:
+  scheme: https                 # URLs on <service>.<domain> (Clearance, people-dex): TLS ends at the NLB
   fleetRoutes: true             # relay.<domain> and pac.<domain> on the hub's gateway (no NodePorts between VPCs)
 tower:
   trust: eks-oidc               # Tower's users are hangar:<tower>:system:serviceaccount:<ns>:<sa> (EKS username prefix)
