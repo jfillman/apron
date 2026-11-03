@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"AUTOPILOT_GITHUB_WORKFLOWS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
+MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
 
 
 def tokens(v):
@@ -81,17 +81,10 @@ def tokens(v):
         # lets nobody in.
         "AUTOPILOT_PEOPLE": ",".join(g("autopilot.people", None) or []),
         "AUTOPILOT_PEOPLE_PRINCIPALS": ",".join(f"user:{p}" for p in (g("autopilot.people", None) or [])),
-        # GitHub Actions workflows that may register deployments with Clearance (`clearance register`, clearance
-        # provenance-app.md phase 2b): globs on the OIDC token's sub (repo:<owner>/<repo>:...). Empty: none, and the
-        # gateway's GitHub OIDC verifier stays off.
-        "AUTOPILOT_GITHUB_WORKFLOWS": ",".join(g("autopilot.githubWorkflows", None) or []),
         # Images a definition's runtime.image may pin beyond the runtime catalog (custom: an image built for an agent's
         # own repo), globs, e.g. ghcr.io/<owner>/*@sha256:*: the gateway checks definitions against them and clearance-api
         # lists them at GET /v1/runtimes for New agent. Empty: catalog images only.
         "AUTOPILOT_CUSTOM_IMAGES": ",".join(g("autopilot.customImages", None) or []),
-        # The gateway's verifiers: Glidepath's gate checks, plus those workflows as Clearance principals (github:<sub>).
-        "CLEARANCE_VERIFIERS": ",".join(["app-*-cicd/pipeline-runner"]
-                                        + [f"github:{w}" for w in (g("autopilot.githubWorkflows", None) or [])]),
         # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
         "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
         "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),
@@ -189,10 +182,10 @@ def clearance_tokens(g):
     tower_sa = f"{tower}/{g('tower.namespace')}/backstage-ingestor" if tower else ""
     flight = g("registries.flight.namespace", "") or ""
     flight_default = [f"{g('registries.flight.host', '') or 'ghcr.io'}/{flight}/"] if flight else []
-    registries = c("flightRegistries", flight_default) or []
+    registries = c("trustedRegistries", flight_default) or []
     for r in registries:
         if not str(r).endswith("/"):
-            raise ApronError(f"clearance.flightRegistries: {r!r} must end in '/' (the core's check is a prefix test)")
+            raise ApronError(f"clearance.trustedRegistries: {r!r} must end in '/' (the core's check is a prefix test)")
     return {
         "CLEARANCE_CHART_VERSION": g("versions.clearance.chart"),
         "CLEARANCE_IMAGE_DIGEST": g("versions.clearance.imageDigest"),
@@ -201,7 +194,9 @@ def clearance_tokens(g):
         "CLEARANCE_NAMESPACE": c("namespace", "clearance-system"),
         # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
-                                            "principals": ["autopilot-system/clearance"]}]),
+                                            "principals": ["autopilot-system/clearance"],
+                                            # it publishes its cluster-pinned definitions (PUT /v1/definitions)
+                                            "definitions": True}]),
         "CLEARANCE_VERIFIERS_LIST": json.dumps(["app-*-cicd/pipeline-runner"] + [f"github:{w}" for w in workflows]
                                                + list(c("verifiers", []) or [])),
         "CLEARANCE_DELEGATES_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("delegates", []) or [])),
@@ -211,7 +206,7 @@ def clearance_tokens(g):
         "CLEARANCE_AUDITORS_LIST": json.dumps([f"user:{p}" for p in (c("auditors", people) or [])]),
         "CLEARANCE_GITHUB_WORKFLOWS_LIST": json.dumps(list(workflows)),
         "CLEARANCE_RUNTIME_IMAGES_LIST": json.dumps(list(g("autopilot.customImages", None) or [])),
-        "CLEARANCE_FLIGHT_REGISTRIES_LIST": json.dumps(list(registries)),
+        "CLEARANCE_TRUSTED_REGISTRIES_LIST": json.dumps(list(registries)),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }

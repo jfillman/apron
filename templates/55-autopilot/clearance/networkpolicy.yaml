@@ -1,17 +1,12 @@
-# Who may reach Clearance and its database (ingress only; Clearance's own egress is open: the API server, glidepath-api,
-# Prometheus, Loki and an OIDC issuer's JWKS, and the API server has no stable selector).
-#   clearance      the gateway's MCP port and the model proxy's (8081), from agent-run namespaces only. function-agentrun labels each run namespace
-#                  hangar.io/agent-run=true and its egress policy allows this pod and port; this is the other half.
-#                  kubelet probes and `kubectl port-forward` reach the pod from the node, which Cilium allows. Add a
-#                  rule here when another in-cluster caller (Tower, Holmes) is wired to Clearance.
-#                  The MCP port also from the agent gates' and the clearance gate's pods in any namespace (glidepath Tasks
-#                  agent-gates and clearance-gate label them hangar.io/clearance-client=<gate>; they run in each app's
-#                  -cicd namespace) for POST /v1/provenance and POST /v1/clearances. The label is only a network fence: Clearance still requires a verifier's
-#                  token (CLEARANCE_VERIFIERS, gateway.yaml).
+# Who may reach the Autopilot gateway and its database (ingress only; the gateway's own egress is open: the API
+# server, the Clearance core, glidepath-api, Prometheus, Loki and an OIDC issuer's JWKS).
+#   clearance      the gateway's MCP port and the model proxy's (8081), from agent-run namespaces only. function-agentrun
+#                  labels each run namespace hangar.io/agent-run=true and its egress policy allows this pod and port; this
+#                  is the other half. kubelet probes and `kubectl port-forward` reach the pod from the node.
 #                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
-#                  clearance.<domain>/mcp, people-dex/routes.yaml); each request still needs a person's ID token.
-#                  And GitHub's webhooks (clearance.<domain>/v1/github/webhook only, github-app.yaml), each signature-checked.
-#   clearance-pg   Postgres from the gateway only, and the CloudNativePG operator's status and management ports.
+#                  clearance.<domain>/mcp, routes.yaml); each request still needs a person's ID token.
+#                  Glidepath's gates and GitHub's webhooks call the Clearance core since R-4 (55-clearance), not this pod.
+#   autopilot-pg   Postgres from the gateway and its read API, and the CloudNativePG operator's ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -29,25 +24,7 @@ spec:
       ports:
         - {protocol: TCP, port: 8080}
         - {protocol: TCP, port: 8081}
-    - from:
-        - namespaceSelector: {}
-          podSelector:
-            # agent-gates: POST /v1/provenance. clearance-gate: POST /v1/clearances (the deployment gate's check,
-            # glidepath docs/admin/clearance-gate.md). agent-definitions and agent-release: POST /v1/definitions/review
-            # and the agent release's POST /v1/clearances (glidepath docs/admin/agent-definitions.md). All run in each
-            # app's -cicd namespace as pipeline-runner.
-            matchExpressions:
-              - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate, agent-definitions, agent-release]}
-      ports:
-        - {protocol: TCP, port: 8080}
-#@if autopilot.people and components.gatewayRoutes
-    - from:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
-      ports:
-        - {protocol: TCP, port: 8080}
-#@end
-#@if autopilot.githubApp and components.gatewayRoutes
+#@if components.gatewayRoutes
     - from:
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}
@@ -55,23 +32,23 @@ spec:
         - {protocol: TCP, port: 8080}
 #@end
 ---
+# autopilot-pg: the gateway (the one writer), the read API (its read-only role) and the CloudNativePG operator.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: clearance-pg
+  name: autopilot-pg
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   podSelector:
-    matchLabels: {cnpg.io/cluster: clearance-pg}
+    matchLabels: {cnpg.io/cluster: autopilot-pg}
   policyTypes: [Ingress]
   ingress:
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: clearance}
-        # clearance-api (api.yaml): the read-only role only (reader-credentials.yaml).
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: clearance-api}
+            matchLabels: {app.kubernetes.io/name: autopilot-api}
       ports:
         - {protocol: TCP, port: 5432}
     - from:

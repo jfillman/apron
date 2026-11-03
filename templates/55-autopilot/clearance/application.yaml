@@ -1,22 +1,20 @@
-# Clearance, the gateway every agent tool call goes through (AP-A2; the clearance repo, deployed with Autopilot's
-# Hangar backends as the autopilot-gateway image). It runs in autopilot-system because run pods reach it there:
-# function-agentrun's egress allows only pods labelled app.kubernetes.io/name=clearance in that namespace, port 8080.
+# The Autopilot AI gateway (autopilot repo, its Dockerfile: autopilot-gateway): the MCP surface agents call, sessions
+# and the run tree, budgets, tool dispatch to Hangar's backends, the model proxy, the human inbox and person controls.
+# It asks the Clearance core (55-clearance) for every decision and records through it; it writes no evidence. It runs
+# in autopilot-system because run pods reach it there: function-agentrun's egress allows only pods labelled
+# app.kubernetes.io/name=clearance in that namespace, port 8080 (the label predates the product split, R-4).
 # A directory source of this folder, everything but this file:
-#   identity.yaml   the ServiceAccount and its cluster grants: TokenReview (to authenticate callers) and the
-#                   read-only Airframe reader for the airframe.* tools. Its AgentRun Role is in agentrun-grants; its
-#                   glidepath-api grants are in 50-glidepath/glidepath-control-plane/values.yaml.
-#   postgres.yaml   its store and evidence sink, a CloudNativePG cluster (sync wave 0)
-#   model-key.yaml  the model provider's key for the model proxy, from Infisical (sync wave 0)
-#   gateway.yaml    the gateway Deployment, its Service and the model-proxy Service (sync wave 1)
-#   networkpolicy.yaml  ingress to the gateway (agent-run namespaces only) and to its database (the gateway and the
-#                   CloudNativePG operator)
-#   argo-sync.yaml  argo.sync.lower's grant: patch on applications in argocd-apps, confined by an admission policy
-#                   to starting a sync of a -lower Application (sync wave -1)
-#   catalog-token-policy.yaml  only Clearance's pods may hold a token for Tower's catalog (audience
-#                   backstage-catalog, catalog.read; sync wave -1)
-#   reader-credentials.yaml  clearance-api's read-only database role password, generated in-cluster (sync wave -1)
-#   api.yaml        clearance-api, the read API: its service account (TokenReview only), Deployment (2 replicas),
-#                   Service, PodDisruptionBudget, NetworkPolicy and route clearance-api.<domain> (sync wave 1)
+#   identity.yaml       the ServiceAccount and its cluster grants (TokenReview, the read-only Airframe reader); its
+#                       AgentRun Role is in agentrun-grants, its glidepath-api grants in 50-glidepath's values
+#   postgres.yaml       the gateway's own database, autopilot-pg (runtime state; sync wave 0)
+#   model-key.yaml      the model provider's key for the model proxy, from Infisical (sync wave 0)
+#   gateway.yaml        the gateway Deployment, its Service and the model-proxy Service (sync wave 1)
+#   autopilot-api.yaml  the gateway's read API (`autopilot-gateway api`), two replicas, route autopilot-api.<domain>
+#   routes.yaml         the gateway's routes on clearance.<domain>: /mcp, the inbox, person controls, Run
+#   networkpolicy.yaml  ingress to the gateway (agent-run namespaces) and to autopilot-pg
+#   argo-sync.yaml      argo.sync.lower's grant, confined by an admission policy (sync wave -1)
+#   catalog-token-policy.yaml  only the gateway, its read API, the core and clearance-api may hold a token for Tower's
+#                       catalog (audience backstage-catalog; sync wave -1)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

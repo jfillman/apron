@@ -12,11 +12,11 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.27.1
-    imageDigest: sha256:be65dfb69bb7e74c962a6921438b882ea25292ca80faa5f422f99f6ab089f4ec
+    chart: 0.29.0
+    imageDigest: sha256:afdca0b449e9a2c33f9f4d32ec88da4d76fcf4bf74d94ea7c89ae600d2548dd4
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
-    gateway: gateway-v0.3.27
+    gateway: gateway-v0.4.0
   glidepath: main # 50-glidepath: control plane, catalog, Rekor values (a tag once one is cut)
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)

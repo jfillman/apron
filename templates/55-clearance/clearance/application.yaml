@@ -1,5 +1,5 @@
 # Clearance, Hangar's change-assurance product, as its own component (Clearance & Autopilot build spec R-7): the
-# clearance chart (oci://ghcr.io/jfillman/charts/clearance, the clearance repo's charts/clearance) pinned by
+# clearance chart (the clearance repo's charts/clearance, published as an OCI chart under <registry>/<owner>/charts) pinned by
 # versions.clearance, with its image index pinned by digest. Two workloads:
 #   clearance-core  the core (`clearance core`): decisions, records, the deployment gate, provenance, the GitHub App
 #                   webhook. One replica, Recreate: it is the only writer of clearance-pg and the evidence chain.
@@ -22,7 +22,7 @@ spec:
   project: default
   source:
     # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`; 65-backstage/postgres's header).
-    repoURL: ghcr.io/jfillman/charts
+    repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
     chart: clearance
     targetRevision: "@@CLEARANCE_CHART_VERSION@@"
     helm:
@@ -37,12 +37,40 @@ spec:
         verifiers: @@CLEARANCE_VERIFIERS_LIST@@
         delegates: @@CLEARANCE_DELEGATES_LIST@@
         admins: @@CLEARANCE_ADMINS_LIST@@
-        packs: [hangar]
         audience: clearance
+        # Hangar's policy bundle (clearance-config's bundle-hangar.yaml, vendored from autopilot at
+        # versions.autopilot.gateway) and its source: Glidepath's contract from glidepath-api, read with the core's
+        # service-account token. If glidepath-api does not answer at start the bundle is degraded (its tools denied
+        # R000, /readyz says so) until it does (decided 2026-11-03).
+        policy:
+          bundles: [{name: hangar, configMap: clearance-bundle-hangar, key: bundle.json}]
+          sources:
+            glidepath:
+              url: http://glidepath-api.platform-system.svc:8080/v1/contract
+              sendToken: true
+          egress:
+            - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: platform-system}}}]
+              ports: [{protocol: TCP, port: 8080}]
+          environments:
+            lowerNames: [dev, development, sandbox, scratch]
+            lowerPrefixes: [pr-, agent-]
+            lowerProjectSuffixes: [-lower]
+            upperRepoPrefixes: [gitops-]
+        # Hangar's names, passed in (autopilot policy/hangar/core-env.json): before v0.29.0 they were compiled in.
+        vocabulary:
+          onBehalfOfHeader: X-Hangar-On-Behalf-Of
+          trailerPrefix: Hangar-
+          runIdentityNamespace: autopilot-runs
+          baselineDenyPaths: [".tekton/**", "**/.tekton/**", CODEOWNERS, "**/CODEOWNERS", ".github/**", "**/appproject*.yaml", "**/AppProject*.yaml", release.yaml, "**/release.yaml", "*.release.yaml", "**/*.release.yaml"]
+          baselineDenyFields: [/extraManifests, /networkPolicy, /httpRoute, /release, /releaseTracking, /rollout/image]
+          gateOutsideGroups: ["group:default/admins"]
+          gateOwnerFallback: "group:default/admins"
+          v0Provider: autopilot-gateway/unrecorded
         gate:
+          agentLogins: ["hangar-autopilot-agents[bot]"]
           runtimeImagesExtra: @@CLEARANCE_RUNTIME_IMAGES_LIST@@
           # Flight (decided 2026-11-03): an image bump from these prefixes is tier 1, from anywhere else tier 2.
-          flightRegistries: @@CLEARANCE_FLIGHT_REGISTRIES_LIST@@
+          trustedRegistries: @@CLEARANCE_TRUSTED_REGISTRIES_LIST@@
           modelRoutes: ["claude-sonnet-5-5=claude-sonnet-5-5"]
 #@if (clearance.people or autopilot.people) and components.gatewayRoutes
         # People (D19 interim): ID tokens from people-dex (GitHub sign-in), public client `clearance`.
@@ -55,7 +83,7 @@ spec:
 #@end
 #@if tower.cluster
         # Tower's backend (Backstage's service account on Tower's cluster) acts for the person it names.
-        tower:
+        foreignCluster:
           issuer: "@@TOWER_ISSUER@@"
           cluster: "@@TOWER_CLUSTER@@"
           serviceAccounts: ["@@TOWER_NAMESPACE@@/backstage-ingestor"]

@@ -41,6 +41,8 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
+          # gateway-v0.4.0 = autopilot 7afd5d3: the gateway calls the Clearance core (v0.29.0) for every decision and record,
+          # keeps runtime state in its own database (autopilot-pg) and serves its own read API (R-3a..R-3f, R-5).
           # gateway-v0.3.27 = autopilot 51d86e8 with clearance v0.26.1: catalog.read says which query form filters.
           # gateway-v0.3.26 = autopilot 83daf9b: nightly-reviewer instructions name the catalog filter, Argo apps, queries.
           # gateway-v0.3.25 = autopilot 5c3b950: scheduled runs get a t-<hex> task id the AgentRun accepts.
@@ -51,13 +53,17 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.3.27@sha256:afd540d929c339ffcb85f490ed91608871a47354a24a0386e131e5b908663d0f
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.0@sha256:2f48ce0d55fe1b632742c25db759ae081e5d1b7c0f9d2aee20735ba7ee338b74
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
           env:
-            - name: CLEARANCE_DSN
-              valueFrom: {secretKeyRef: {name: clearance-pg-app, key: uri}}
+            # The gateway's own database (postgres.yaml, autopilot-pg): sessions, the run tree, the inbox, results,
+            # artifacts, trigger history and holds, and its outbox. No evidence: the Clearance core writes every record.
+            - name: GATEWAY_DSN
+              valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
+            # The Clearance core (55-clearance) decides every call and records it; its token is the projected one below.
+            - {name: CLEARANCE_CORE_URL, value: "http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc:8080"}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
             - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
             - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
@@ -83,9 +89,6 @@ spec:
             - {name: EVENTS_ENABLED, value: "1"}
             # Interval triggers (autopilot scheduler.py): scheduled agents start at each UTC-aligned interval.
             - {name: SCHEDULES_ENABLED, value: "1"}
-            # The agent gates (glidepath docs/admin/agent-gates.md) ask POST /v1/provenance as their pipeline's service
-            # account; only these principals may. Every app's -cicd namespace runs them.
-            - {name: CLEARANCE_VERIFIERS, value: "@@CLEARANCE_VERIFIERS@@"}
 #@if tower.cluster
             # catalog.read: Tower's catalog, as this identity (the backstage-catalog token below, which Backstage checks
             # against this cluster's public issuer; catalog-token-policy.yaml keeps that audience to this pod).
@@ -98,24 +101,10 @@ spec:
             - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
             - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
-#@if autopilot.githubApp and components.gatewayRoutes
-            # The Clearance GitHub App (github-app.yaml): POST /v1/github/webhook and the two check runs. Comments off.
-            - name: CLEARANCE_GITHUB_APP_ID
-              valueFrom: {secretKeyRef: {name: clearance-github-app, key: app-id}}
-            - {name: CLEARANCE_GITHUB_APP_KEY_FILE, value: /etc/clearance-github-app/private-key}
-            - {name: CLEARANCE_GITHUB_APP_WEBHOOK_SECRET_FILE, value: /etc/clearance-github-app/webhook-secret}
-            - {name: CLEARANCE_GITHUB_APP_COMMENTS, value: "off"}
-#@end
 #@if autopilot.customImages
             # Custom runtime images (cluster.yaml autopilot.customImages): globs a definition's runtime.image may match
             # beyond the runtime catalog. Unset: catalog images only.
             - {name: RUNTIME_IMAGES_EXTRA, value: "@@AUTOPILOT_CUSTOM_IMAGES@@"}
-#@end
-#@if autopilot.githubWorkflows and components.gatewayRoutes
-            # GitHub Actions workflows' OIDC tokens (clearance register, phase 2b): cluster.yaml autopilot.githubWorkflows,
-            # globs on the token's sub. Each registers changes for its own repository only (DG-REPO).
-            - {name: CLEARANCE_GITHUB_OIDC_AUDIENCE, value: clearance}
-            - {name: CLEARANCE_GITHUB_OIDC_ALLOWED, value: "@@AUTOPILOT_GITHUB_WORKFLOWS@@"}
 #@end
 #@if autopilot.people and components.gatewayRoutes
             # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as
@@ -149,10 +138,8 @@ spec:
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
             - {name: clearance-tokens, mountPath: /var/run/clearance, readOnly: true}
+            - {name: core-token, mountPath: /var/run/secrets/tokens, readOnly: true}
             - {name: model-key, mountPath: /etc/clearance-model, readOnly: true}
-#@if autopilot.githubApp and components.gatewayRoutes
-            - {name: github-app, mountPath: /etc/clearance-github-app, readOnly: true}
-#@end
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
@@ -163,17 +150,14 @@ spec:
             sources:
               - serviceAccountToken: {audience: agent-installation-token, expirationSeconds: 3600, path: agent-installation-token}
               - serviceAccountToken: {audience: backstage-catalog, expirationSeconds: 3600, path: backstage-token}
+        # The token the gateway sends the Clearance core: audience clearance (the core's TokenReview), rotated.
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance-core}
         - name: model-key
           secret:
             secretName: clearance-model-key
-#@if autopilot.githubApp and components.gatewayRoutes
-        - name: github-app
-          secret:
-            secretName: clearance-github-app
-            items:
-              - {key: private-key, path: private-key}
-              - {key: webhook-secret, path: webhook-secret}
-#@end
 ---
 apiVersion: v1
 kind: Service

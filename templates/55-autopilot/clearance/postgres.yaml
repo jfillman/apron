@@ -1,0 +1,80 @@
+# The Autopilot gateway's own database (autopilot R-3b, docs/admin/gateway-database.md): sessions and the run tree,
+# the human inbox, run results, artifacts, trigger history, holds, the cluster-pinned definitions and the outbox
+# (gateway_* tables, writer lock apg0). Runtime state, not evidence: the evidence chain is clearance-pg's
+# (55-clearance), written by the Clearance core only. CNPG writes the owner's DSN to autopilot-pg-app (key uri),
+# which the gateway reads as GATEWAY_DSN. Created empty at R-4; the runtime rows were copied from clearance-pg once
+# (autopilot tools/cutover/copy_runtime_tables.py).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: autopilot-pg
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: autopilot
+      owner: autopilot
+  # The read API's read-only role (autopilot-api.yaml): it may read every table and write none.
+  managed:
+    roles:
+      - name: autopilot_reader
+        ensure: present
+        login: true
+        inRoles: [pg_read_all_data]
+        passwordSecret: {name: autopilot-pg-reader}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+---
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: autopilot-pg-reader
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  allowRepeat: true
+  secretKeys: [password]
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: autopilot-pg-reader
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  refreshPolicy: CreatedOnce
+  target:
+    name: autopilot-pg-reader
+    creationPolicy: Owner
+    immutable: true
+    template:
+      type: kubernetes.io/basic-auth
+      engineVersion: v2
+      metadata:
+        labels: {cnpg.io/reload: "true"}
+      data:
+        username: autopilot_reader
+        password: "{{ .password }}"
+        uri: "postgresql://autopilot_reader:{{ .password }}@autopilot-pg-rw.autopilot-system.svc:5432/autopilot"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: autopilot-pg-reader
