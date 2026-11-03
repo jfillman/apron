@@ -12,8 +12,8 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.29.0
-    imageDigest: sha256:afdca0b449e9a2c33f9f4d32ec88da4d76fcf4bf74d94ea7c89ae600d2548dd4
+    chart: 0.30.0
+    imageDigest: sha256:a0cf63ace323c8daa0de6957e62283ebbe8a355d38153ce6b49213d7727d4598
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.4.0

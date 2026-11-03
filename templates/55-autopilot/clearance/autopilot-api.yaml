@@ -68,8 +68,6 @@ spec:
           env:
             - name: GATEWAY_API_DSN
               valueFrom: {secretKeyRef: {name: autopilot-pg-reader, key: uri}}
-            # The gateway's own tables (gateway_*, R-3b), not clearance v0.26.1's.
-            - {name: GATEWAY_API_TABLES, value: gateway}
             # Clearance's reads, named in /v1/contract.
             - {name: CLEARANCE_API_URL, value: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
