@@ -59,6 +59,7 @@ spec:
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
+            - {name: metrics, containerPort: 9090}   # METRICS_PORT: trigger durability series (A-5; monitoring.yaml)
           env:
             # The gateway's own database (postgres.yaml, autopilot-pg): sessions, the run tree, the inbox, results,
             # artifacts, trigger history and holds, and its outbox. No evidence: the Clearance core writes every record.
