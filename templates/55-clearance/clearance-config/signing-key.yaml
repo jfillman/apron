@@ -1,0 +1,23 @@
+# The clearance token's signing key (clearance docs/core.md, The clearance token): an ECDSA P-256 private key in PEM,
+# put in this cluster's Infisical project by the owner as `clearance-signing-key`, never generated or written here.
+# Only clearance-core mounts it (the clearance chart's signing.existingSecret, key signing-key.pem); clearance-api never
+# sees it. Until the chart names this Secret, the core issues no tokens and grant feeds are unsigned.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-signing-key
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-core}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-signing-key
+    creationPolicy: Owner
+  data:
+    - secretKey: signing-key.pem
+      remoteRef: {key: clearance-signing-key}
