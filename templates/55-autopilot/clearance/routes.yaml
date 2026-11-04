@@ -18,6 +18,10 @@ spec:
   rules:
     - matches:
         - path: {type: PathPrefix, value: /mcp}
+        # The gateway's liveness from outside the cluster (A-7): {ok, tools, core} with no credential, the same
+        # answer the kubelet's probes get. Exact, so nothing under it is exposed.
+        - path: {type: Exact, value: /healthz}
+          method: GET
         # The human inbox's people API (Tower's backend, or a person with their own token).
         - path: {type: PathPrefix, value: /v1/human/}
         # The person controls (control.py), from Tower's backend as the delegate (backstage

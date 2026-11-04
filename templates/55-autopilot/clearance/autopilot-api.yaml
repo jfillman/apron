@@ -61,7 +61,7 @@ spec:
       containers:
         - name: api
           # The gateway's image (gateway.yaml pins the same digest); `api` selects its read API.
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.1@sha256:3945fe116dd9da89c7ee21fd2c906a5c594ecfc1aee69df68b2de0dcd10296d0
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.2@sha256:96f3ca1f8bd9d404087e1e8d0da16a4f67a63b51833fc457a37447f75af58434
           args: [api]
           ports:
             - {name: http, containerPort: 8080}
@@ -72,6 +72,19 @@ spec:
             - {name: CLEARANCE_API_URL, value: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"}
             - {name: CLEARANCE_AUDIENCE, value: clearance}
             - {name: CLEARANCE_GATEWAY_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@"}
+#@if components.observability and observability.full
+            # Its log lines to Loki: a copy of each goes to the cluster's OpenTelemetry collector (40-observability
+            # otel-collector, logs pipeline -> Loki /otlp) over OTLP/HTTP (autopilot otlp_logs.py, gateway-v0.4.2+;
+            # an older image ignores these). Egress is open from this pod; the collector takes no credential.
+            # In Loki: {service_name="autopilot-api"} or {k8s_namespace_name="autopilot-system"}.
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - {name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, value: "http://otel-collector-opentelemetry-collector.observability.svc:4318/v1/logs"}
+            - {name: OTEL_SERVICE_NAME, value: autopilot-api}
+            - {name: OTEL_RESOURCE_ATTRIBUTES, value: "k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),k8s.cluster.name=@@CLUSTER_NAME@@"}
+#@end
 #@if tower.cluster
             # Tower: its backend reads for the person it names (delegate) and reads the inbox feed (notifier).
             - {name: BACKSTAGE_URL, value: "@@TOWER_BASE_URL@@"}
