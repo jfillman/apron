@@ -56,7 +56,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.1@sha256:3945fe116dd9da89c7ee21fd2c906a5c594ecfc1aee69df68b2de0dcd10296d0
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.2@sha256:96f3ca1f8bd9d404087e1e8d0da16a4f67a63b51833fc457a37447f75af58434
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
