@@ -72,6 +72,16 @@ spec:
           # Flight (decided 2026-11-03): an image bump from these prefixes is tier 1, from anywhere else tier 2.
           trustedRegistries: @@CLEARANCE_TRUSTED_REGISTRIES_LIST@@
           modelRoutes: ["claude-sonnet-5-5=claude-sonnet-5-5"]
+          # Which environments the gate protects (D30): cluster.yaml clearance.protectedEnvironments, "<cluster>/<env>"
+          # globs. Any other environment clears at tier 0 (unprotected) and is recorded; an empty list protects all.
+          protectedEnvironments: @@CLEARANCE_PROTECTED_ENVIRONMENTS_LIST@@
+          breakglassMaxTTL: "4h"
+#@if clearance.signingKey
+        # The clearance token's signing key (clearance-config signing-key.yaml, from Infisical clearance-signing-key).
+        signing:
+          existingSecret: clearance-signing-key
+          key: signing-key.pem
+#@end
 #@if (clearance.people or autopilot.people) and components.gatewayRoutes
         # People (D19 interim): ID tokens from people-dex (GitHub sign-in), public client `clearance`.
         oidc:
@@ -148,6 +158,10 @@ spec:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
               - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+          # Cilium matches the API server as the kube-apiserver entity, not an ipBlock: the chart renders the
+          # CiliumNetworkPolicy for TokenReview (clearance 0.31.0; it replaced clearance-config's own).
+          kubeAPIServer:
+            ciliumEntity: true
           postgres:
             to:
               - podSelector: {matchLabels: {cnpg.io/cluster: clearance-pg}}
