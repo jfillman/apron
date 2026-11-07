@@ -45,6 +45,10 @@ cnpg:
   replicas: 1
 tower:
   env: prod
+clearance:
+  gate:                         # clearance G-ARGO-2: ClearanceGrant CRD + admission policies (56-clearance-gate), upper clusters
+    enabled: false              # render them (Warn: warnings only, no active grant allowed)
+    enforce: false              # Deny + parameterNotFoundAction Deny; only after Warn is clean on every protected namespace
 admission:
   flight:                       # glidepath ADR-0029 phase 4; needs registries.flight.namespace + promotion.promoter.repo
     enabled: false              # render flight-only-images + flight-images (Audit+Warn) and the Kyverno Flight read secret
