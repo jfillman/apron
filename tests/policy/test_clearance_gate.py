@@ -30,6 +30,16 @@ def cm(name, rendered=None):
     return {"apiVersion": "v1", "kind": "ConfigMap", "metadata": md}
 
 
+WAIT = "registry.invalid/clearance-wait@sha256:" + "1" * 64
+
+
+def wait_job(name, image):
+    return {"apiVersion": "batch/v1", "kind": "Job",
+            "metadata": {"name": name, "namespace": "prot", "labels": {"clearance.hangar.io/injected": "wait"},
+                         "annotations": {"argocd.argoproj.io/hook": "PreSync"}},
+            "spec": {"template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "w", "image": image}]}}}}
+
+
 def run(rendered, agent, deny):
     res = []
     mode = "Deny" if deny else "Warn"
@@ -88,6 +98,11 @@ def run(rendered, agent, deny):
             check("an unlisted object is refused", not ok and "does not list /ConfigMap/unlisted" in out, out)
         else:
             check("an unlisted object is admitted with a warning", ok and "does not list /ConfigMap/unlisted" in out, out)
+        ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-ok", WAIT), ARGO)
+        check("the pinned wait Job is admitted without a stamp", ok and "Warning" not in out, out)
+        ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-bad", "busybox"), ARGO)
+        check("a labelled Job with another image is " + ("refused" if deny else "warned"),
+              (not ok) if deny else (ok and "Warning" in out), out)
         ok, out = k.kubectl(["create", "-f", "-"], cm("by-other"), "system:serviceaccount:default:other")
         check("another writer is not matched", ok and "Warning" not in out, out)
         k.kubectl(["delete", "clearancegrant", "g1", "-n", "prot"])

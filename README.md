@@ -109,6 +109,7 @@ grants. Both match one service account, so no other writer is touched.
 |---|---|---|
 | `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
 | `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
+| `waitImage` | the one image the injected `clearance.hangar.io/injected: wait` PreSync Job may run (digest reference); the policy exempts that Job, one container, no volumes, no command, nothing else. Empty: no exemption | the CMP injects the wait Job (G-ARGO-4) |
 | `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`) | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
 
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's

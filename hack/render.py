@@ -249,6 +249,8 @@ def clearance_gate_tokens(g):
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
         # the grant-sync agent (the only writer of a ClearanceGrant).
         "CLEARANCE_GATE_ARGOCD_USER": sa("argocdServiceAccount", "argocd-apps:argocd-application-controller"),
+        # The pinned wait image (a digest reference) the policy exempts as G-ARGO-4's injected PreSync Job; empty = none.
+        "CLEARANCE_GATE_WAIT_IMAGE": g("clearance.gate.waitImage", "") or "",
         "CLEARANCE_GATE_AGENT_USER": sa("agentServiceAccount", "clearance-system:clearance-argocd-agent"),
     }
 

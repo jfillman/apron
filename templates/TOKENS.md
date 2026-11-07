@@ -117,6 +117,7 @@ the render with `file:line`.
 | `@@CLEARANCE_GATE_PARAM_NOT_FOUND@@` | `clearance.gate.enforce`: `Deny`, else `Allow` (the `parameterNotFoundAction`; the flip changes this and the actions together) |
 | `@@CLEARANCE_GATE_ARGOCD_USER@@` | `system:serviceaccount:` + `clearance.gate.argocdServiceAccount` (default `argocd-apps:argocd-application-controller`), the only writer `clearance-protected-writes` checks |
 | `@@CLEARANCE_GATE_AGENT_USER@@` | `system:serviceaccount:` + `clearance.gate.agentServiceAccount` (default `clearance-system:clearance-argocd-agent`), the only writer of a ClearanceGrant |
+| `@@CLEARANCE_GATE_WAIT_IMAGE@@` | `clearance.gate.waitImage`, the digest-pinned wait image the policy exempts as the CMP's injected PreSync Job (empty: no exemption) |
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
