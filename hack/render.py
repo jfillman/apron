@@ -24,7 +24,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE"}
+MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE"}
 
 
 def tokens(v):
@@ -117,6 +117,7 @@ def tokens(v):
         **flight_admission_tokens(g),
         **clearance_tokens(g),
         **clearance_gate_tokens(g),
+        **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
@@ -214,6 +215,49 @@ def clearance_tokens(g):
     }
 
 
+def _glob_regex(glob):
+    """A `<cluster glob>/<env glob>` entry as an anchored regex with no backslashes (it sits in a Go template string):
+    `*` is any run of non-`/` characters, every other punctuation mark a one-character class."""
+    out = []
+    for ch in glob:
+        if ch == "*":
+            out.append("[^/]*")
+        elif ch.isalnum():
+            out.append(ch)
+        else:
+            out.append(f"[{ch}]")
+    return "^" + "".join(out) + "$"
+
+
+def clearance_gate_tokens(g):
+    """The Argo CD gate (clearance docs/gate.md, G-ARGO-4/5): the plugin sidecar on argocd-apps' repo-server and the
+    tenant-onboarding ApplicationSet's plugin source. Only used under `#@if clearance.gate.enabled`; the values are
+    checked when it is on."""
+    on = bool(g("clearance.gate.enabled", False))
+    envs = list(g("clearance.protectedEnvironments", None) or [])
+    if on:  # a cluster that does not turn the gate on is not held to the gate's reading of the key
+        for e in envs:
+            if str(e).count("/") != 1:
+                raise ApronError(f"clearance.protectedEnvironments: {e!r} is '<cluster glob>/<env glob>'")
+    regex = "|".join(_glob_regex(str(e)) for e in envs) if envs and on else "^.*$"
+    cmp_image, wait_image = g("versions.clearance.cmpImage", "") or "", g("versions.clearance.waitImage", "") or ""
+    if on and not (cmp_image and wait_image):
+        raise ApronError("clearance.gate.enabled needs versions.clearance.cmpImage and waitImage (the plugin sidecar and "
+                         "the PreSync wait images, by digest, from the clearance release that publishes them)")
+    ns = g("clearance.namespace", None) or "clearance-system"
+    alias = g("clearance.gate.hostAlias", "") or ""
+    if alias and "=" not in alias:
+        raise ApronError("clearance.gate.hostAlias is 'ip=host[,host]'")
+    return {
+        "CLEARANCE_GATE_ENV_REGEX": regex,
+        # How the plugin and the wait Job reach the core: in-cluster on the control plane, else a gateway route.
+        "CLEARANCE_GATE_URL": g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080",
+        "CLEARANCE_GATE_HOST_ALIAS": alias,
+        "CLEARANCE_CMP_IMAGE": cmp_image,
+        "CLEARANCE_WAIT_IMAGE": wait_image,
+    }
+
+
 def flight_admission_tokens(g):
     """Flight admission on an upper cluster (glidepath ADR-0029 phase 4): tenant pods run Flight images, each carrying
     the promotion attestation the promoter workflow signs, or an allow-listed third-party image. Audit+Warn until
@@ -237,7 +281,7 @@ def flight_admission_tokens(g):
     }
 
 
-def clearance_gate_tokens(g):
+def clearance_admission_tokens(g):
     """The Clearance gate on an upper cluster (clearance G-ARGO-2, templates/56-clearance-gate): Warn until
     clearance.gate.enforce, which flips validationActions and parameterNotFoundAction together (an enforcing binding
     with no active grant refuses every matched write in a protected namespace)."""
@@ -249,8 +293,9 @@ def clearance_gate_tokens(g):
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
         # the grant-sync agent (the only writer of a ClearanceGrant).
         "CLEARANCE_GATE_ARGOCD_USER": sa("argocdServiceAccount", "argocd-apps:argocd-application-controller"),
-        # The pinned wait image (a digest reference) the policy exempts as G-ARGO-4's injected PreSync Job; empty = none.
-        "CLEARANCE_GATE_WAIT_IMAGE": g("clearance.gate.waitImage", "") or "",
+        # The pinned wait image the policy exempts as G-ARGO-4's injected PreSync Job: the same digest reference the
+        # plugin injects (versions.clearance.waitImage, required with clearance.gate.enabled); empty = no exemption.
+        "CLEARANCE_GATE_WAIT_IMAGE": g("versions.clearance.waitImage", "") or "",
         "CLEARANCE_GATE_AGENT_USER": sa("agentServiceAccount", "clearance-system:clearance-argocd-agent"),
     }
 

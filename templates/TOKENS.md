@@ -117,7 +117,7 @@ the render with `file:line`.
 | `@@CLEARANCE_GATE_PARAM_NOT_FOUND@@` | `clearance.gate.enforce`: `Deny`, else `Allow` (the `parameterNotFoundAction`; the flip changes this and the actions together) |
 | `@@CLEARANCE_GATE_ARGOCD_USER@@` | `system:serviceaccount:` + `clearance.gate.argocdServiceAccount` (default `argocd-apps:argocd-application-controller`), the only writer `clearance-protected-writes` checks |
 | `@@CLEARANCE_GATE_AGENT_USER@@` | `system:serviceaccount:` + `clearance.gate.agentServiceAccount` (default `clearance-system:clearance-argocd-agent`), the only writer of a ClearanceGrant |
-| `@@CLEARANCE_GATE_WAIT_IMAGE@@` | `clearance.gate.waitImage`, the digest-pinned wait image the policy exempts as the CMP's injected PreSync Job (empty: no exemption) |
+| `@@CLEARANCE_GATE_WAIT_IMAGE@@` | `versions.clearance.waitImage` (the same digest the CMP injects), the one image `clearance-protected-writes` exempts as the injected PreSync Job; required with `clearance.gate.enabled` |
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
@@ -143,6 +143,11 @@ the render with `file:line`.
 | `@@CLEARANCE_GITHUB_WORKFLOWS_LIST@@` | `clearance.githubWorkflows` (else `autopilot.githubWorkflows`): globs on a GitHub Actions OIDC token's `sub` that may `clearance register` |
 | `@@CLEARANCE_RUNTIME_IMAGES_LIST@@` | `autopilot.customImages`, as the gate's `runtimeImagesExtra` |
 | `@@CLEARANCE_TRUSTED_REGISTRIES_LIST@@` | `clearance.trustedRegistries`, default `[<registries.flight.host>/<registries.flight.namespace>/]` (decided 2026-11-03): an image bump from them is tier 1, from anywhere else tier 2; each ends in `/` |
+| `@@CLEARANCE_GATE_ENV_REGEX@@` | the environments the Argo CD gate covers, from `clearance.protectedEnvironments` (`<cluster glob>/<env glob>`; empty: every environment), as one regex over `<cluster>/<env>` with no backslashes (`render.py` `_glob_regex`) - only under `#@if clearance.gate.enabled` |
+| `@@CLEARANCE_GATE_URL@@` | `clearance.gate.url`, default `http://clearance-core.<clearance namespace>.svc:8080`: the core as the plugin sidecar and the PreSync wait Job reach it |
+| `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
+| `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |
+| `@@CLEARANCE_WAIT_IMAGE@@` | `versions.clearance.waitImage`: the PreSync wait Job's image (`clearance-wait`, by digest); required with `clearance.gate.enabled` |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)

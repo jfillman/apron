@@ -71,6 +71,30 @@ cluster's registry record has `airframe.autopilotReady`, set after autopilot's `
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
 
+## Clearance's Argo CD gate (`clearance.gate`, Draft)
+
+`clearance.gate.enabled: true` puts Clearance's Config Management Plugin in front of every protected tenant
+Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
+
+- argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
+  container that mounts the clearance token (a projected service-account token, audience `clearance`).
+- the tenant-onboarding ApplicationSet gives an environment the gate covers one source, the plugin
+  (`plugin.name: clearance`) on the app's gitops repo, in place of the Helm source and its `$appsrc` ref. The
+  plugin fetches the same chart at the same pinned tag and renders it with the same value files and platform values.
+  An environment is covered when `<cluster>/<env>` matches `clearance.protectedEnvironments` (every environment when
+  that is empty); an environment on a registry (OCI) chart keeps the Helm source.
+
+| `cluster.yaml` key | |
+|---|---|
+| `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
+| `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
+| `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
+| `clearance.gate.hostAlias` | `ip=host[,host]` for the wait Job's pod when the core is on another cluster |
+
+Not part of this change, and needed before a protected sync works on another cluster (hangar-prod): the core's
+foreign-workload and verifier lists, the route allowlist, the repo-server's hostAlias and egress, and admission's
+exemption for the injected wait Job. They are listed in clearance `docs/gate.md`.
+
 ## Check names (`pipelinesAsCode.applicationName`)
 
 Pipelines-as-Code names every check run `<application-name> / <gate>-`. Apron sets the name from `cluster.yaml`
@@ -103,13 +127,14 @@ G-ARGO-2) into `56-clearance-gate/`: the `ClearanceGrant` CRD and two native Val
 `clearance-protected-writes` lets Argo CD's application controller write to a namespace labelled
 `clearance.hangar.io/protected=true` only if the object carries the CMP's `clearance.hangar.io/rendered` stamp and the
 namespace's one active, valid grant lists it at that hash; `clearance-grant-writer` lets only the grant-sync agent write
-grants. Both match one service account, so no other writer is touched.
+grants. Both match one service account, so no other writer is touched. The policy also exempts the plugin's injected
+`clearance.hangar.io/injected: wait` PreSync Job, but only a one-container Job with no volumes or command whose image is
+**exactly** `versions.clearance.waitImage` (the digest the plugin injects; required with `clearance.gate.enabled`).
 
 | Key | Renders | Turn it on when |
 |---|---|---|
 | `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
 | `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
-| `waitImage` | the one image the injected `clearance.hangar.io/injected: wait` PreSync Job may run (digest reference); the policy exempts that Job, one container, no volumes, no command, nothing else. Empty: no exemption | the CMP injects the wait Job (G-ARGO-4) |
 | `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`) | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
 
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's

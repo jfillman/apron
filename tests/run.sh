@@ -249,20 +249,17 @@ expect "${F}/dev" "dev flight keys" "!${FP}"
 expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
 G="${TMP}/gate"
 mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/warn/cluster.yaml"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/enforce/cluster.yaml"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; } >"${G}/dev/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/warn/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/enforce/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/dev/cluster.yaml"
 render_ok "${G}/warn" "prod clearance gate warn"
 render_ok "${G}/enforce" "prod clearance gate enforce"
-mkdir -p "${G}/nowait"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; } >"${G}/nowait/cluster.yaml"
-render_ok "${G}/nowait" "prod clearance gate, no waitImage"
-has "${G}/nowait/${GP:-56-clearance-gate/admission.yaml}" "'' != ''" "clearance gate: no waitImage renders no exemption"
 render_ok "${G}/dev" "dev clearance gate key"
 GP=56-clearance-gate/admission.yaml
 expect "${G}/dev" "dev clearance gate key" "!${GP}"
 has "${G}/warn/56-clearance-gate/application.yaml" 'path: 56-clearance-gate' "clearance gate: its own Application"
 has "${G}/warn/56-clearance-gate/clearancegrant-crd.yaml" 'name: clearancegrants.clearance.hangar.io' "clearance gate: the ClearanceGrant CRD"
+has "${G}/warn/${GP}" "== 'registry.invalid/clearance-wait@sha256:1{64}'" "clearance gate: the exemption pins the wait image from versions.clearance.waitImage"
 has "${G}/warn/${GP}" 'validationActions: \[Warn, Audit\]' "clearance gate: Warn by default"
 has "${G}/warn/${GP}" 'parameterNotFoundAction: Allow' "clearance gate: Warn allows a missing grant"
 has "${G}/warn/${GP}" "== 'system:serviceaccount:argocd-apps:argocd-application-controller'" "clearance gate: matches Argo's controller only"
@@ -274,6 +271,36 @@ if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce"
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+
+echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
+GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
+new "${TMP}/gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
+render_ok "${TMP}/gate" "gate on"
+AS="${TMP}/gate/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
+has "${AS}" 'name: clearance$' "gate on: the ApplicationSet has the Clearance plugin source"
+has "${AS}" 'regexMatch "\^hangar\[-\]prod\[/\]prod\$"' "gate on: only clearance.protectedEnvironments are gated, as a regex with no backslash"
+has "${AS}" 'name: valueFiles, string: "hangar-prod/base.yaml,hangar-prod/\{\{.env\}\}/values.yaml,hangar-prod/\{\{.env\}\}/release.yaml"' \
+  "gate on: the plugin gets all three value files and skips absent ones (the Helm source's ignoreMissingValueFiles)"
+has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'name: clearance-cmp' "gate on: repo-server has the plugin sidecar"
+has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
+has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'audience: clearance' "gate on: the clearance token is a projected, audience-bound service-account token"
+if grep -n 'clearance-cmp\|name: clearance$' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml" "${TMP}/lab/prod/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" | grep -v '^[^:]*:[0-9]*: *#' | grep -q .; then
+  bad "gate off: the plugin leaked into a cluster that did not ask for it"
+else
+  ok "gate off: no sidecar and no plugin source"
+fi
+new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
+render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"
+new "${TMP}/gate-noimg" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set clearance.gate.enabled=true
+if python3 hack/render.py --cluster "${TMP}/gate-noimg/cluster.yaml" >/dev/null 2>&1; then
+  bad "gate on without the images rendered"
+else
+  ok "gate on without versions.clearance.cmpImage and waitImage is refused"
 fi
 
 echo "== 2. re-render"
