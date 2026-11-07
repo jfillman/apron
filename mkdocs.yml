@@ -7,6 +7,7 @@ nav:
   - After apron up: after-up.md
   - The fleet file (clusters.yaml): clusters-file.md
   - Cluster identity: cluster-identity.md
+  - Signing PKI (C-2a): signing-pki.md
 
 plugins:
   - techdocs-core

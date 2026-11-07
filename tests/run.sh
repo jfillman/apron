@@ -245,6 +245,39 @@ mkdir -p "${F}/dev"
 render_ok "${F}/dev" "dev flight keys"
 expect "${F}/dev" "dev flight keys" "!${FP}"
 
+echo "== 1a. signing PKI (C-2a: off by default; the flags render the public chain, the trusted root and Clearance's keyless wiring)"
+SIGOFF="${LAB}/dev"
+if grep -q '^sigstore:' "${SIGOFF}/50-glidepath/glidepath-control-plane/values.yaml"; then bad "signing off: managedKeys rendered"; else ok "signing off: the control plane keeps its bootstrap hooks"; fi
+if grep -rq 'fulcio-server.fulcio-system\|keyless:' "${SIGOFF}/55-clearance"; then bad "signing off: keyless wiring rendered"; else ok "signing off: Clearance attests nothing"; fi
+SG="${TMP}/signing"
+new "${SG}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme \
+  --tower-cluster hangar-prod --set signing.managedKeys=true --set signing.trustedRoot=true --set clearance.attestation.keyless=true
+if python3 hack/render.py --cluster "${SG}/cluster.yaml" >"${TMP}/sg-out" 2>&1; then bad "signing on without signing-pki/: rendered"; else
+  ok "signing on without signing-pki/: refused ($(grep -o 'signing-pki/[a-z.-]* is missing' "${TMP}/sg-out" | head -1))"; fi
+mkdir -p "${SG}/signing-pki"
+printf -- '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n' >"${SG}/signing-pki/fulcio-chain.pem"
+printf '{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"}\n' >"${SG}/signing-pki/trusted-root.json"
+render_ok "${SG}" "signing on"
+V="${SG}/50-glidepath/glidepath-control-plane/values.yaml"
+has "${V}" '^    enabled: true$' "signing on: sigstore.managedKeys.enabled"
+has "${V}" '^    rootCaPem: "-----BEGIN CERTIFICATE-----\\nAAAA' "signing on: the chain is the cluster repo's fulcio-chain.pem"
+has "${V}" '^    trustedRootJson: "\{' "signing on: the trusted root is published"
+C="${SG}/55-clearance/clearance/application.yaml"
+has "${C}" 'fulcioUrl: "http://fulcio-server.fulcio-system.svc"' "keyless: the in-cluster Fulcio"
+has "${C}" 'rekorUrl: "http://rekor-server.rekor-system.svc"' "keyless: the in-cluster Rekor"
+has "${C}" 'audience: "sigstore"' "keyless: the audience Fulcio's issuer entry expects"
+has "${C}" 'kubernetes.io/metadata.name: fulcio-system' "keyless: egress to fulcio-system"
+has "${C}" 'port: 5555' "keyless: egress on Fulcio's pod port"
+has "${C}" 'port: 3000' "keyless: egress on Rekor's pod port"
+printf -- '-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n' >"${SG}/signing-pki/fulcio-chain.pem"
+if python3 hack/render.py --cluster "${SG}/cluster.yaml" >"${TMP}/sg-out" 2>&1; then bad "a private key in signing-pki/: rendered"; else ok "a private key in signing-pki/: refused"; fi
+# hack/build-trust-root.sh refuses a private key too, before it needs clearance
+mkdir -p "${TMP}/bt/signing-pki"
+for f in root.pem intermediate.pem rekor.pub legacy-fulcio-root.pem legacy-rekor.pub; do echo x >"${TMP}/bt/signing-pki/${f}"; done
+echo '-----BEGIN PRIVATE KEY-----' >"${TMP}/bt/signing-pki/root.pem"
+if hack/build-trust-root.sh "${TMP}/bt" --new-start 2026-11-10T00:00:00Z --legacy-end 2026-11-10T02:00:00Z >/dev/null 2>"${TMP}/bt-err"; then
+  bad "build-trust-root.sh accepted a private key"; else ok "build-trust-root.sh refuses a private key: $(head -1 "${TMP}/bt-err" | cut -c1-70)"; fi
+
 echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
 GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
   --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
@@ -327,6 +360,10 @@ refuse "providerGithub off the control plane" "${P}" 'components: {crossplane: {
 refuse "glidepath off the control plane" "${P}" 'components: {glidepath: true}'
 refuse "autopilot off the control plane" "${P}" 'components: {autopilot: true}'
 refuse "scope full off the control plane" "${P}" 'components: {serviceCatalog: {enabled: true, scope: full}}'
+refuse "signing.managedKeys off the control plane" "${P}" 'signing: {managedKeys: true}'
+refuse "signing.trustedRoot off the control plane" "${P}" 'signing: {trustedRoot: true}'
+refuse "keyless attestation off the control plane" "${P}" 'clearance: {attestation: {keyless: true}}'
+refuse "keyless attestation without Clearance" "${D}" 'components: {clearance: false}' 'clearance: {attestation: {keyless: true}}'
 refuse "autopilot without the full catalog" "${D}" 'components: {serviceCatalog: {enabled: true, scope: attached-tier-only}}'
 refuse "a control plane in the upper zone" "${D}" 'zone: upper'
 refuse "an unknown role" "${P}" 'roles: [workloads, gateway]'

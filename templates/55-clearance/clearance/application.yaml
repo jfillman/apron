@@ -76,6 +76,19 @@ spec:
           # globs. Any other environment clears at tier 0 (unprotected) and is recorded; an empty list protects all.
           protectedEnvironments: @@CLEARANCE_PROTECTED_ENVIRONMENTS_LIST@@
           breakglassMaxTTL: "4h"
+#@if clearance.attestation.keyless
+        # Keyless change attestations (C-2a; clearance docs/core.md, "What keyless needs from C-2a"): the core asks this
+        # cluster's Fulcio for a short-lived certificate for its service account (SAN
+        # https://kubernetes.io/namespaces/<clearance namespace>/serviceaccounts/clearance-core, issuer @@ISSUER@@ unless
+        # the cluster still signs under the default one) and logs the DSSE envelope in this cluster's Rekor. The token is
+        # projected with audience sigstore, the client-id of the issuer's entry in Fulcio's config. Both are in-cluster
+        # Services over plain HTTP (clearance accepts that for <svc>.<ns>.svc). Egress to them is under networkPolicy.
+        attestation:
+          rekorUrl: "@@CLEARANCE_REKOR_URL@@"
+          keyless:
+            fulcioUrl: "@@CLEARANCE_FULCIO_URL@@"
+            audience: "@@CLEARANCE_ATTEST_AUDIENCE@@"
+#@end
 #@if clearance.signingKey
         # The clearance token's signing key (clearance-config signing-key.yaml, from Infisical clearance-signing-key).
         signing:
@@ -171,6 +184,16 @@ spec:
                 - podSelector: {matchLabels: {app.kubernetes.io/name: people-dex}}
               ports: [{protocol: TCP, port: 5556}]
             - ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 80}]
+#@if clearance.attestation.keyless
+            # Fulcio (fulcio-system, its pod port 5555) and Rekor (rekor-system, 3000): the Services map 80 to these, and
+            # NetworkPolicy matches the pod's port.
+            - to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: fulcio-system}}
+              ports: [{protocol: TCP, port: 5555}]
+            - to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rekor-system}}
+              ports: [{protocol: TCP, port: 3000}]
+#@end
   destination:
     server: https://kubernetes.default.svc
     namespace: "@@CLEARANCE_NAMESPACE@@"

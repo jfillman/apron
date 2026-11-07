@@ -21,10 +21,31 @@ from apronlib import ROOT, ApronError, evaluate, get, resolve  # noqa: E402
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
-KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml"}
+# signing-pki/ holds the cluster's public certificates (docs/signing-pki.md): committed by hand, never rendered over.
+KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml", "signing-pki"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
 MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL"}
+
+
+def signing_file(v, name):
+    """A public file from the cluster repo's signing-pki/ directory (render() sets v["_dir"]), as a JSON string: valid
+    YAML double-quoted, so a PEM bundle or a JSON document goes into a values file on one line. "" without a directory
+    (a test that only lists the tokens); a missing or empty file is an error, because the flag that reads it is on."""
+    d = v.get("_dir")
+    if not d:
+        return ""
+    path = os.path.join(d, "signing-pki", name)
+    try:
+        with open(path) as fh:
+            text = fh.read()
+    except OSError:
+        raise ApronError(f"signing-pki/{name} is missing in {d}: build it with hack/build-trust-root.sh (docs/signing-pki.md)")
+    if not text.strip():
+        raise ApronError(f"signing-pki/{name} is empty")
+    if "PRIVATE KEY" in text:
+        raise ApronError(f"signing-pki/{name} holds a private key: only public certificates and keys belong here")
+    return json.dumps(text)
 
 
 def tokens(v):
@@ -115,6 +136,7 @@ def tokens(v):
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
         **flight_admission_tokens(g),
+        **signing_tokens(v, g),
         **clearance_tokens(g),
         **clearance_gate_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
@@ -168,6 +190,18 @@ def traefik_lb_tokens(g):
         "TRAEFIK_LB_SCHEME": g("traefik.loadBalancer.scheme", "") or "internet-facing",
         "TRAEFIK_LB_CERT_ARN": g("traefik.loadBalancer.certificateArn", "") or "",
         "TRAEFIK_LB_SOURCE_RANGES": json.dumps(list(g("traefik.loadBalancer.sourceRanges", None) or [])),
+    }
+
+
+def signing_tokens(v, g):
+    """The Hangar signing PKI (C-2a, docs/signing-pki.md): the public chain and trusted root from signing-pki/, read only
+    while the flag that uses each is on, and where Clearance's keyless attestation finds the platform's Fulcio and Rekor."""
+    return {
+        "SIGNING_FULCIO_CHAIN": signing_file(v, "fulcio-chain.pem") if g("signing.managedKeys") else "",
+        "SIGNING_TRUSTED_ROOT": signing_file(v, "trusted-root.json") if g("signing.trustedRoot") else "",
+        "CLEARANCE_FULCIO_URL": g("clearance.attestation.fulcioUrl", "") or "http://fulcio-server.fulcio-system.svc",
+        "CLEARANCE_REKOR_URL": g("clearance.attestation.rekorUrl", "") or "http://rekor-server.rekor-system.svc",
+        "CLEARANCE_ATTEST_AUDIENCE": g("clearance.attestation.audience", "") or "sigstore",
     }
 
 
@@ -349,6 +383,7 @@ def render_text(text, rel, v, toks, errors):
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
+    v = dict(v, _dir=os.path.abspath(out_dir))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):

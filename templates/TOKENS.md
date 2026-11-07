@@ -154,3 +154,13 @@ protect ClusterIP-only databases and are committed in the cluster repo by design
 |---|---|
 | `@@INFISICAL_PG_PASSWORD@@`, `@@INFISICAL_REDIS_PASSWORD@@` | `generated.infisicalPgPassword` / `infisicalRedisPassword` (Infisical host) |
 | `@@REKOR_MYSQL_PASSWORD@@`, `@@REKOR_MYSQL_ROOT_PASSWORD@@` | `generated.rekorMysqlPassword` / `rekorMysqlRootPassword` (Glidepath) |
+
+## Signing PKI (C-2a, off by default)
+
+| Token | Value from |
+|---|---|
+| `@@SIGNING_FULCIO_CHAIN@@` | `signing-pki/fulcio-chain.pem` in the cluster repo (the new Fulcio chain, intermediate then root, public), as a JSON string; read only with `signing.managedKeys` |
+| `@@SIGNING_TRUSTED_ROOT@@` | `signing-pki/trusted-root.json` (the Sigstore TrustedRoot, public), as a JSON string; read only with `signing.trustedRoot` |
+| `@@CLEARANCE_FULCIO_URL@@` | `clearance.attestation.fulcioUrl`, default `http://fulcio-server.fulcio-system.svc` |
+| `@@CLEARANCE_REKOR_URL@@` | `clearance.attestation.rekorUrl`, default `http://rekor-server.rekor-system.svc` |
+| `@@CLEARANCE_ATTEST_AUDIENCE@@` | `clearance.attestation.audience`, default `sigstore` (the client-id in Fulcio's issuer entry) |
