@@ -57,7 +57,9 @@ def run(rendered, agent, deny):
 
         need(["apply", "-f", str(gate / "clearancegrant-crd.yaml")])
         need(["wait", "--for=condition=Established", "crd/clearancegrants.clearance.hangar.io", "--timeout=60s"])
-        for who in (ARGO, agent, "system:serviceaccount:default:other"):
+        # RBAC allows every account the checks use (the default agent name too), so only the policies can refuse.
+        for who in {ARGO, agent, "system:serviceaccount:default:other",
+                    "system:serviceaccount:clearance-system:clearance-argocd-agent"}:
             need(["create", "clusterrolebinding", "t-" + who.split(":")[-1], "--clusterrole=cluster-admin", "--user=" + who])
         need(["create", "-f", "-"], {"apiVersion": "v1", "kind": "Namespace",
                                      "metadata": {"name": "prot", "labels": {"clearance.hangar.io/protected": "true"}}})
@@ -89,7 +91,8 @@ def run(rendered, agent, deny):
         if deny:  # the default agent name is not the writer once agentServiceAccount is set
             ok, out = k.kubectl(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p",
                                  '{"status":{"valid":true}}'], as_user="system:serviceaccount:clearance-system:clearance-argocd-agent")
-            check("the default agent account is not the writer when the account is configured", not ok, out)
+            check("the default agent account is not the writer when the account is configured (the policy, not RBAC)",
+                  not ok and "clearance-grant-writer" in out and "only the Clearance grant-sync agent" in out, out)
         need(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p", '{"status":{"valid":true}}'], as_user=agent)
         ok, out = k.kubectl(["create", "-f", "-"], cm("ok", H), ARGO)
         check("a listed object at its hash is admitted without a warning", ok and "Warning" not in out, out)
