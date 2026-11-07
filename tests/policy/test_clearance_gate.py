@@ -37,7 +37,9 @@ def wait_job(name, image):
     return {"apiVersion": "batch/v1", "kind": "Job",
             "metadata": {"name": name, "namespace": "prot", "labels": {"clearance.hangar.io/injected": "wait"},
                          "annotations": {"argocd.argoproj.io/hook": "PreSync"}},
-            "spec": {"template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "w", "image": image}]}}}}
+            "spec": {"template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "w", "image": image}],
+                                           "volumes": [{"name": "t", "projected": {"sources": [
+                                               {"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}}}}
 
 
 def run(rendered, agent, deny):

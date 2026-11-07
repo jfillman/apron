@@ -128,7 +128,7 @@ G-ARGO-2) into `56-clearance-gate/`: the `ClearanceGrant` CRD and two native Val
 `clearance.hangar.io/protected=true` only if the object carries the CMP's `clearance.hangar.io/rendered` stamp and the
 namespace's one active, valid grant lists it at that hash; `clearance-grant-writer` lets only the grant-sync agent write
 grants. Both match one service account, so no other writer is touched. The policy also exempts the plugin's injected
-`clearance.hangar.io/injected: wait` PreSync Job, but only a one-container Job with no volumes or command whose image is
+`clearance.hangar.io/injected: wait` PreSync Job, but only a one-container Job with no command, no host namespaces and no volume but the audience-`clearance` token, whose image is
 **exactly** `versions.clearance.waitImage` (the digest the plugin injects; required with `clearance.gate.enabled`).
 
 | Key | Renders | Turn it on when |
