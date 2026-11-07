@@ -34,13 +34,15 @@ def cm(name, rendered=None):
 WAIT = "registry.invalid/clearance-wait@sha256:" + "1" * 64
 
 
-def wait_job(name, image, url, args=None, env_url=None, alias=False):
+def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=None, pod_extra=None):
     """The Job as the plugin builds it (clearance providers/argocd/cmp/job.go), with at most one deviation."""
-    spec = {"restartPolicy": "Never", "containers": [{
+    spec = {"restartPolicy": "Never", "automountServiceAccountToken": False, "containers": [{
         "name": "w", "image": image, "args": args or ["--change", "ch-1", "--timeout", "1h0m0s"],
         "env": [{"name": "CLEARANCE_URL", "value": env_url or url},
                 {"name": "CLEARANCE_TOKEN_FILE", "value": "/var/run/secrets/tokens/clearance"}]}],
-        "volumes": [{"name": "t", "projected": {"sources": [{"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}
+        "volumes": [{"name": "clearance-token", "projected": {"sources": [{"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}
+    spec["containers"][0].update(ctr_extra or {})
+    spec.update(pod_extra or {})
     if alias:
         spec["hostAliases"] = [{"ip": "10.9.9.9", "hostnames": ["x.invalid"]}]
     return {"apiVersion": "batch/v1", "kind": "Job",
@@ -116,7 +118,10 @@ def run(rendered, agent, deny):
         for what, job in (("another image", wait_job("wait-bad", "busybox", url)),
                           ("an extra --url arg", wait_job("wait-args", WAIT, url, args=["--change", "c", "--timeout", "1h", "--url", "http://evil"])),
                           ("CLEARANCE_URL pointed elsewhere", wait_job("wait-url", WAIT, url, env_url="http://evil.example")),
-                          ("hostAliases when none is pinned", wait_job("wait-alias", WAIT, url, alias=True))):
+                          ("hostAliases when none is pinned", wait_job("wait-alias", WAIT, url, alias=True)),
+                          ("a livenessProbe", wait_job("wait-probe", WAIT, url, ctr_extra={"livenessProbe": {"exec": {"command": ["true"]}}})),
+                          ("a serviceAccountName", wait_job("wait-sa", WAIT, url, pod_extra={"serviceAccountName": "default"})),
+                          ("a dnsConfig", wait_job("wait-dns", WAIT, url, pod_extra={"dnsConfig": {"nameservers": ["10.9.9.9"]}}))):
             ok, out = k.kubectl(["create", "-f", "-"], job, ARGO)
             check(f"a labelled Job with {what} is " + ("refused" if deny else "warned"),
                   (not ok and "clearance-protected-writes" in out) if deny else (ok and "Warning" in out), out)
