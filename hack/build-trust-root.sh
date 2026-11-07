@@ -14,7 +14,7 @@
 # Outputs: fulcio-chain.pem (intermediate then root, what Fulcio serves and fulcio-root-ca publishes) and trusted-root.json.
 # The windows: the new chain and key are trusted from --new-start; the legacy root and key until --legacy-end, which must
 # be after the last signature the old Fulcio and Rekor make (the flip, plus an hour).
-# Needs `clearance` on PATH (a release asset of jfillman/clearance, v0.34.0 or later).
+# Needs `clearance` on PATH (a release asset of jfillman/clearance, from the release that contains clearance#77).
 set -euo pipefail
 dir="${1:?usage: $0 <cluster repo dir> --new-start T --legacy-end T}"; shift
 new_start="" legacy_end="" fulcio_url="http://fulcio-server.fulcio-system.svc" rekor_url="http://rekor-server.rekor-system.svc"

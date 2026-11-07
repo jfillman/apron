@@ -11,7 +11,7 @@ the Apron side: the flags, the files and what each one renders.
 |---|---|---|
 | `signing.trustedRoot: true` | `sigstore.managedKeys.trustedRootJson` in the control plane's values: the ConfigMap `hangar-trusted-root` (platform-catalog), the Sigstore TrustedRoot every Glidepath verify task and `glidepath-api` prefer when it exists | `signing-pki/trusted-root.json` |
 | `signing.managedKeys: true` | `sigstore.managedKeys.enabled` and `rootCaPem`: the bootstrap hooks stop minting, ExternalSecrets build `fulcio-secret`, `fulcio-server-config` and `rekor-signer` from Infisical, and `fulcio-root-ca` becomes the new chain | `signing-pki/fulcio-chain.pem`, the four Infisical entries below |
-| `clearance.attestation.keyless: true` | the Clearance chart's `attestation.keyless.fulcioUrl`, `attestation.rekorUrl`, `attestation.keyless.audience`, and the core's egress to Fulcio (fulcio-system, 5555) and Rekor (rekor-system, 3000) | `components.clearance`, a Clearance chart that accepts in-cluster `http` URLs (clearance v0.34.0 or later), Fulcio and Rekor on this cluster (`components.glidepath`) |
+| `clearance.attestation.keyless: true` | the Clearance chart's `attestation.keyless.fulcioUrl`, `attestation.rekorUrl`, `attestation.keyless.audience`, and the core's egress to Fulcio (fulcio-system, 5555) and Rekor (rekor-system, 3000) | `components.clearance`, a Clearance chart that accepts in-cluster `http` URLs (the clearance release that contains jfillman/clearance#77), Fulcio and Rekor on this cluster (`components.glidepath`) |
 
 `clearance.attestation.fulcioUrl`, `.rekorUrl` and `.audience` override the defaults (`http://fulcio-server.fulcio-system.svc`,
 `http://rekor-server.rekor-system.svc`, `sigstore`). `apron check` refuses each flag off the control plane.
