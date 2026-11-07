@@ -36,8 +36,11 @@ WAIT = "registry.invalid/clearance-wait@sha256:" + "1" * 64
 
 def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=None, pod_extra=None):
     """The Job as the plugin builds it (clearance providers/argocd/cmp/job.go), with at most one deviation."""
-    spec = {"restartPolicy": "Never", "automountServiceAccountToken": False, "containers": [{
-        "name": "w", "image": image, "args": args or ["--change", "ch-1", "--timeout", "1h0m0s"],
+    spec = {"restartPolicy": "Never", "automountServiceAccountToken": False,
+            "securityContext": {"runAsNonRoot": True, "runAsUser": 65532, "runAsGroup": 65532,
+                                "seccompProfile": {"type": "RuntimeDefault"}}, "containers": [{
+        "name": "w", "image": image, "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
+                                                         "capabilities": {"drop": ["ALL"]}}, "args": args or ["--change", "ch-1", "--timeout", "1h0m0s"],
         "env": [{"name": "CLEARANCE_URL", "value": env_url or url},
                 {"name": "CLEARANCE_TOKEN_FILE", "value": "/var/run/secrets/tokens/clearance"}]}],
         "volumes": [{"name": "clearance-token", "projected": {"sources": [{"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}
@@ -121,6 +124,10 @@ def run(rendered, agent, deny):
                           ("hostAliases when none is pinned", wait_job("wait-alias", WAIT, url, alias=True)),
                           ("a livenessProbe", wait_job("wait-probe", WAIT, url, ctr_extra={"livenessProbe": {"exec": {"command": ["true"]}}})),
                           ("a serviceAccountName", wait_job("wait-sa", WAIT, url, pod_extra={"serviceAccountName": "default"})),
+                          ("runAsUser 0", wait_job("wait-root", WAIT, url, pod_extra={"securityContext": {"runAsNonRoot": False, "runAsUser": 0, "runAsGroup": 65532,
+                                                                                         "seccompProfile": {"type": "RuntimeDefault"}}})),
+                          ("seccomp Unconfined", wait_job("wait-seccomp", WAIT, url, pod_extra={"securityContext": {"runAsNonRoot": True, "runAsUser": 65532,
+                                                          "runAsGroup": 65532, "seccompProfile": {"type": "Unconfined"}}})),
                           ("a dnsConfig", wait_job("wait-dns", WAIT, url, pod_extra={"dnsConfig": {"nameservers": ["10.9.9.9"]}}))):
             ok, out = k.kubectl(["create", "-f", "-"], job, ARGO)
             check(f"a labelled Job with {what} is " + ("refused" if deny else "warned"),
