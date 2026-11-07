@@ -206,6 +206,8 @@ spec:
               - {name: chartRepo, string: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'}
               - {name: chartRevision, string: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'}
               - {name: chartPath, string: '{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}'}
+              # The Helm source had ignoreMissingValueFiles: the plugin skips every value file that is absent (an app with no
+              # base.yaml or release.yaml yet still renders), so all three paths are listed, as above.
               - {name: valueFiles, string: "@@CLUSTER_NAME@@/base.yaml,@@CLUSTER_NAME@@/{{.env}}/values.yaml,@@CLUSTER_NAME@@/{{.env}}/release.yaml"}
               - {name: kustomizeDir, string: '{{ if and (hasKey . "configMapGenerator") .configMapGenerator }}@@CLUSTER_NAME@@/{{.env}}/configmap{{ end }}'}
               # The platform-injected values: what the Helm source's valuesObject above says, as JSON (last, so they win).
