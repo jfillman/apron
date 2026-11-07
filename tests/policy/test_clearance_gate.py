@@ -10,6 +10,7 @@ WARN_DIR / ENFORCE_DIR are rendered cluster repos (tests/run.sh renders them; th
 agentServiceAccount clearance-system:the-agent). Without KUBEBUILDER_ASSETS it prints "skipped" and exits 0.
 """
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -33,19 +34,26 @@ def cm(name, rendered=None):
 WAIT = "registry.invalid/clearance-wait@sha256:" + "1" * 64
 
 
-def wait_job(name, image):
+def wait_job(name, image, url, args=None, env_url=None, alias=False):
+    """The Job as the plugin builds it (clearance providers/argocd/cmp/job.go), with at most one deviation."""
+    spec = {"restartPolicy": "Never", "containers": [{
+        "name": "w", "image": image, "args": args or ["--change", "ch-1", "--timeout", "1h0m0s"],
+        "env": [{"name": "CLEARANCE_URL", "value": env_url or url},
+                {"name": "CLEARANCE_TOKEN_FILE", "value": "/var/run/secrets/tokens/clearance"}]}],
+        "volumes": [{"name": "t", "projected": {"sources": [{"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}
+    if alias:
+        spec["hostAliases"] = [{"ip": "10.9.9.9", "hostnames": ["x.invalid"]}]
     return {"apiVersion": "batch/v1", "kind": "Job",
             "metadata": {"name": name, "namespace": "prot", "labels": {"clearance.hangar.io/injected": "wait"},
                          "annotations": {"argocd.argoproj.io/hook": "PreSync"}},
-            "spec": {"template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "w", "image": image}],
-                                           "volumes": [{"name": "t", "projected": {"sources": [
-                                               {"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}}}}
+            "spec": {"template": {"spec": spec}}}
 
 
 def run(rendered, agent, deny):
     res = []
     mode = "Deny" if deny else "Warn"
     gate = Path(rendered) / "56-clearance-gate"
+    url = re.search(r"value == '(http[^']+)'", (gate / "admission.yaml").read_text()).group(1)  # the pinned core URL
     with Apiserver(os.environ["KUBEBUILDER_ASSETS"]) as k:
         def need(args, doc=None, as_user=None):
             ok, out = k.kubectl(args, doc, as_user)
@@ -103,11 +111,15 @@ def run(rendered, agent, deny):
             check("an unlisted object is refused", not ok and "does not list /ConfigMap/unlisted" in out, out)
         else:
             check("an unlisted object is admitted with a warning", ok and "does not list /ConfigMap/unlisted" in out, out)
-        ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-ok", WAIT), ARGO)
-        check("the pinned wait Job is admitted without a stamp", ok and "Warning" not in out, out)
-        ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-bad", "busybox"), ARGO)
-        check("a labelled Job with another image is " + ("refused" if deny else "warned"),
-              (not ok) if deny else (ok and "Warning" in out), out)
+        ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-ok", WAIT, url), ARGO)
+        check("the Job exactly as the plugin builds it is admitted without a stamp", ok and "Warning" not in out, out)
+        for what, job in (("another image", wait_job("wait-bad", "busybox", url)),
+                          ("an extra --url arg", wait_job("wait-args", WAIT, url, args=["--change", "c", "--timeout", "1h", "--url", "http://evil"])),
+                          ("CLEARANCE_URL pointed elsewhere", wait_job("wait-url", WAIT, url, env_url="http://evil.example")),
+                          ("hostAliases when none is pinned", wait_job("wait-alias", WAIT, url, alias=True))):
+            ok, out = k.kubectl(["create", "-f", "-"], job, ARGO)
+            check(f"a labelled Job with {what} is " + ("refused" if deny else "warned"),
+                  (not ok and "clearance-protected-writes" in out) if deny else (ok and "Warning" in out), out)
         ok, out = k.kubectl(["create", "-f", "-"], cm("by-other"), "system:serviceaccount:default:other")
         check("another writer is not matched", ok and "Warning" not in out, out)
         k.kubectl(["delete", "clearancegrant", "g1", "-n", "prot"])

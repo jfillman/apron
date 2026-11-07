@@ -127,9 +127,11 @@ G-ARGO-2) into `56-clearance-gate/`: the `ClearanceGrant` CRD and two native Val
 `clearance-protected-writes` lets Argo CD's application controller write to a namespace labelled
 `clearance.hangar.io/protected=true` only if the object carries the CMP's `clearance.hangar.io/rendered` stamp and the
 namespace's one active, valid grant lists it at that hash; `clearance-grant-writer` lets only the grant-sync agent write
-grants. Both match one service account, so no other writer is touched. The policy also exempts the plugin's injected
-`clearance.hangar.io/injected: wait` PreSync Job, but only a one-container Job with no command, no host namespaces and no volume but the audience-`clearance` token, whose image is
-**exactly** `versions.clearance.waitImage` (the digest the plugin injects; required with `clearance.gate.enabled`).
+grants. Both match one service account, so no other writer is touched. The policy also exempts the plugin's injected `clearance.hangar.io/injected: wait` PreSync Job, but only the Job exactly
+as the plugin builds it: the image **exactly** `versions.clearance.waitImage` (required with `clearance.gate.enabled`),
+args `--change <id> --timeout <d>` only, `CLEARANCE_URL` pinned to `clearance.gate.url`, `hostAliases` pinned to
+`clearance.gate.hostAlias`, no command, `envFrom`, host namespace, privileged container or volume besides the
+audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable).
 
 | Key | Renders | Turn it on when |
 |---|---|---|
