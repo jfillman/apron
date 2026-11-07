@@ -69,9 +69,17 @@ def run(rendered, agent, deny):
         k.kubectl(["delete", "clearancegrant", "g1", "-n", "prot", "--ignore-not-found"])
         time.sleep(2)
         check("the configured agent account creates the grant", k.kubectl(["create", "-f", "-"], grant, agent)[0])
-        check("the default agent account is not the writer here" if agent.endswith("the-agent") else "another account is not the writer",
-              (not deny) or not k.kubectl(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p",
-                                           '{"status":{"valid":true}}'], as_user="system:serviceaccount:clearance-system:clearance-argocd-agent")[0])
+        ok, out = k.kubectl(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p",
+                             '{"status":{"valid":true}}'], as_user="system:serviceaccount:default:other")  # always sent
+        if deny:
+            check("a non-agent account cannot write grant status", not ok and "only the Clearance grant-sync agent" in out, out)
+        else:
+            check("a non-agent grant-status write is admitted with the policy warning",
+                  ok and "clearance-grant-writer" in out and "only the Clearance grant-sync agent" in out, out)
+        if deny:  # the default agent name is not the writer once agentServiceAccount is set
+            ok, out = k.kubectl(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p",
+                                 '{"status":{"valid":true}}'], as_user="system:serviceaccount:clearance-system:clearance-argocd-agent")
+            check("the default agent account is not the writer when the account is configured", not ok, out)
         need(["patch", "clearancegrant", "g1", "-n", "prot", "--subresource=status", "--type=merge", "-p", '{"status":{"valid":true}}'], as_user=agent)
         ok, out = k.kubectl(["create", "-f", "-"], cm("ok", H), ARGO)
         check("a listed object at its hash is admitted without a warning", ok and "Warning" not in out, out)
