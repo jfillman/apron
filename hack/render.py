@@ -234,10 +234,11 @@ def clearance_gate_tokens(g):
     checked when it is on."""
     on = bool(g("clearance.gate.enabled", False))
     envs = list(g("clearance.protectedEnvironments", None) or [])
-    for e in envs:
-        if str(e).count("/") != 1:
-            raise ApronError(f"clearance.protectedEnvironments: {e!r} is '<cluster glob>/<env glob>'")
-    regex = "|".join(_glob_regex(str(e)) for e in envs) if envs else "^.*$"
+    if on:  # a cluster that does not turn the gate on is not held to the gate's reading of the key
+        for e in envs:
+            if str(e).count("/") != 1:
+                raise ApronError(f"clearance.protectedEnvironments: {e!r} is '<cluster glob>/<env glob>'")
+    regex = "|".join(_glob_regex(str(e)) for e in envs) if envs and on else "^.*$"
     cmp_image, wait_image = g("versions.clearance.cmpImage", "") or "", g("versions.clearance.waitImage", "") or ""
     if on and not (cmp_image and wait_image):
         raise ApronError("clearance.gate.enabled needs versions.clearance.cmpImage and waitImage (the plugin sidecar and "

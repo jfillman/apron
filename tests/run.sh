@@ -262,6 +262,9 @@ if grep -n 'clearance-cmp\|name: clearance$' "${TMP}/lab/prod/01-argocd-platform
 else
   ok "gate off: no sidecar and no plugin source"
 fi
+new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
+render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"
 new "${TMP}/gate-noimg" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set clearance.gate.enabled=true
 if python3 hack/render.py --cluster "${TMP}/gate-noimg/cluster.yaml" >/dev/null 2>&1; then
