@@ -12,13 +12,15 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.32.0
-    imageDigest: sha256:4eb357dd08d56516d8ac1314fc18fa2a662772d36bd88528eee645668808f733
+    chart: 0.33.0
+    imageDigest: sha256:41412f9a7cacd44390ee853423fd9f83efd3017bb8f60f3125d458e548587788
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
-    # by digest, from the clearance release that first publishes them. Unset until then; the gate refuses to render
-    # without them.
-    # cmpImage: ghcr.io/<owner>/clearance-cmp@sha256:...
-    # waitImage: ghcr.io/<owner>/clearance-wait@sha256:...
+    # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:909c6596fb7e31735b2f352152c543b926ea4c744a0e48b11da4b8b3a372696f
+    waitImage: ghcr.io/jfillman/clearance-wait@sha256:6e2a86346d61f03e64997e5cfa131d5e5a5c24c54d7958d167e4e0d22477740b
+    # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
+    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:e2b0be12a6bbdd56d3a99d07b1319f12944a08a00dd3246b6c236bad38bbe7e5
+    argocdAgentChart: 0.33.0
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.4.2
