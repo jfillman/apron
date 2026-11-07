@@ -71,6 +71,30 @@ cluster's registry record has `airframe.autopilotReady`, set after autopilot's `
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
 
+## Clearance's Argo CD gate (`clearance.gate`, Draft)
+
+`clearance.gate.enabled: true` puts Clearance's Config Management Plugin in front of every protected tenant
+Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
+
+- argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
+  container that mounts the clearance token (a projected service-account token, audience `clearance`).
+- the tenant-onboarding ApplicationSet gives an environment the gate covers one source, the plugin
+  (`plugin.name: clearance`) on the app's gitops repo, in place of the Helm source and its `$appsrc` ref. The
+  plugin fetches the same chart at the same pinned tag and renders it with the same value files and platform values.
+  An environment is covered when `<cluster>/<env>` matches `clearance.protectedEnvironments` (every environment when
+  that is empty); an environment on a registry (OCI) chart keeps the Helm source.
+
+| `cluster.yaml` key | |
+|---|---|
+| `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
+| `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
+| `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
+| `clearance.gate.hostAlias` | `ip=host[,host]` for the wait Job's pod when the core is on another cluster |
+
+Not part of this change, and needed before a protected sync works on another cluster (hangar-prod): the core's
+foreign-workload and verifier lists, the route allowlist, the repo-server's hostAlias and egress, and admission's
+exemption for the injected wait Job. They are listed in clearance `docs/gate.md`.
+
 ## Check names (`pipelinesAsCode.applicationName`)
 
 Pipelines-as-Code names every check run `<application-name> / <gate>-`. Apron sets the name from `cluster.yaml`
