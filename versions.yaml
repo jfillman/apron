@@ -14,6 +14,11 @@ versions:
   clearance:
     chart: 0.32.0
     imageDigest: sha256:4eb357dd08d56516d8ac1314fc18fa2a662772d36bd88528eee645668808f733
+    # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
+    # by digest, from the clearance release that first publishes them. Unset until then; the gate refuses to render
+    # without them.
+    # cmpImage: ghcr.io/<owner>/clearance-cmp@sha256:...
+    # waitImage: ghcr.io/<owner>/clearance-wait@sha256:...
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.4.2

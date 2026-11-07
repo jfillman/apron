@@ -164,6 +164,45 @@ spec:
           livenessProbe:
             timeoutSeconds: 15
             failureThreshold: 5
+#@if clearance.gate.enabled
+          # Clearance's Config Management Plugin (G-ARGO-4; clearance docs/gate.md, "The Argo CD plugin"): the sidecar
+          # that renders a protected tenant Application, hashes the tree and asks the core whether it is cleared. It
+          # is its own minimal image, and the only container that mounts the clearance token (a projected
+          # service-account token, audience clearance: the core sees this repo-server's account,
+          # argocd-apps/argocd-apps-repo-server, as a verifier); it mounts no repository credential (the gitops repo
+          # is Argo CD's to fetch). plugin.yaml is baked into the image.
+          extraContainers:
+            - name: clearance-cmp
+              image: @@CLEARANCE_CMP_IMAGE@@
+              command: [/var/run/argocd/argocd-cmp-server]
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+                seccompProfile: {type: RuntimeDefault}
+              env:
+                - {name: CLEARANCE_URL, value: "@@CLEARANCE_GATE_URL@@"}
+                - {name: CLEARANCE_TOKEN_FILE, value: /var/run/secrets/tokens/clearance}
+                - {name: CLEARANCE_WAIT_IMAGE, value: "@@CLEARANCE_WAIT_IMAGE@@"}
+                - {name: CLEARANCE_WAIT_HOST_ALIAS, value: "@@CLEARANCE_GATE_HOST_ALIAS@@"}
+                - {name: CLEARANCE_CMP_CACHE_DIR, value: /tmp/clearance-cmp-cache}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+              volumeMounts:
+                - {name: var-files, mountPath: /var/run/argocd}
+                - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
+                - {name: cmp-tmp, mountPath: /tmp}
+                - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+          volumes:
+            - {name: cmp-tmp, emptyDir: {}}
+            - name: clearance-token
+              projected:
+                sources:
+                  - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance}
+#@end
         # One controller block for every cluster (it used to sit twice inside the
         # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
         # for the reason given at GOMEMLIMIT in 01-argocd-platform/install.yaml. This

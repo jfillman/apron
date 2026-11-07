@@ -67,6 +67,17 @@
 # verbatim inside the patch rather than trying to append just the 3rd - StrategicMerge-
 # Patch replaces `sources` wholesale (no patchMergeKey on that field), so a patch that
 # touches `sources` at all must carry the complete array every time.
+# Clearance's deployment gate (clearance.gate.enabled in cluster.yaml; clearance docs/gate.md, "The Argo CD plugin"):
+# an environment the gate protects (`<cluster>/<env>` matches clearance.protectedEnvironments, every environment when
+# that is empty) gets a different `sources` from templatePatch below: ONE source, the Clearance plugin
+# (`plugin.name: clearance`, the sidecar of argocd-apps' repo-server) on the app's gitops repo. The plugin replaces the
+# Helm source: a plugin source is handed only its own repository (no `$appsrc` ref), so it fetches the chart at the
+# pinned tag itself and renders it with the same value files and the same platform-injected values the Helm source
+# above carries (valuesJson is that valuesObject), under the release name and namespace Argo CD would use. The
+# `ref: appsrc` source is dropped (nothing reads it) and so is the configMapGenerator's directory source (the plugin
+# renders that directory with kustomize instead: a source the plugin does not render carries no stamp, and admission
+# refuses it). An environment on a registry (OCI) chart, which the plugin cannot fetch, keeps the Helm source and is
+# refused at admission once the gate enforces: set its chart to a git chart first.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -179,7 +190,32 @@ spec:
           # namespace isn't in the source manifests at all).
           - CreateNamespace=true
   templatePatch: |
+#@if clearance.gate.enabled
+    {{- if and (regexMatch "@@CLEARANCE_GATE_ENV_REGEX@@" (printf "%s/%s" "@@CLUSTER_NAME@@" .env)) (not (dig "chart" "chart" "" .)) }}
+    spec:
+      sources:
+        - repoURL: "{{.gitopsRepoUrl}}"
+          targetRevision: main
+          path: .
+          plugin:
+            name: clearance
+            parameters:
+              - {name: app, string: "{{.appName}}"}
+              - {name: env, string: "{{.env}}"}
+              - {name: cluster, string: "@@CLUSTER_NAME@@"}
+              - {name: chartRepo, string: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'}
+              - {name: chartRevision, string: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'}
+              - {name: chartPath, string: '{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}'}
+              - {name: valueFiles, string: "@@CLUSTER_NAME@@/base.yaml,@@CLUSTER_NAME@@/{{.env}}/values.yaml,@@CLUSTER_NAME@@/{{.env}}/release.yaml"}
+              - {name: kustomizeDir, string: '{{ if and (hasKey . "configMapGenerator") .configMapGenerator }}@@CLUSTER_NAME@@/{{.env}}/configmap{{ end }}'}
+              # The platform-injected values: what the Helm source's valuesObject above says, as JSON (last, so they win).
+              - name: valuesJson
+                string: '{{ toJson (dict "appName" .appName "cluster" "@@CLUSTER_NAME@@" "envName" .env "namespace" (dict "labels" (dict "hangar.io/managed-secrets" "true")) "observability" (dict "namespace" "__OBS_NAMESPACE__" "instrumentation" "__OBS_INSTRUMENTATION__" "runtime" (dig "runtime" "" .)) "serviceNamespacePattern" "__SERVICE_NAMESPACE_PATTERN__") }}'
+    {{- else if hasKey . "configMapGenerator" }}
+#@end
+#@if not clearance.gate.enabled
     {{- if hasKey . "configMapGenerator" }}
+#@end
     {{- if .configMapGenerator }}
     spec:
       sources:

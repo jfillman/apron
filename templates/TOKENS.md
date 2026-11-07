@@ -138,6 +138,11 @@ the render with `file:line`.
 | `@@CLEARANCE_GITHUB_WORKFLOWS_LIST@@` | `clearance.githubWorkflows` (else `autopilot.githubWorkflows`): globs on a GitHub Actions OIDC token's `sub` that may `clearance register` |
 | `@@CLEARANCE_RUNTIME_IMAGES_LIST@@` | `autopilot.customImages`, as the gate's `runtimeImagesExtra` |
 | `@@CLEARANCE_TRUSTED_REGISTRIES_LIST@@` | `clearance.trustedRegistries`, default `[<registries.flight.host>/<registries.flight.namespace>/]` (decided 2026-11-03): an image bump from them is tier 1, from anywhere else tier 2; each ends in `/` |
+| `@@CLEARANCE_GATE_ENV_REGEX@@` | the environments the Argo CD gate covers, from `clearance.protectedEnvironments` (`<cluster glob>/<env glob>`; empty: every environment), as one regex over `<cluster>/<env>` with no backslashes (`render.py` `_glob_regex`) - only under `#@if clearance.gate.enabled` |
+| `@@CLEARANCE_GATE_URL@@` | `clearance.gate.url`, default `http://clearance-core.<clearance namespace>.svc:8080`: the core as the plugin sidecar and the PreSync wait Job reach it |
+| `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
+| `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |
+| `@@CLEARANCE_WAIT_IMAGE@@` | `versions.clearance.waitImage`: the PreSync wait Job's image (`clearance-wait`, by digest); required with `clearance.gate.enabled` |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)
