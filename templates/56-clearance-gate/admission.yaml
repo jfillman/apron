@@ -1,0 +1,119 @@
+# The hard gate on a protected namespace of an upper cluster (clearance G-ARGO-2, Built; rendered from clearance
+# providers/argocd/crd/admission.yaml, keep in step). Native ValidatingAdmissionPolicy, in-process, no webhook.
+# clearance.gate.enforce picks the mode: Warn (validationActions [Warn, Audit], parameterNotFoundAction Allow, the
+# default) or Deny (both flipped together). With Deny and no active grant, every matched write in a protected
+# namespace is refused, from any user: the agent must create a namespace's grant BEFORE it is labelled
+# clearance.hangar.io/protected=true. The policies are applied after the ClearanceGrant CRD (sync waves).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: clearance-protected-writes
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: clearance
+spec:
+  failurePolicy: Fail
+  paramKind: {apiVersion: clearance.hangar.io/v1, kind: ClearanceGrant}
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {clearance.hangar.io/protected: "true"}
+    resourceRules:
+      # Namespaced main resources only: scope keeps cluster-scoped objects (a Namespace carrying the protected label
+      # itself is matched by namespaceSelector) out, where a namespaced param could not be resolved.
+      - apiGroups: ["*"]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: ["*"]
+        scope: Namespaced
+    # A Deny binding with no active grant refuses EVERY matched write in the namespace, whoever makes it: the API
+    # server resolves the param before it evaluates matchConditions (found by test_admission.py). So what the agent
+    # needs to bootstrap and what the control plane writes on its own, none of which Argo applies, is excluded.
+    excludeResourceRules:
+      - {apiGroups: ["clearance.hangar.io"], apiVersions: ["*"], operations: ["*"], resources: [clearancegrants, clearancegrants/status]}
+      - {apiGroups: [""], apiVersions: ["*"], operations: ["*"], resources: [events, endpoints]}
+      - {apiGroups: ["events.k8s.io"], apiVersions: ["*"], operations: ["*"], resources: [events]}
+      - {apiGroups: ["discovery.k8s.io"], apiVersions: ["*"], operations: ["*"], resources: [endpointslices]}
+      - {apiGroups: ["coordination.k8s.io"], apiVersions: ["*"], operations: ["*"], resources: [leases]}
+  matchConditions:
+    - name: argocd-application-controller-main-resource
+      expression: >-
+        has(request.userInfo) && has(request.userInfo.username) &&
+        request.userInfo.username == '@@CLEARANCE_GATE_ARGOCD_USER@@' &&
+        (!has(request.subResource) || request.subResource == '')
+  variables:
+    - name: ann
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+    - name: rendered
+      expression: "'clearance.hangar.io/rendered' in variables.ann ? variables.ann['clearance.hangar.io/rendered'] : ''"
+    - name: key
+      expression: >-
+        (has(object.apiVersion) && object.apiVersion.contains('/') ? object.apiVersion.split('/')[0] : '') + '/' +
+        (has(object.kind) ? object.kind : '') + '/' + (has(object.metadata.name) ? object.metadata.name : '')
+  validations:
+    - expression: "variables.rendered != ''"
+      messageExpression: "'no clearance.hangar.io/rendered annotation on ' + variables.key + ': it did not come from the Clearance plugin'"
+    - expression: "has(params.status) && has(params.status.valid) && params.status.valid"
+      messageExpression: "'grant ' + params.metadata.name + ' is not valid (expired or unverified)'"
+    - expression: >-
+        has(params.spec.objects) && variables.key in params.spec.objects &&
+        has(params.spec.objects[variables.key].rendered) &&
+        params.spec.objects[variables.key].rendered == variables.rendered
+      messageExpression: "'grant ' + params.metadata.name + ' does not list ' + variables.key + ' at ' + variables.rendered"
+  auditAnnotations:
+    - key: grant
+      valueExpression: "string(params.metadata.name)"
+---
+# One binding. paramRef by selector with no namespace: the grant is read from the admitted object's own namespace, and
+# the agent labels exactly one grant per protected namespace active (every selected grant must pass).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: clearance-protected-writes
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: clearance
+spec:
+  policyName: clearance-protected-writes
+  validationActions: @@CLEARANCE_GATE_ACTIONS@@
+  paramRef:
+    selector:
+      matchLabels: {clearance.hangar.io/active: "true"}
+    parameterNotFoundAction: @@CLEARANCE_GATE_PARAM_NOT_FOUND@@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: clearance-grant-writer
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: clearance
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["clearance.hangar.io"]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [clearancegrants, clearancegrants/status]
+  # No DELETE: the namespace controller deletes grants with their namespace and must not be refused.
+  matchConditions:
+    - name: has-user
+      expression: "has(request.userInfo) && has(request.userInfo.username)"
+  validations:
+    - expression: "request.userInfo.username == '@@CLEARANCE_GATE_AGENT_USER@@'"
+      messageExpression: "'only the Clearance grant-sync agent writes ClearanceGrants, not ' + request.userInfo.username"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: clearance-grant-writer
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: clearance
+spec:
+  policyName: clearance-grant-writer
+  validationActions: @@CLEARANCE_GATE_ACTIONS@@

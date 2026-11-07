@@ -1,0 +1,30 @@
+# The Clearance gate on an upper cluster (clearance G-ARGO-2): the ClearanceGrant CRD and the admission policies that
+# refuse an Argo CD write to a protected namespace unless Clearance's grant lists it. Plain-manifest directory source,
+# its own Application so a gate change never touches another component's sync. Rendered only when
+# clearance.gate.enabled on a zone == 'upper' cluster (templates/MANIFEST).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-gate
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 56-clearance-gate
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clearance-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

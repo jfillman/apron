@@ -96,6 +96,24 @@ and `promotion.promoter.repo` in `cluster.yaml`.
 
 hangar-prod: Audit 2026-10-29; `pullFromFlight` and `enforce` on since 2026-10-30.
 
+## Clearance gate (`clearance.gate`, upper clusters)
+
+On an upper cluster, Apron renders Clearance's deployment gate for Argo CD ([clearance docs/gate.md](https://github.com/jfillman/clearance/blob/main/docs/gate.md),
+G-ARGO-2) into `56-clearance-gate/`: the `ClearanceGrant` CRD and two native ValidatingAdmissionPolicies.
+`clearance-protected-writes` lets Argo CD's application controller write to a namespace labelled
+`clearance.hangar.io/protected=true` only if the object carries the CMP's `clearance.hangar.io/rendered` stamp and the
+namespace's one active, valid grant lists it at that hash; `clearance-grant-writer` lets only the grant-sync agent write
+grants. Both match one service account, so no other writer is touched.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
+| `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
+| `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`) | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
+
+`tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's
+`providers/argocd/crd/test_admission.py` carries the full matrix. The two copies of the manifests are kept in step by hand.
+
 ## Install
 
 1. **Create two new repos per cluster**, the cluster repo and its tenants repo (`<repo>-tenants` by default): by hand,

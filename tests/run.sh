@@ -245,6 +245,33 @@ mkdir -p "${F}/dev"
 render_ok "${F}/dev" "dev flight keys"
 expect "${F}/dev" "dev flight keys" "!${FP}"
 
+# Clearance gate (clearance G-ARGO-2, 56-clearance-gate): upper clusters only, off by default; Warn, then Deny + Allow->Deny.
+expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
+G="${TMP}/gate"
+mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; } >"${G}/warn/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; } >"${G}/enforce/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; } >"${G}/dev/cluster.yaml"
+render_ok "${G}/warn" "prod clearance gate warn"
+render_ok "${G}/enforce" "prod clearance gate enforce"
+render_ok "${G}/dev" "dev clearance gate key"
+GP=56-clearance-gate/admission.yaml
+expect "${G}/dev" "dev clearance gate key" "!${GP}"
+has "${G}/warn/56-clearance-gate/application.yaml" 'path: 56-clearance-gate' "clearance gate: its own Application"
+has "${G}/warn/56-clearance-gate/clearancegrant-crd.yaml" 'name: clearancegrants.clearance.hangar.io' "clearance gate: the ClearanceGrant CRD"
+has "${G}/warn/${GP}" 'validationActions: \[Warn, Audit\]' "clearance gate: Warn by default"
+has "${G}/warn/${GP}" 'parameterNotFoundAction: Allow' "clearance gate: Warn allows a missing grant"
+has "${G}/warn/${GP}" "== 'system:serviceaccount:argocd-apps:argocd-application-controller'" "clearance gate: matches Argo's controller only"
+has "${G}/warn/${GP}" "== 'system:serviceaccount:clearance-system:clearance-argocd-agent'" "clearance gate: the agent is the only grant writer"
+has "${G}/enforce/${GP}" 'validationActions: \[Deny, Audit\]' "clearance gate: enforce denies"
+has "${G}/enforce/${GP}" 'parameterNotFoundAction: Deny' "clearance gate: enforce flips parameterNotFoundAction too"
+has "${G}/enforce/${GP}" "clearance-system:the-agent'" "clearance gate: the agent account is configurable"
+if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" 2>&1)"; then
+  ok "clearance gate admission: $(tail -1 <<<"${out}")"
+else
+  bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+
 echo "== 2. re-render"
 out="$(python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml")"
 grep -q '0 added, 0 changed, 0 removed' <<<"${out}" && ok "second render changes nothing" || bad "re-render not idempotent: ${out}"

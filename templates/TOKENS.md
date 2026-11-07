@@ -113,6 +113,10 @@ the render with `file:line`.
 | `@@FLIGHT_ADMISSION_ACTIONS@@` | `admission.flight.enforce`: `[Deny]`, else `[Audit, Warn]` |
 | `@@FLIGHT_ADMISSION_FAILURE_POLICY@@` | `admission.flight.enforce`: `Fail`, else `Ignore` |
 | `@@FLIGHT_ALLOWED_PREFIXES@@` | `admission.flight.allowedPrefixes`, third-party image prefixes tenants may run on an upper cluster, a CEL/YAML list (`[]` when unset) |
+| `@@CLEARANCE_GATE_ACTIONS@@` | `clearance.gate.enforce`: `[Deny, Audit]`, else `[Warn, Audit]` (both bindings of `56-clearance-gate`) |
+| `@@CLEARANCE_GATE_PARAM_NOT_FOUND@@` | `clearance.gate.enforce`: `Deny`, else `Allow` (the `parameterNotFoundAction`; the flip changes this and the actions together) |
+| `@@CLEARANCE_GATE_ARGOCD_USER@@` | `system:serviceaccount:` + `clearance.gate.argocdServiceAccount` (default `argocd-apps:argocd-application-controller`), the only writer `clearance-protected-writes` checks |
+| `@@CLEARANCE_GATE_AGENT_USER@@` | `system:serviceaccount:` + `clearance.gate.agentServiceAccount` (default `clearance-system:clearance-argocd-agent`), the only writer of a ClearanceGrant |
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |

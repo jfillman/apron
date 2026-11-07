@@ -116,6 +116,7 @@ def tokens(v):
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
         **flight_admission_tokens(g),
         **clearance_tokens(g),
+        **clearance_gate_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
@@ -233,6 +234,22 @@ def flight_admission_tokens(g):
         "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])),
         "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
                               else "registry-credentials-dockerconfigjson"),
+    }
+
+
+def clearance_gate_tokens(g):
+    """The Clearance gate on an upper cluster (clearance G-ARGO-2, templates/56-clearance-gate): Warn until
+    clearance.gate.enforce, which flips validationActions and parameterNotFoundAction together (an enforcing binding
+    with no active grant refuses every matched write in a protected namespace)."""
+    enforce = bool(g("clearance.gate.enforce", False))
+    sa = lambda key, d: "system:serviceaccount:" + (g(f"clearance.gate.{key}", None) or d)  # noqa: E731
+    return {
+        "CLEARANCE_GATE_ACTIONS": "[Deny, Audit]" if enforce else "[Warn, Audit]",
+        "CLEARANCE_GATE_PARAM_NOT_FOUND": "Deny" if enforce else "Allow",
+        # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
+        # the grant-sync agent (the only writer of a ClearanceGrant).
+        "CLEARANCE_GATE_ARGOCD_USER": sa("argocdServiceAccount", "argocd-apps:argocd-application-controller"),
+        "CLEARANCE_GATE_AGENT_USER": sa("agentServiceAccount", "clearance-system:clearance-argocd-agent"),
     }
 
 
