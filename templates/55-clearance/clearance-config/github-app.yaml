@@ -52,6 +52,12 @@ spec:
         # clearance register from GitHub's runners (phase 2b): a workflow's OIDC token, for its own repository only.
         - path: {type: Exact, value: /v1/clearances}
           method: POST
+        # The Terraform gate's CI steps (clearance hold / release / report, G-TF-3): read the change, long-poll its
+        # wait, and post the apply outcome. Each is the registering workflow's own change (the core checks DG-REPO).
+        - path: {type: RegularExpression, value: "^/v1/clearances/[A-Za-z0-9-]+(/wait)?$"}
+          method: GET
+        - path: {type: RegularExpression, value: "^/v1/clearances/[A-Za-z0-9-]+/outcome$"}
+          method: POST
 #@end
       backendRefs:
         - name: clearance-core
