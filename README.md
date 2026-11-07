@@ -241,6 +241,7 @@ choice, not a rule: either profile runs on any runtime. Steps 1-6 above with `--
 | `profiles/`, `runtimes/`, `versions.yaml` | defaults layered under `cluster.yaml` |
 | `hack/render.py`, `hack/check.py`, `hack/new_cluster.py` | render, invariants (zone/roles, singletons, one-name rule), starter `cluster.yaml` |
 | `hack/cluster-identity.sh` | issuer and trust on a running control-plane node |
+| `hack/build-trust-root.sh` | the Sigstore trusted root and Fulcio chain from the cluster repo's public `signing-pki/` files ([docs/signing-pki.md](docs/signing-pki.md)) |
 | `tests/run.sh` | offline tests: renders, re-render, every invariant refused |
 | `apron`, `hack/apron_fleet.py`, `tests/cli/` | the CLI (`init`, `render`, `up`, `fleet`, `identity`, `verify`, `resume`, `down`) and its tests |
 | `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md), [the CLI](docs/cli.md), [after `apron up`](docs/after-up.md) |

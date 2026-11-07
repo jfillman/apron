@@ -121,6 +121,17 @@ def violations(v, fleet=None):
     if on("components.policy") and on("components.glidepath") is False and False:
         pass
 
+    # signing PKI (C-2a, docs/signing-pki.md): Fulcio and Rekor run with the Glidepath control plane
+    for key in ("signing.managedKeys", "signing.trustedRoot", "clearance.attestation.keyless"):
+        if on(key) and not on("components.glidepath"):
+            add(f"{key} needs components.glidepath: Fulcio and Rekor run with the CI/CD control plane, and only the "
+                "cluster that runs it has them")
+    if on("clearance.attestation.keyless") and not on("components.clearance"):
+        add("clearance.attestation.keyless needs components.clearance: the core signs the attestations")
+    for key in ("signing.managedKeys", "signing.trustedRoot", "clearance.attestation.keyless"):
+        if get(v, key) is not None and not isinstance(get(v, key), bool):
+            add(f"{key} must be true or false")
+
     # secrets: host vs consumer
     host = on("infisical.host")
     if on("components.externalSecrets") and not host and not on("components.serviceCatalog.enabled"):

@@ -70,6 +70,25 @@ secretStore:
 fulcio:
   publicIssuers:
     - @@ISSUER@@
+#@if signing.managedKeys or signing.trustedRoot
+
+# The Hangar signing PKI (C-2a; glidepath docs/admin/signing-pki-cutover.md, apron docs/signing-pki.md). Both off by default.
+#   signing.trustedRoot: publish hangar-trusted-root (every Fulcio chain and Rekor key with its window, the legacy ones
+#     included) from signing-pki/trusted-root.json. Safe before the flip: verifiers prefer it, so they know the new chain
+#     and keep the legacy one before the first signature made under the new PKI.
+#   signing.managedKeys: the owner's ceremony output replaces the in-cluster bootstrap hooks. Fulcio and Rekor read their
+#     keys from Infisical (hangar-fulcio-<name>-chain/-key/-key-password, hangar-rekor-<name>-signer) through ExternalSecrets;
+#     fulcio-root-ca becomes signing-pki/fulcio-chain.pem. Needs the four Infisical entries planted first.
+sigstore:
+  managedKeys:
+#@end
+#@if signing.managedKeys
+    enabled: true
+    rootCaPem: @@SIGNING_FULCIO_CHAIN@@
+#@end
+#@if signing.trustedRoot
+    trustedRootJson: @@SIGNING_TRUSTED_ROOT@@
+#@end
 
 # chains.configPatch (2026-10-16): the dev cluster's API server signs as the public issuer since 03:33Z. Chains passes the
 # token file to Fulcio as-is (IDToken), so this is the truthful label rather than a functional switch.

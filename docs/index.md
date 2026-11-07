@@ -12,5 +12,6 @@ Infisical projects, ServiceAccount issuer and hostnames. Apron's code, templates
 - [After `apron up`](after-up.md): the steps that stay with a person.
 - [The fleet file](clusters-file.md): the hub's `clusters.yaml`, one record per cluster.
 - [Cluster identity](cluster-identity.md): each cluster's issuer, and how the hub trusts Tower's cluster.
+- [Signing PKI](signing-pki.md): the C-2a flags (managed Fulcio and Rekor keys, the trusted root, Clearance's keyless attestations), off by default.
 
 The repository README has the install walkthrough, profiles and runtimes, and the repo layout.
