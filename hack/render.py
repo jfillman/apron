@@ -43,9 +43,20 @@ def signing_file(v, name):
         raise ApronError(f"signing-pki/{name} is missing in {d}: build it with hack/build-trust-root.sh (docs/signing-pki.md)")
     if not text.strip():
         raise ApronError(f"signing-pki/{name} is empty")
-    if "PRIVATE KEY" in text:
-        raise ApronError(f"signing-pki/{name} holds a private key: only public certificates and keys belong here")
     return json.dumps(text)
+
+
+def signing_dir_check(out_dir):
+    """Every file in signing-pki/ must be public: refuse a private key in any of them, not only the two a template reads."""
+    d = os.path.join(out_dir, "signing-pki")
+    if not os.path.isdir(d):
+        return
+    for f in sorted(os.listdir(d)):
+        path = os.path.join(d, f)
+        if os.path.isfile(path):
+            with open(path, errors="replace") as fh:
+                if "PRIVATE KEY" in fh.read():
+                    raise ApronError(f"signing-pki/{f} holds a private key: only public certificates and keys belong here")
 
 
 def tokens(v):
@@ -383,6 +394,7 @@ def render_text(text, rel, v, toks, errors):
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
+    signing_dir_check(out_dir)
     v = dict(v, _dir=os.path.abspath(out_dir))
     toks = tokens(v)
     errors, files = [], {}

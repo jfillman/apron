@@ -129,7 +129,7 @@ def violations(v, fleet=None):
     if on("clearance.attestation.keyless") and not on("components.clearance"):
         add("clearance.attestation.keyless needs components.clearance: the core signs the attestations")
     for key in ("signing.managedKeys", "signing.trustedRoot", "clearance.attestation.keyless"):
-        if get(v, key) not in (None, True, False):
+        if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
 
     # secrets: host vs consumer

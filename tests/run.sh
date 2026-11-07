@@ -271,6 +271,9 @@ has "${C}" 'port: 5555' "keyless: egress on Fulcio's pod port"
 has "${C}" 'port: 3000' "keyless: egress on Rekor's pod port"
 printf -- '-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n' >"${SG}/signing-pki/fulcio-chain.pem"
 if python3 hack/render.py --cluster "${SG}/cluster.yaml" >"${TMP}/sg-out" 2>&1; then bad "a private key in signing-pki/: rendered"; else ok "a private key in signing-pki/: refused"; fi
+printf -- '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n' >"${SG}/signing-pki/fulcio-chain.pem"
+printf -- '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n' >"${SG}/signing-pki/root.pem"
+if python3 hack/render.py --cluster "${SG}/cluster.yaml" >"${TMP}/sg-out" 2>&1; then bad "a private key in another signing-pki/ file: rendered"; else ok "a private key in any signing-pki/ file: refused"; fi
 # hack/build-trust-root.sh refuses a private key too, before it needs clearance
 mkdir -p "${TMP}/bt/signing-pki"
 for f in root.pem intermediate.pem rekor.pub legacy-fulcio-root.pem legacy-rekor.pub; do echo x >"${TMP}/bt/signing-pki/${f}"; done
@@ -360,6 +363,7 @@ refuse "providerGithub off the control plane" "${P}" 'components: {crossplane: {
 refuse "glidepath off the control plane" "${P}" 'components: {glidepath: true}'
 refuse "autopilot off the control plane" "${P}" 'components: {autopilot: true}'
 refuse "scope full off the control plane" "${P}" 'components: {serviceCatalog: {enabled: true, scope: full}}'
+refuse "signing.managedKeys: 1 (not a boolean)" "${D}" 'signing: {managedKeys: 1}'
 refuse "signing.managedKeys off the control plane" "${P}" 'signing: {managedKeys: true}'
 refuse "signing.trustedRoot off the control plane" "${P}" 'signing: {trustedRoot: true}'
 refuse "keyless attestation off the control plane" "${P}" 'clearance: {attestation: {keyless: true}}'
