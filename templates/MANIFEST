@@ -92,6 +92,9 @@
 55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
 55-clearance/clearance-config/cilium-kube-apiserver.yaml  components.clearance and runtime.kiac.cni == 'cilium'
 
+# 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce
+56-clearance-gate/                      zone == 'upper' and clearance.gate.enabled
+
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes
 60-gateway-routes/grafana-httproute.yaml          components.gatewayRoutes and components.observability and observability.full
