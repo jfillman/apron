@@ -255,7 +255,7 @@ def clearance_tokens(g):
         "CLEARANCE_RUNTIME_IMAGES_LIST": json.dumps(list(g("autopilot.customImages", None) or [])),
         "CLEARANCE_TRUSTED_REGISTRIES_LIST": json.dumps(list(registries)),
         "CLEARANCE_PROTECTED_ENVIRONMENTS_LIST": json.dumps(list(c("protectedEnvironments", []) or [])),
-        "CLEARANCE_GATE_OUTSIDE_GROUPS_LIST": json.dumps(list(c("gateOutsideGroups", None) or ["group:default/admins"])),
+        "CLEARANCE_GATE_OUTSIDE_GROUPS_LIST": json.dumps(list(c("gateOutsideGroups", ["group:default/admins"]))),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }
