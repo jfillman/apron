@@ -43,12 +43,36 @@ spec:
           resources:
             requests: { cpu: 20m, memory: 64Mi }
             limits: { memory: 256Mi }
+          # A slow apiserver (hangar-prod 2026-11-08: one loaded node, 800+ restarts over 4 days) needs room: startup
+          # (cache sync) took ~80s against the chart's 2s + 20 x 6s window, so allow 6 minutes.
+          startupProbe:
+            httpGet: { path: /health/liveness, port: 9443, scheme: HTTPS }
+            failureThreshold: 60
+            initialDelaySeconds: 2
+            periodSeconds: 6
+            timeoutSeconds: 5
+          extraArgs:
+            leaderElectionRetryPeriod: 10s
+        # Leader election: Kyverno derives the lease from the retry period (lease 6x, renew deadline 5x). The default 2s
+        # gives a 10s renew deadline, and a lease GET slower than that makes Kyverno exit ("Failed to renew lease", then
+        # "failed to wait for cache sync"): with the fail-closed webhooks that refuses every pod create on the cluster.
+        # 10s gives a 50s renew deadline and a 60s lease; with one replica nothing waits on a faster hand-over.
         admissionController:
           replicas: 1
+          # A slow apiserver (hangar-prod 2026-11-08: one loaded node, 800+ restarts over 4 days) needs room: startup
+          # (cache sync) took ~80s against the chart's 2s + 20 x 6s window, so allow 6 minutes.
+          startupProbe:
+            httpGet: { path: /health/liveness, port: 9443, scheme: HTTPS }
+            failureThreshold: 60
+            initialDelaySeconds: 2
+            periodSeconds: 6
+            timeoutSeconds: 5
           container:
             resources:
               requests: { cpu: 20m, memory: 128Mi }
               limits: { memory: 512Mi }
+            extraArgs:
+              leaderElectionRetryPeriod: 10s
         features:
           ttlController:
             reconciliationInterval: 1m
