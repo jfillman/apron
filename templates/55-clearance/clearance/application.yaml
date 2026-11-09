@@ -64,6 +64,7 @@ spec:
           baselineDenyPaths: [".tekton/**", "**/.tekton/**", CODEOWNERS, "**/CODEOWNERS", ".github/**", "**/appproject*.yaml", "**/AppProject*.yaml", release.yaml, "**/release.yaml", "*.release.yaml", "**/*.release.yaml"]
           baselineDenyFields: [/extraManifests, /networkPolicy, /httpRoute, /release, /releaseTracking, /rollout/image]
           gateOutsideGroups: @@CLEARANCE_GATE_OUTSIDE_GROUPS_LIST@@
+          gateReleaseStamps: @@CLEARANCE_GATE_RELEASE_STAMPS_LIST@@
           gateOwnerFallback: "group:default/admins"
           v0Provider: autopilot-gateway/unrecorded
         gate:
