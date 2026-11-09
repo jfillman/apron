@@ -139,6 +139,7 @@ the render with `file:line`.
 | `@@CLEARANCE_PEOPLE_LIST@@` | `clearance.people` (else `autopilot.people`): people-dex logins the core and clearance-api accept |
 | `@@CLEARANCE_ADMINS_LIST@@` | `clearance.admins` (else the people) as `user:<login>`: who may deny any held change and open break-glass windows |
 | `@@CLEARANCE_PROTECTED_ENVIRONMENTS_LIST@@` | `clearance.protectedEnvironments`, `<cluster glob>/<env glob>` entries the gate protects (D30); any other environment clears at tier 0. Empty (the default): every environment is protected |
+| `@@CLEARANCE_GATE_RELEASE_STAMPS_LIST@@` | `clearance.gateReleaseStamps` (default: the Airframe chart's version label on the object and its pod template, and the `hangar.io/release-id` annotation): the JSON pointers a release stamps, which the gate does not count as changes |
 | `@@CLEARANCE_GATE_OUTSIDE_GROUPS_LIST@@` | `clearance.gateOutsideGroups` (default `["group:default/admins"]`): the groups whose members count as the outside approver a tier-3 change needs (one from the owner group, one from these; never the proposer, never one person twice) |
 | `@@CLEARANCE_AUDITORS_LIST@@` | `clearance.auditors` (else the people) as `user:<login>`: clearance-api's auditors |
 | `@@CLEARANCE_GITHUB_WORKFLOWS_LIST@@` | `clearance.githubWorkflows` (else `autopilot.githubWorkflows`): globs on a GitHub Actions OIDC token's `sub` that may `clearance register` |
