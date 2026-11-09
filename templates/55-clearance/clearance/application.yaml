@@ -171,7 +171,7 @@ spec:
             key: uri
         core:
 #@if tower.hostAliasIP
-          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
+          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"@@CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE@@]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
 #@end
 #@if clearance.ledger.enabled and clearance.ledger.hostAlias and not tower.hostAliasIP
           # The ledger's witness is on another cluster (clearance.ledger.hostAlias): its name resolves to that cluster's address.

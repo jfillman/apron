@@ -161,6 +161,7 @@ the render with `file:line`.
 | `@@CLEARANCE_LEDGER_RETIRED_KEYS@@` | `clearance.ledger.retiredKeys` (log vkeys of keys rotated out), one per line as a JSON string; `""` when none |
 | `@@CLEARANCE_LEDGER_EGRESS@@` | the core's egress to the witnesses (`ledger.egress`): their port(s), and the `/32` of `clearance.ledger.hostAlias`'s address when set |
 | `@@CLEARANCE_LEDGER_HOST_ALIASES@@` | `clearance.ledger.hostAlias` (`ip=host[,host]`) as the core's `hostAliases` list, used when the cluster has no `tower.hostAliasIP` |
+| `@@CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE@@` | The witness's hostnames when `clearance.ledger.hostAlias` has Tower's address: Kubernetes merges hostAliases by ip, so they join Tower's entry instead of adding one |
 | `@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@` | the same entry as `, {...}` appended to the core's Tower host alias; empty (optional) unless the ledger is on with a hostAlias, so a cluster without the ledger renders what it did before |
 | `@@CLEARANCE_LEDGER_CHECKPOINT_INTERVAL@@`, `@@CLEARANCE_LEDGER_STALL_AFTER@@` | `clearance.ledger.checkpointInterval`, `stallAfter` (Go durations; each line renders only when set) |
 | `@@CLEARANCE_LEDGER_TIER3_WAIT@@` | `clearance.ledger.tier3Wait`, default `true`: a tier 3 change waits while evidence cannot be checkpointed |

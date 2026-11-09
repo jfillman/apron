@@ -381,6 +381,12 @@ has "${TMP}/led-dev/${CA}" 'egress: \[\{"to": \[\{"ipBlock": \{"cidr": "192.0.2.
   "ledger on: the core's egress reaches the witness's address and port only"
 has "${TMP}/led-dev/${CA}" 'hostAliases: \[\{ip: "192.0.2.5", hostnames: \["backstage.hangar-prod.local"\]\}, \{"ip": "192.0.2.9", "hostnames": \["witness.hangar-prod.local"\]\}\]' \
   "ledger on: the core keeps Tower's host alias and gains the witness's"
+# Tower and the witness on one address: one hostAliases entry, because Kubernetes merges them by ip.
+LEDGER_SAME_IP=("${LEDGER_SET[@]/192.0.2.9/192.0.2.5}")
+new "${TMP}/led-dev-sameip" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set tower.hostAliasIP=192.0.2.5 "${LEDGER_SAME_IP[@]}"
+render_ok "${TMP}/led-dev-sameip" "ledger on (dev, the witness on Tower's address)"
+has "${TMP}/led-dev-sameip/${CA}" 'hostAliases: \[\{ip: "192.0.2.5", hostnames: \["backstage.hangar-prod.local", "witness.hangar-prod.local"\]\}\]' "same address as Tower: one entry with both hostnames"
 has "${TMP}/led-dev-notower/${CA}" 'hostAliases: \[\{"ip": "192.0.2.9", "hostnames": \["witness.hangar-prod.local"\]\}\]' "ledger on without Tower's alias: the core gets the witness's"
 has "${TMP}/led-dev/55-clearance/clearance-config/ledger-key.yaml" 'key: hangar-ledger-hangar-dev-key' "ledger on: the key is Infisical's hangar-ledger-<cluster>-key by default"
 has "${TMP}/led-dev/55-clearance/clearance-config/ledger-key.yaml" 'secretKey: ledger-key' "ledger on: the Secret has the key the chart mounts"

@@ -26,7 +26,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml", "signing-pki"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE", "CLEARANCE_LEDGER_HOST_ALIASES_MORE"}
+MAY_BE_EMPTY = {"CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE", "CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE", "CLEARANCE_LEDGER_HOST_ALIASES_MORE"}
 
 
 def signing_file(v, name):
@@ -359,7 +359,7 @@ def clearance_ledger_tokens(g):
     cluster that does not ask for it renders byte-for-byte what it did before."""
     on = bool(g("clearance.ledger.enabled", False))
     out = {"CLEARANCE_LEDGER_WITNESS_POLICY": '""', "CLEARANCE_LEDGER_RETIRED_KEYS": '""',
-           "CLEARANCE_LEDGER_KEY_SECRET": "", "CLEARANCE_LEDGER_EGRESS": "[]", "CLEARANCE_LEDGER_HOST_ALIASES": "[]", "CLEARANCE_LEDGER_HOST_ALIASES_MORE": "",
+           "CLEARANCE_LEDGER_KEY_SECRET": "", "CLEARANCE_LEDGER_EGRESS": "[]", "CLEARANCE_LEDGER_HOST_ALIASES": "[]", "CLEARANCE_LEDGER_HOST_ALIASES_MORE": "", "CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE": "",
            "CLEARANCE_LEDGER_CHECKPOINT_INTERVAL": "", "CLEARANCE_LEDGER_STALL_AFTER": "", "CLEARANCE_LEDGER_TIER3_WAIT": "true",
            "CLEARANCE_LEDGER_STORAGE_SIZE": "", "CLEARANCE_LEDGER_STORAGE_CLASS": ""}
     if not on:
@@ -402,7 +402,11 @@ def clearance_ledger_tokens(g):
     out["CLEARANCE_LEDGER_EGRESS"] = json.dumps([{**peer[0], "ports": [{"protocol": "TCP", "port": p} for p in sorted(ports)]}])
     if ip:
         out["CLEARANCE_LEDGER_HOST_ALIASES"] = json.dumps([{"ip": ip, "hostnames": hosts}])
-        out["CLEARANCE_LEDGER_HOST_ALIASES_MORE"] = ", " + json.dumps({"ip": ip, "hostnames": hosts})
+        # Kubernetes merges hostAliases by ip, so a second entry for Tower's address would replace the first: join its hostnames.
+        if ip == g("tower.hostAliasIP", ""):
+            out["CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE"] = "".join(", " + json.dumps(h) for h in hosts)
+        else:
+            out["CLEARANCE_LEDGER_HOST_ALIASES_MORE"] = ", " + json.dumps({"ip": ip, "hostnames": hosts})
     for key, tok, pat in (("checkpointInterval", "CHECKPOINT_INTERVAL", r"[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*"),
                           ("stallAfter", "STALL_AFTER", r"[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*")):
         val = str(g(f"clearance.ledger.{key}", "") or "")
