@@ -8,7 +8,7 @@ versions:
     catalog: v0.3.172 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions. v0.3.171..v0.3.172 adds xrds/agent.yaml + compositions/agent (Autopilot M4), nothing else under xrds/ or compositions/
     clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
     analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
-    defaultChart: v0.3.168 # cluster-defaults.yaml defaultChart: the app chart every environment renders
+    defaultChart: v0.3.173 # cluster-defaults.yaml defaultChart: the app chart every environment renders
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
