@@ -12,8 +12,8 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.34.0
-    imageDigest: sha256:f965c65c2078877a1b93a946e8018c8d3da2b9be1375a3b17afce65025135f50
+    chart: 0.34.2
+    imageDigest: sha256:8ac8dc3d70511289ddeed5a9f33a2baec7271dd96c9ccfbc346195dd21429910
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
     cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:a7b0d52dd672fe8b65a4c47ad3a210fcfa104237d7b75b0890ca428dcd8e93e8
