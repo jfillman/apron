@@ -18,7 +18,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ROOT, ApronError, evaluate, get, resolve  # noqa: E402
+from apronlib import ROOT, ApronError, evaluate, get, parse_vkey, resolve  # noqa: E402
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -26,7 +26,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml", "signing-pki"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE"}
+MAY_BE_EMPTY = {"CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE", "CLEARANCE_LEDGER_HOST_ALIASES_MORE"}
 
 
 def signing_file(v, name):
@@ -151,6 +151,8 @@ def tokens(v):
         **signing_tokens(v, g),
         **clearance_tokens(g),
         **clearance_gate_tokens(g),
+        **clearance_ledger_tokens(g),
+        **clearance_witness_tokens(g),
         **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
@@ -339,6 +341,114 @@ def clearance_gate_tokens(g):
     }
 
 
+def _host_alias(g, key):
+    """`ip=host[,host]` -> (ip, [hosts]); ("", []) when unset."""
+    alias = g(key, "") or ""
+    if not alias:
+        return "", []
+    ip, sep, hosts = alias.partition("=")
+    hs = [h for h in hosts.split(",") if h]
+    if not sep or not ip or not hs:
+        raise ApronError(f"{key} is 'ip=host[,host]'")
+    return ip, hs
+
+
+def clearance_ledger_tokens(g):
+    """The evidence ledger on the cluster that runs the Clearance core (clearance C-3, docs/core.md "The evidence
+    ledger"): the chart's ledger.* values. Every token is empty/neutral while clearance.ledger.enabled is off, so a
+    cluster that does not ask for it renders byte-for-byte what it did before."""
+    on = bool(g("clearance.ledger.enabled", False))
+    out = {"CLEARANCE_LEDGER_WITNESS_POLICY": '""', "CLEARANCE_LEDGER_RETIRED_KEYS": '""',
+           "CLEARANCE_LEDGER_KEY_SECRET": "", "CLEARANCE_LEDGER_EGRESS": "[]", "CLEARANCE_LEDGER_HOST_ALIASES": "[]", "CLEARANCE_LEDGER_HOST_ALIASES_MORE": "",
+           "CLEARANCE_LEDGER_CHECKPOINT_INTERVAL": "", "CLEARANCE_LEDGER_STALL_AFTER": "", "CLEARANCE_LEDGER_TIER3_WAIT": "true",
+           "CLEARANCE_LEDGER_STORAGE_SIZE": "", "CLEARANCE_LEDGER_STORAGE_CLASS": ""}
+    if not on:
+        return out
+    witnesses = g("clearance.ledger.witnesses", None) or []
+    lines, names, ports = [], [], set()
+    for w in witnesses:
+        wname, vkey, url = (str(w.get(k, "")) for k in ("name", "vkey", "url")) if isinstance(w, dict) else ("", "", "")
+        if not (re.fullmatch(r"[a-z0-9][-a-z0-9_]*", wname) and vkey and url):
+            raise ApronError("clearance.ledger.witnesses: each witness is {name, vkey, url}")
+        if wname in names:
+            raise ApronError(f"clearance.ledger.witnesses: {wname!r} is listed twice")
+        u = urllib.parse.urlparse(url)
+        if u.scheme not in ("http", "https") or not u.hostname or u.path not in ("", "/") or u.query:
+            raise ApronError(f"clearance.ledger.witnesses: {wname}: url is http(s)://host[:port], the witness's base "
+                             "(the log appends /add-checkpoint)")
+        _, ktype = parse_vkey(vkey)
+        if ktype != 0x04:
+            raise ApronError(f"clearance.ledger.witnesses: {wname}: vkey is not a witness cosignature key (type 0x04): "
+                             "list the key `clearance ledger keygen --witness` prints")
+        names.append(wname)
+        lines.append(f"witness {wname} {vkey} {url.rstrip('/')}")
+        ports.add(u.port or (443 if u.scheme == "https" else 80))
+    quorum = str(g("clearance.ledger.quorum", "all") or "all")
+    if len(names) == 1:
+        lines.append(f"quorum {names[0]}")
+    elif names:
+        if not re.fullmatch(r"all|any|[1-9][0-9]*", quorum) or (quorum.isdigit() and int(quorum) > len(names)):
+            raise ApronError("clearance.ledger.quorum is all, any or a number of the listed witnesses")
+        lines += [f"group witnesses {quorum} {' '.join(names)}", "quorum witnesses"]
+    out["CLEARANCE_LEDGER_KEY_SECRET"] = str(g("clearance.ledger.keySecret", "") or f"hangar-ledger-{g('name')}-key")
+    out["CLEARANCE_LEDGER_WITNESS_POLICY"] = json.dumps("\n".join(lines) + "\n")
+    retired = [str(k) for k in (g("clearance.ledger.retiredKeys", None) or [])]
+    for k in retired:
+        parse_vkey(k)
+    out["CLEARANCE_LEDGER_RETIRED_KEYS"] = json.dumps("\n".join(retired) + "\n" if retired else "")
+    # Egress to the witnesses only: their port(s), and the host alias's address when the core reaches them by one.
+    ip, hosts = _host_alias(g, "clearance.ledger.hostAlias")
+    peer = [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}}]}] if ip else [{}]
+    out["CLEARANCE_LEDGER_EGRESS"] = json.dumps([{**peer[0], "ports": [{"protocol": "TCP", "port": p} for p in sorted(ports)]}])
+    if ip:
+        out["CLEARANCE_LEDGER_HOST_ALIASES"] = json.dumps([{"ip": ip, "hostnames": hosts}])
+        out["CLEARANCE_LEDGER_HOST_ALIASES_MORE"] = ", " + json.dumps({"ip": ip, "hostnames": hosts})
+    for key, tok, pat in (("checkpointInterval", "CHECKPOINT_INTERVAL", r"[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*"),
+                          ("stallAfter", "STALL_AFTER", r"[0-9]+(ns|us|ms|s|m|h)([0-9]+(ns|us|ms|s|m|h))*")):
+        val = str(g(f"clearance.ledger.{key}", "") or "")
+        if val and not re.fullmatch(pat, val):
+            raise ApronError(f"clearance.ledger.{key} is a Go duration (e.g. 1m)")
+        out[f"CLEARANCE_LEDGER_{tok}"] = val
+    out["CLEARANCE_LEDGER_TIER3_WAIT"] = "false" if g("clearance.ledger.tier3Wait", True) is False else "true"
+    out["CLEARANCE_LEDGER_STORAGE_SIZE"] = str(g("clearance.ledger.storage.size", "") or "1Gi")
+    out["CLEARANCE_LEDGER_STORAGE_CLASS"] = str(g("clearance.ledger.storage.storageClass", "") or "")
+    return out
+
+
+def clearance_witness_tokens(g):
+    """The ledger's witness on a protected cluster (clearance charts/clearance-witness, rendered as plain manifests in
+    templates/56-clearance-witness: the chart is not published, only the image). Empty while it is off."""
+    on = bool(g("clearance.witness.enabled", False))
+    image = g("versions.clearance.witnessImage", "") or ""
+    domain = g("domain", "") or ""
+    out = {"CLEARANCE_WITNESS_NAME": "", "CLEARANCE_WITNESS_KEY_SECRET": "", "CLEARANCE_WITNESS_IMAGE": "", "CLEARANCE_WITNESS_HOST": "", "CLEARANCE_WITNESS_LOGS": '""',
+           "CLEARANCE_WITNESS_STORAGE_SIZE": "", "CLEARANCE_WITNESS_STORAGE_CLASS": ""}
+    if not on:
+        return out
+    if "@sha256:" not in image:
+        raise ApronError("clearance.witness.enabled needs versions.clearance.witnessImage, by digest (the clearance-witness "
+                         "image from the clearance release that publishes it)")
+    wname = str(g("clearance.witness.name", "") or "")
+    if not re.fullmatch(r"[a-z0-9][-a-z0-9_]*", wname):
+        raise ApronError("clearance.witness.name is the witness's name (lowercase letters, digits, - and _): the name the log's "
+                         "operator lists it under")
+    logs = [str(k) for k in (g("clearance.witness.logsVkeys", None) or [])]
+    if not logs:
+        raise ApronError("clearance.witness.logsVkeys is required: the public verifier keys of the logs it cosigns for")
+    for k in logs:
+        if parse_vkey(k)[1] != 0x01:
+            raise ApronError(f"clearance.witness.logsVkeys: {k!r} is not a log's verifier key (type 0x01)")
+    host = str(g("clearance.witness.host", "") or f"witness.{domain}")
+    if not re.fullmatch(r"[a-z0-9]([-a-z0-9.]*[a-z0-9])?", host):
+        raise ApronError("clearance.witness.host is a host name")
+    out.update({"CLEARANCE_WITNESS_NAME": wname, "CLEARANCE_WITNESS_IMAGE": image, "CLEARANCE_WITNESS_HOST": host,
+                "CLEARANCE_WITNESS_KEY_SECRET": str(g("clearance.witness.keySecret", "") or f"hangar-witness-{g('name')}-key"),
+                "CLEARANCE_WITNESS_LOGS": json.dumps("\n".join(logs) + "\n"),
+                "CLEARANCE_WITNESS_STORAGE_SIZE": str(g("clearance.witness.storage.size", "") or "64Mi"),
+                "CLEARANCE_WITNESS_STORAGE_CLASS": str(g("clearance.witness.storage.storageClass", "") or "")})
+    return out
+
+
 def flight_admission_tokens(g):
     """Flight admission on an upper cluster (glidepath ADR-0029 phase 4): tenant pods run Flight images, each carrying
     the promotion attestation the promoter workflow signs, or an allow-listed third-party image. Audit+Warn until
@@ -359,7 +469,8 @@ def flight_admission_tokens(g):
         # With the Argo CD gate on, the plugin's PreSync wait Job runs in the tenant's namespace from clearance-wait,
         # which is not a Flight image: exactly that digest is allowed, nothing else from its repository.
         "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])
-                                              + ([g("versions.clearance.waitImage")] if g("clearance.gate.enabled", False) and g("versions.clearance.waitImage", "") else [])),
+                                              + ([g("versions.clearance.waitImage")] if g("clearance.gate.enabled", False) and g("versions.clearance.waitImage", "") else [])
+                                              + ([g("versions.clearance.witnessImage")] if g("clearance.witness.enabled", False) and g("versions.clearance.witnessImage", "") else [])),
         "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
                               else "registry-credentials-dockerconfigjson"),
     }

@@ -1,0 +1,24 @@
+# The evidence ledger's signing key (clearance C-3, docs/core.md "The evidence ledger", Keys): a signed-note Ed25519
+# secret key made by `clearance ledger keygen --name <origin> --out <file>` and put in this cluster's Infisical project
+# by the owner (clearance.ledger.keySecret, default hangar-ledger-<cluster>-key), never generated or written here.
+# Only clearance-core mounts it (the chart's ledger.existingSecret, key ledger-key, read-only); the public half is
+# what the witnesses list as a trusted log. Rendered only with clearance.ledger.enabled.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-ledger-key
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-core}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-ledger-key
+    creationPolicy: Owner
+  data:
+    - secretKey: ledger-key
+      remoteRef: {key: @@CLEARANCE_LEDGER_KEY_SECRET@@}

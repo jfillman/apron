@@ -100,6 +100,49 @@ On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccou
 `clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
 `feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
 
+## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
+
+Clearance C-3 (clearance `docs/core.md`, "The evidence ledger (C-3)") keeps a transparency log of the evidence chain's
+record hashes, checkpointed and countersigned by a witness Clearance does not operate. Apron wires both ends; nothing
+renders unless a cluster turns it on, and a cluster that does not renders byte-for-byte what it did before.
+
+**The log, on the cluster that runs the core (`hangar-dev`, `components.clearance`).** `clearance.ledger.enabled: true`
+passes the chart's `ledger.*` values to the `clearance` Application (the chart gives the core a ReadWriteOnce volume and
+a Recreate rollout), renders `55-clearance/clearance-config/ledger-key.yaml` (an ExternalSecret: Infisical secret
+`clearance.ledger.keySecret`, default `hangar-ledger-<cluster>-key`, into Secret `clearance-ledger-key`, key
+`ledger-key`), the witness policy built from `clearance.ledger.witnesses`, and the core's egress to the witnesses.
+
+| `cluster.yaml` key | |
+|---|---|
+| `clearance.ledger.enabled` | default off |
+| `clearance.ledger.witnesses` | required: `[{name, vkey, url}]`. `vkey` is the witness's public **cosignature** key (`clearance ledger keygen --witness` prints it: type byte 0x04; `apron check` refuses the log's own key form). `url` is the witness's base (`http(s)://host[:port]`); the log appends `/add-checkpoint`. Policy line: `witness <name> <vkey> <url>` |
+| `clearance.ledger.quorum` | with several witnesses: `all` (default), `any` or a number; one witness is `quorum <name>` |
+| `clearance.ledger.hostAlias` | `ip=host[,host]` for the core's pod when a witness is on another cluster (like `clearance.gate.hostAlias`); also narrows the core's egress to that `/32` and the witness's port |
+| `clearance.ledger.keySecret` | the Infisical secret name of the log's signing key; default `hangar-ledger-<cluster>-key` |
+| `clearance.ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait`, `storage.size` / `storage.storageClass` | the chart's `ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait` (default true) and `persistence` (default 1Gi) |
+
+**The witness, on a protected cluster (`hangar-prod`, zone upper).** The `clearance-witness` chart is not published, only
+its image, so `56-clearance-witness/` renders the same objects as plain manifests: namespace `clearance-witness`
+(Pod Security `restricted`), one replica with `Recreate`, a state claim that is never pruned, a ConfigMap of the logs'
+public keys, an ExternalSecret (Infisical `clearance.witness.keySecret`, default `hangar-witness-<cluster>-key`, into
+Secret `clearance-witness-key`, key `witness-key`), a Service, a NetworkPolicy (ingress from the cluster Gateway on 8080
+only, no egress: the witness calls nothing) and a route `witness.<domain>` that passes only `POST /add-checkpoint` and
+`GET /healthz`. Needs `versions.clearance.witnessImage` (by digest; pinned in `versions.yaml`), which Flight admission
+also allows, exactly, while the witness is on.
+
+| `cluster.yaml` key | |
+|---|---|
+| `clearance.witness.enabled` | default off; refused on a lower-zone cluster or one that also keeps the log |
+| `clearance.witness.name` | required: the name the log's operator lists the witness under |
+| `clearance.witness.logsVkeys` | required: the logs' public verifier keys (type 0x01), one per log (a rotation lists the old and new key) |
+| `clearance.witness.host` | default `witness.<domain>` |
+| `clearance.witness.keySecret`, `storage.size` / `storage.storageClass` | Infisical secret name; state claim (default 64Mi) |
+
+How the core reaches the witness: hangar-prod exposes `witness.hangar-prod.local` on its gateway (host port 80);
+hangar-dev's core cannot resolve that, so `clearance.ledger.hostAlias: <hangar-prod LAN address>=witness.hangar-prod.local`
+gives the core pod a hosts entry, and the witness `url` is `http://witness.hangar-prod.local`. Private keys are never in
+this repository or in a rendered file: `clearance ledger keygen` writes them to a file the owner puts in Infisical.
+
 ## Check names (`pipelinesAsCode.applicationName`)
 
 Pipelines-as-Code names every check run `<application-name> / <gate>-`. Apron sets the name from `cluster.yaml`

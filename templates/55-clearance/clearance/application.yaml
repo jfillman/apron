@@ -133,6 +133,36 @@ spec:
           webhookSecretKey: webhook-secret
           comments: "off"
 #@end
+#@if clearance.ledger.enabled
+        # The evidence ledger (C-3; clearance docs/core.md, "The evidence ledger"): a Tessera log of the chain's record
+        # hashes on a ReadWriteOnce volume (the chart gives the core that claim), checkpointed and countersigned by the
+        # witnesses in the policy. The log's signing key is clearance-config's ledger-key.yaml (from Infisical); the
+        # policy and the retired keys are public text. A witness outage holds tier 3 changes (tier3Wait), nothing else.
+        ledger:
+          enabled: true
+          existingSecret: clearance-ledger-key
+          key: ledger-key
+          witnessPolicy: @@CLEARANCE_LEDGER_WITNESS_POLICY@@
+          retiredKeys: @@CLEARANCE_LEDGER_RETIRED_KEYS@@
+#@end
+#@if clearance.ledger.enabled and clearance.ledger.checkpointInterval
+          checkpointInterval: "@@CLEARANCE_LEDGER_CHECKPOINT_INTERVAL@@"
+#@end
+#@if clearance.ledger.enabled and clearance.ledger.stallAfter
+          stallAfter: "@@CLEARANCE_LEDGER_STALL_AFTER@@"
+#@end
+#@if clearance.ledger.enabled
+          tier3Wait: @@CLEARANCE_LEDGER_TIER3_WAIT@@
+          persistence:
+            size: @@CLEARANCE_LEDGER_STORAGE_SIZE@@
+#@end
+#@if clearance.ledger.enabled and clearance.ledger.storage.storageClass
+            storageClass: "@@CLEARANCE_LEDGER_STORAGE_CLASS@@"
+#@end
+#@if clearance.ledger.enabled
+          # Egress to the witnesses only (their port, and the host alias's address when there is one).
+          egress: @@CLEARANCE_LEDGER_EGRESS@@
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri
@@ -141,7 +171,11 @@ spec:
             key: uri
         core:
 #@if tower.hostAliasIP
-          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]
+          hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
+#@end
+#@if clearance.ledger.enabled and clearance.ledger.hostAlias and not tower.hostAliasIP
+          # The ledger's witness is on another cluster (clearance.ledger.hostAlias): its name resolves to that cluster's address.
+          hostAliases: @@CLEARANCE_LEDGER_HOST_ALIASES@@
 #@end
           resources:
             requests: {cpu: 50m, memory: 64Mi}

@@ -91,10 +91,15 @@
 55-clearance/clearance-config/routes.yaml      components.clearance and components.gatewayRoutes
 55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
 55-clearance/clearance-config/cilium-kube-apiserver.yaml  components.clearance and runtime.kiac.cni == 'cilium'
+55-clearance/clearance-config/ledger-key.yaml  components.clearance and clearance.ledger.enabled
 
 # 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce
 56-clearance-gate/                      zone == 'upper' and clearance.gate.enabled
 56-clearance-gate/agent/                zone == 'upper' and clearance.gate.enabled and clearance.gate.agent
+
+# 56 the ledger's witness (clearance C-3): one witness on a protected cluster, run by someone the log's operator does not control
+56-clearance-witness/                   zone == 'upper' and clearance.witness.enabled
+56-clearance-witness/routes.yaml        zone == 'upper' and clearance.witness.enabled and components.gatewayRoutes
 
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes

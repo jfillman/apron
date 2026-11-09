@@ -1,0 +1,30 @@
+# The ledger's witness on a protected cluster (clearance C-3): a C2SP tlog-witness that cosigns a log's checkpoint
+# only when it extends the last one it cosigned. It is worth something only run by someone the log's operator does not
+# control, so it lives on hangar-prod and the log (hangar-dev's core) reaches it over the LAN. Plain-manifest directory
+# source, its own Application. Rendered only when clearance.witness.enabled on a zone == 'upper' cluster (templates/MANIFEST).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-witness
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: clearance-witness
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 56-clearance-witness
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clearance-witness
+  syncPolicy:
+    automated:
+      # No prune: the state claim is the witness's memory of what it cosigned; a witness that forgets can be rolled back.
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

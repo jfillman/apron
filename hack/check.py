@@ -12,7 +12,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ApronError, get, load_yaml, resolve  # noqa: E402
+from apronlib import ApronError, get, load_yaml, parse_vkey, resolve  # noqa: E402
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -131,6 +131,44 @@ def violations(v, fleet=None):
     for key in ("signing.managedKeys", "signing.trustedRoot", "clearance.attestation.keyless"):
         if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
+
+    # the evidence ledger (clearance C-3): the log on the cluster that runs the core, a witness on a protected cluster
+    for key in ("clearance.ledger.enabled", "clearance.witness.enabled"):
+        if get(v, key) is not None and not isinstance(get(v, key), bool):
+            add(f"{key} must be true or false")
+    if on("clearance.ledger.enabled"):
+        if not on("components.clearance"):
+            add("clearance.ledger.enabled needs components.clearance: the core keeps the log")
+        if not (get(v, "clearance.ledger.witnesses") or []):
+            add("clearance.ledger.enabled needs clearance.ledger.witnesses: a log nobody countersigns is not a ledger "
+                "(each is {name, vkey, url}; vkey is the cosignature key `clearance ledger keygen --witness` prints)")
+        if get(v, "clearance.ledger.hostAlias") and "=" not in str(get(v, "clearance.ledger.hostAlias")):
+            add("clearance.ledger.hostAlias is 'ip=host[,host]'")
+    if on("clearance.witness.enabled"):
+        if v.get("zone") != "upper":
+            add("clearance.witness.enabled needs zone: upper: a witness is worth something only on a cluster the log's "
+                "operator does not control")
+        if on("clearance.ledger.enabled"):
+            add("clearance.witness.enabled and clearance.ledger.enabled on one cluster: the witness would cosign for its own "
+                "log's operator; run the witness on a protected cluster")
+        if not on("components.gatewayRoutes"):
+            add("clearance.witness.enabled needs components.gatewayRoutes: the log reaches the witness through this cluster's gateway")
+    def vkey_ok(label, vkey, want):
+        try:
+            if parse_vkey(vkey)[1] != want:
+                add(f"{label}: wrong kind of key ({'a witness cosignature key, type 0x04' if want == 4 else 'a log verifier key, type 0x01'} "
+                    "is expected)")
+        except ApronError as e:
+            add(f"{label}: {e}")
+    if on("clearance.ledger.enabled"):
+        for w in get(v, "clearance.ledger.witnesses") or []:
+            vkey_ok(f"clearance.ledger.witnesses[{w.get('name') if isinstance(w, dict) else w}].vkey", w.get("vkey", "") if isinstance(w, dict) else "", 4)
+    if on("clearance.witness.enabled"):
+        for k in get(v, "clearance.witness.logsVkeys") or []:
+            vkey_ok("clearance.witness.logsVkeys", k, 1)
+    for key in ("clearance.ledger.keySecret", "clearance.witness.keySecret"):
+        if get(v, key) is not None and not re.fullmatch(r"[A-Za-z0-9._-]+", str(get(v, key))):
+            add(f"{key} is the name of an Infisical secret (letters, digits, . _ -)")
 
     # secrets: host vs consumer
     host = on("infisical.host")
