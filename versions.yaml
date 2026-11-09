@@ -19,8 +19,8 @@ versions:
     cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:2c421d58019974562cac5be03ea7be74eae9e980e5a63749ba9877a4b7adffa6
     waitImage: ghcr.io/jfillman/clearance-wait@sha256:61814da7cce8a901949b95818b2033805de6197b3e31927ba49934014a9ce376
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
-    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:d231cf8c368e011f326586886191958a19ad413b321dcadf0ec3fa8a9f65de60
-    argocdAgentChart: 0.36.0
+    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:52ab4371efe511fd5359f5e082d30a64c977261cf36e5242fbfd8137a9e08648
+    argocdAgentChart: 0.36.1
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
     witnessImage: ghcr.io/jfillman/clearance-witness@sha256:546a25ccd47f3d8bbbefa6759838a811204810750c4f7fb8852af06ab4ef9c85

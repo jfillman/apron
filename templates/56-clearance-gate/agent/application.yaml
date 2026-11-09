@@ -31,6 +31,11 @@ spec:
           projects: @@CLEARANCE_AGENT_PROJECTS@@
         protectedNamespaces: @@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@
         hostAliases: @@CLEARANCE_AGENT_HOST_ALIASES@@
+        # What the exception scan recognises as the gate's own wait Job: the values admission's exemption is rendered with.
+        waitJob:
+          image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
+          url: "@@CLEARANCE_GATE_URL@@"
+          hostAlias: "@@CLEARANCE_GATE_HOST_ALIAS@@"
   destination:
     server: https://kubernetes.default.svc
     namespace: clearance-system
