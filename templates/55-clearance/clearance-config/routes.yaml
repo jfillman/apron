@@ -40,3 +40,15 @@ spec:
       backendRefs:
         - name: clearance-core
           port: 8080
+#@if clearance.feedReaders
+    # A protected cluster's Argo CD agent: its deploy.outcome and deploy.exception records, and the break-glass windows.
+    # The feed and the keys it verifies are clearance-api's, on that host's route above.
+    - matches:
+        - path: {type: Exact, value: /v1/records}
+          method: POST
+        - path: {type: Exact, value: /v1/breakglass}
+          method: GET
+      backendRefs:
+        - name: clearance-core
+          port: 8080
+#@end

@@ -191,7 +191,7 @@ spec:
           - CreateNamespace=true
   templatePatch: |
 #@if clearance.gate.enabled
-    {{- if and (regexMatch "@@CLEARANCE_GATE_ENV_REGEX@@" (printf "%s/%s" "@@CLUSTER_NAME@@" .env)) (not (dig "chart" "chart" "" .)) }}
+    {{- if and (regexMatch "@@CLEARANCE_GATE_ENV_REGEX@@" (printf "%s/%s" "@@CLUSTER_NAME@@" .env)) (regexMatch "@@CLEARANCE_GATE_APP_REGEX@@" .appName) (not (dig "chart" "chart" "" .)) }}
     spec:
       sources:
         - repoURL: "{{.gitopsRepoUrl}}"

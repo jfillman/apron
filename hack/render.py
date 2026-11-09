@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apronlib import ROOT, ApronError, evaluate, get, resolve  # noqa: E402
@@ -227,6 +228,7 @@ def clearance_tokens(g):
     workflows = c("githubWorkflows", g("autopilot.githubWorkflows", None)) or []
     tower = g("tower.cluster", "")
     tower_sa = f"{tower}/{g('tower.namespace')}/backstage-ingestor" if tower else ""
+    foreign = ([f"{g('tower.namespace')}/backstage-ingestor"] if tower else []) + list(c("foreignServiceAccounts", []) or [])
     flight = g("registries.flight.namespace", "") or ""
     flight_default = [f"{g('registries.flight.host', '') or 'ghcr.io'}/{flight}/"] if flight else []
     registries = c("trustedRegistries", flight_default) or []
@@ -243,7 +245,9 @@ def clearance_tokens(g):
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
                                             "principals": ["autopilot-system/clearance"],
                                             # it publishes its cluster-pinned definitions (PUT /v1/definitions)
-                                            "definitions": True}]),
+                                            "definitions": True}] + list(c("extraProviders", []) or [])),
+        "CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST": json.dumps(foreign),
+        "CLEARANCE_FEED_READERS_LIST": json.dumps(list(c("feedReaders", []) or [])),
         "CLEARANCE_VERIFIERS_LIST": json.dumps(["app-*-cicd/pipeline-runner"] + [f"github:{w}" for w in workflows]
                                                + list(c("verifiers", []) or [])),
         "CLEARANCE_DELEGATES_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("delegates", []) or [])),
@@ -294,8 +298,38 @@ def clearance_gate_tokens(g):
     alias = g("clearance.gate.hostAlias", "") or ""
     if alias and "=" not in alias:
         raise ApronError("clearance.gate.hostAlias is 'ip=host[,host]'")
+    alias_ip, _, alias_hosts = alias.partition("=")
+    hosts = [h for h in alias_hosts.split(",") if h]
+    apps = [str(a) for a in (g("clearance.gate.apps", None) or [])]
+    if on:
+        for a in apps:
+            if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", a):
+                raise ApronError(f"clearance.gate.apps: {a!r} is not an app name")
+    agent_api = g("clearance.gate.agent.apiURL", "") or ""
+    agent_host = urllib.parse.urlparse(agent_api).hostname or ""
+    agent_image = g("versions.clearance.argocdAgentImage", "") or ""
+    if on and g("clearance.gate.agent", None):
+        if not (agent_api and g("clearance.gate.agent.projects", None) and g("clearance.gate.agent.protectedNamespaces", None)):
+            raise ApronError("clearance.gate.agent needs apiURL, projects and protectedNamespaces")
+        if "@sha256:" not in agent_image or not g("versions.clearance.argocdAgentChart", ""):
+            raise ApronError("clearance.gate.agent needs versions.clearance.argocdAgentImage (by digest) and argocdAgentChart")
+    agent_repo, _, agent_digest = agent_image.partition("@")
+    agent_chart = g("versions.clearance.argocdAgentChart", "") or ""
     return {
         "CLEARANCE_GATE_ENV_REGEX": regex,
+        # gate.apps limits the plugin to those apps, so a cluster can turn the gate on one app at a time. Empty: every
+        # app in a protected environment. No backslash: the regex sits in a Go-template double-quoted string.
+        "CLEARANCE_GATE_APP_REGEX": f"^({'|'.join(apps)})$" if apps else "^.*$",
+        "CLEARANCE_GATE_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts}] if alias else []),
+        "CLEARANCE_AGENT_CHART_VERSION": agent_chart,
+        "CLEARANCE_AGENT_IMAGE_REPOSITORY": agent_repo,
+        # The chart builds <repository>:<tag>, so the digest pin goes in the tag.
+        "CLEARANCE_AGENT_IMAGE_TAG": f"v{agent_chart}@{agent_digest}" if agent_digest else "",
+        "CLEARANCE_AGENT_API_URL": agent_api,
+        "CLEARANCE_AGENT_PROJECTS": json.dumps(list(g("clearance.gate.agent.projects", None) or [])),
+        "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(list(g("clearance.gate.agent.protectedNamespaces", None) or [])),
+        "CLEARANCE_AGENT_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts + ([agent_host] if agent_host and agent_host not in hosts else [])}]
+                                                   if alias else []),
         # How the plugin and the wait Job reach the core: in-cluster on the control plane, else a gateway route.
         "CLEARANCE_GATE_URL": g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080",
         "CLEARANCE_GATE_HOST_ALIAS": alias,
@@ -321,7 +355,10 @@ def flight_admission_tokens(g):
                                        "@refs/heads/main$") if promoter else "",
         "FLIGHT_ADMISSION_ACTIONS": "[Deny]" if enforce else "[Audit, Warn]",
         "FLIGHT_ADMISSION_FAILURE_POLICY": "Fail" if enforce else "Ignore",
-        "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])),
+        # With the Argo CD gate on, the plugin's PreSync wait Job runs in the tenant's namespace from clearance-wait,
+        # which is not a Flight image: exactly that digest is allowed, nothing else from its repository.
+        "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])
+                                              + ([g("versions.clearance.waitImage")] if g("clearance.gate.enabled", False) and g("versions.clearance.waitImage", "") else [])),
         "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
                               else "registry-credentials-dockerconfigjson"),
     }
