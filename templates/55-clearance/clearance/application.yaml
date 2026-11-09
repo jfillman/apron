@@ -109,7 +109,7 @@ spec:
         foreignCluster:
           issuer: "@@TOWER_ISSUER@@"
           cluster: "@@TOWER_CLUSTER@@"
-          serviceAccounts: ["@@TOWER_NAMESPACE@@/backstage-ingestor"]
+          serviceAccounts: @@CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST@@
         # The gate's group directory and app owners: Tower's catalog, with a token for audience backstage-catalog
         # (55-autopilot catalog-token-policy.yaml admits clearance-core and clearance-api).
         backstage:
@@ -149,6 +149,10 @@ spec:
           replicas: 2
           auditors: @@CLEARANCE_AUDITORS_LIST@@
           notifiers: @@CLEARANCE_NOTIFIERS_LIST@@
+#@if clearance.feedReaders
+          # Who reads a protected cluster's signed grant feed: its Argo CD agent (clearance docs/gate.md).
+          feedReaders: @@CLEARANCE_FEED_READERS_LIST@@
+#@end
           gatewayURL: "@@GATEWAY_SCHEME@@://autopilot.@@CLUSTER_DOMAIN@@"
 #@if tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]

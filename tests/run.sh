@@ -321,6 +321,19 @@ has "${AS}" 'regexMatch "\^hangar\[-\]prod\[/\]prod\$"' "gate on: only clearance
 has "${AS}" 'name: valueFiles, string: "hangar-prod/base.yaml,hangar-prod/\{\{.env\}\}/values.yaml,hangar-prod/\{\{.env\}\}/release.yaml"' \
   "gate on: the plugin gets all three value files and skips absent ones (the Helm source's ignoreMissingValueFiles)"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'name: clearance-cmp' "gate on: repo-server has the plugin sidecar"
+has "${AS}" 'regexMatch "\^\.\*\$" .appName' "gate on without gate.apps: every app in a protected environment"
+[ ! -e "${TMP}/gate/56-clearance-gate/agent/application.yaml" ] && ok "gate on without gate.agent: no agent" || bad "gate on without gate.agent: the agent rendered"
+new "${TMP}/gate-agent" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true
+render_ok "${TMP}/gate-agent" "gate on with the agent, one app"
+has "${TMP}/gate-agent/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\(gate-api\)\$" .appName' "gate.apps: only that app gets the plugin"
+has "${TMP}/gate-agent/30-policy/kyverno-policies/flight-images.yaml" 'ghcr.io/acme/clearance-wait@sha256:bbbb' "gate on: Flight admission allows exactly the wait image"
+has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
+has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'audience: clearance' "gate on: the clearance token is a projected, audience-bound service-account token"
 if grep -n 'clearance-cmp\|name: clearance$' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml" "${TMP}/lab/prod/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" | grep -v '^[^:]*:[0-9]*: *#' | grep -q .; then

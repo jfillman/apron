@@ -89,11 +89,16 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
 | `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
 | `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
-| `clearance.gate.hostAlias` | `ip=host[,host]` for the wait Job's pod when the core is on another cluster |
+| `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
+| `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
+| `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces`; needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
 
-Not part of this change, and needed before a protected sync works on another cluster (hangar-prod): the core's
-foreign-workload and verifier lists, the route allowlist, the repo-server's hostAlias and egress, and admission's
-exemption for the injected wait Job. They are listed in clearance `docs/gate.md`.
+With the gate on and Flight admission on, the exact `versions.clearance.waitImage` is added to Flight's allowed images: the
+wait Job runs in the tenant's namespace and is not a Flight image.
+
+On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccounts`, `clearance.extraProviders`,
+`clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
+`feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
 
 ## Check names (`pipelinesAsCode.applicationName`)
 

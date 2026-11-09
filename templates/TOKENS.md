@@ -145,6 +145,12 @@ the render with `file:line`.
 | `@@CLEARANCE_RUNTIME_IMAGES_LIST@@` | `autopilot.customImages`, as the gate's `runtimeImagesExtra` |
 | `@@CLEARANCE_TRUSTED_REGISTRIES_LIST@@` | `clearance.trustedRegistries`, default `[<registries.flight.host>/<registries.flight.namespace>/]` (decided 2026-11-03): an image bump from them is tier 1, from anywhere else tier 2; each ends in `/` |
 | `@@CLEARANCE_GATE_ENV_REGEX@@` | the environments the Argo CD gate covers, from `clearance.protectedEnvironments` (`<cluster glob>/<env glob>`; empty: every environment), as one regex over `<cluster>/<env>` with no backslashes (`render.py` `_glob_regex`) - only under `#@if clearance.gate.enabled` |
+| `@@CLEARANCE_GATE_APP_REGEX@@` | `clearance.gate.apps` as one regex over the app name; empty: every app |
+| `@@CLEARANCE_GATE_HOST_ALIASES@@` | `clearance.gate.hostAlias` as the chart's `hostAliases` list (argocd-apps' `global.hostAliases`) |
+| `@@CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST@@` | Tower's backend and `clearance.foreignServiceAccounts`: the other cluster's `<namespace>/<sa>` globs the core and clearance-api accept |
+| `@@CLEARANCE_FEED_READERS_LIST@@` | `clearance.feedReaders`: `{principal, cluster}` entries that read a cluster's grant feed |
+| `@@CLEARANCE_AGENT_CHART_VERSION@@`, `@@CLEARANCE_AGENT_IMAGE_REPOSITORY@@`, `@@CLEARANCE_AGENT_IMAGE_TAG@@` | `versions.clearance.argocdAgentChart` and `argocdAgentImage`, the digest carried in the tag |
+| `@@CLEARANCE_AGENT_API_URL@@`, `@@CLEARANCE_AGENT_PROJECTS@@`, `@@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@`, `@@CLEARANCE_AGENT_HOST_ALIASES@@` | `clearance.gate.agent` and `clearance.gate.hostAlias` plus clearance-api's host |
 | `@@CLEARANCE_GATE_URL@@` | `clearance.gate.url`, default `http://clearance-core.<clearance namespace>.svc:8080`: the core as the plugin sidecar and the PreSync wait Job reach it |
 | `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
 | `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |

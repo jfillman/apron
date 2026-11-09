@@ -1,0 +1,41 @@
+# Clearance's Argo CD agent on the protected cluster (clearance docs/gate.md, G-ARGO-3): turns the signed grant feed into
+# ClearanceGrants, reports each finished sync as deploy.outcome and out-of-band objects as deploy.exception. It holds no
+# key and decides nothing: its credential is its projected service-account token, audience clearance. Rendered with
+# clearance.gate.agent; the chart and image are versions.clearance.argocdAgent*.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-argocd-agent
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
+    repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+    chart: clearance-argocd-agent
+    targetRevision: "@@CLEARANCE_AGENT_CHART_VERSION@@"
+    helm:
+      releaseName: clearance-argocd-agent
+      valuesObject:
+        image:
+          repository: @@CLEARANCE_AGENT_IMAGE_REPOSITORY@@
+          tag: "@@CLEARANCE_AGENT_IMAGE_TAG@@"
+        cluster: "@@CLUSTER_NAME@@"
+        apiURL: "@@CLEARANCE_AGENT_API_URL@@"
+        coreURL: "@@CLEARANCE_GATE_URL@@"
+        argocd:
+          namespace: argocd-apps
+          projects: @@CLEARANCE_AGENT_PROJECTS@@
+        protectedNamespaces: @@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@
+        hostAliases: @@CLEARANCE_AGENT_HOST_ALIASES@@
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clearance-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]

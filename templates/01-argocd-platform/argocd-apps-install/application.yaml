@@ -165,6 +165,7 @@ spec:
             timeoutSeconds: 15
             failureThreshold: 5
 #@if clearance.gate.enabled
+          # (clearance.gate.hostAlias reaches the repo-server through global.hostAliases, below.)
           # Clearance's Config Management Plugin (G-ARGO-4; clearance docs/gate.md, "The Argo CD plugin"): the sidecar
           # that renders a protected tenant Application, hashes the tree and asks the core whether it is cleared. It
           # is its own minimal image, and the only container that mounts the clearance token (a projected
@@ -202,6 +203,10 @@ spec:
               projected:
                 sources:
                   - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance}
+        # The core on another cluster, for the sidecar (it shares the repo-server pod's hosts). The chart has no
+        # repo-server-only key; the other components never use the name.
+        global:
+          hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
 #@end
         # One controller block for every cluster (it used to sit twice inside the
         # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
