@@ -38,7 +38,7 @@ Public files only. `apron render` refuses a `signing-pki/` file that contains a 
 | `rekor.pub` | the new Rekor signing key's public half | `openssl pkey -in signer.pem -pubout` (owner) |
 | `legacy-fulcio-root.pem` | the self-generated root served until the cutover | `kubectl -n platform-catalog get cm fulcio-root-ca -o jsonpath='{.data.cert\.pem}'`, before the flip |
 | `legacy-rekor.pub` | the old Rekor key | `GET /api/v1/log/publicKey` on Rekor, before the flip |
-| `fulcio-chain.pem`, `trusted-root.json` | generated | `hack/build-trust-root.sh <cluster repo> --new-start T --legacy-end T` (needs `clearance`) |
+| `fulcio-chain.pem`, `trusted-root.json` | generated | `hack/build-trust-root.sh <cluster repo> --new-start T --legacy-end T --rekor-start <legacy root start>` (needs `clearance`). Without `--rekor-start`, signatures from before the cutover stop verifying, because Rekor re-signs old entries with its new key when they are read |
 
 ## The Infisical entries (the owner creates them)
 
