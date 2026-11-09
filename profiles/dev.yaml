@@ -50,3 +50,6 @@ cnpg:
 tower:
   cluster: ""                   # the cluster Tower runs on (its prod cluster); set it to trust that cluster's tokens
   env: prod                     # Tower's Airframe environment: namespace app-backstage-<env>
+clearance:
+  ledger:                       # clearance C-3 evidence ledger: needs clearance.ledger.witnesses (the witness's cosignature key + url)
+    enabled: false              # the core keeps a Tessera log of the chain's hashes on a volume, countersigned by the witnesses

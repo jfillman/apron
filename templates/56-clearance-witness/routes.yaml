@@ -1,0 +1,25 @@
+# The witness on the LAN: the log (the Clearance core on the control-plane cluster) posts its checkpoints here
+# (clearance.witness.host, default witness.<domain>). Only what the protocol needs: POST /add-checkpoint, and GET
+# /healthz so the owner can check the route. The core reaches this cluster's gateway through a hostAlias on its side
+# (clearance.ledger.hostAlias); the witness policy line there is `witness <name> <cosignature vkey> http(s)://<this host>`.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - @@CLEARANCE_WITNESS_HOST@@
+  rules:
+    - matches:
+        - path: {type: Exact, value: /add-checkpoint}
+          method: POST
+        - path: {type: Exact, value: /healthz}
+          method: GET
+      backendRefs:
+        - name: clearance-witness
+          port: 8080

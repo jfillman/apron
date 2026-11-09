@@ -156,6 +156,21 @@ the render with `file:line`.
 | `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
 | `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |
 | `@@CLEARANCE_WAIT_IMAGE@@` | `versions.clearance.waitImage`: the PreSync wait Job's image (`clearance-wait`, by digest); required with `clearance.gate.enabled` |
+| `@@CLEARANCE_LEDGER_KEY_SECRET@@` | `clearance.ledger.keySecret`, default `hangar-ledger-<cluster name>-key`: the Infisical secret holding the log's signing key (private; the owner puts it there) - only under `#@if clearance.ledger.enabled` |
+| `@@CLEARANCE_LEDGER_WITNESS_POLICY@@` | `clearance.ledger.witnesses` (`{name, vkey, url}`; the vkey is the witness's cosignature key, type 0x04, checked) as the chart's `ledger.witnessPolicy`, a JSON string: a `witness <name> <vkey> <url>` line each, then `quorum <name>` (one witness) or `group witnesses <clearance.ledger.quorum, default all> <names>` and `quorum witnesses` |
+| `@@CLEARANCE_LEDGER_RETIRED_KEYS@@` | `clearance.ledger.retiredKeys` (log vkeys of keys rotated out), one per line as a JSON string; `""` when none |
+| `@@CLEARANCE_LEDGER_EGRESS@@` | the core's egress to the witnesses (`ledger.egress`): their port(s), and the `/32` of `clearance.ledger.hostAlias`'s address when set |
+| `@@CLEARANCE_LEDGER_HOST_ALIASES@@` | `clearance.ledger.hostAlias` (`ip=host[,host]`) as the core's `hostAliases` list, used when the cluster has no `tower.hostAliasIP` |
+| `@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@` | the same entry as `, {...}` appended to the core's Tower host alias; empty (optional) unless the ledger is on with a hostAlias, so a cluster without the ledger renders what it did before |
+| `@@CLEARANCE_LEDGER_CHECKPOINT_INTERVAL@@`, `@@CLEARANCE_LEDGER_STALL_AFTER@@` | `clearance.ledger.checkpointInterval`, `stallAfter` (Go durations; each line renders only when set) |
+| `@@CLEARANCE_LEDGER_TIER3_WAIT@@` | `clearance.ledger.tier3Wait`, default `true`: a tier 3 change waits while evidence cannot be checkpointed |
+| `@@CLEARANCE_LEDGER_STORAGE_SIZE@@`, `@@CLEARANCE_LEDGER_STORAGE_CLASS@@` | `clearance.ledger.storage.size` (default `1Gi`) and `storageClass` (line renders only when set): the log's ReadWriteOnce volume |
+| `@@CLEARANCE_WITNESS_NAME@@` | `clearance.witness.name`: the name the log's operator lists this witness under (an annotation on the Deployment) - only under `#@if clearance.witness.enabled` (the directory) |
+| `@@CLEARANCE_WITNESS_KEY_SECRET@@` | `clearance.witness.keySecret`, default `hangar-witness-<cluster name>-key`: the Infisical secret holding the witness's signing key (private) |
+| `@@CLEARANCE_WITNESS_IMAGE@@` | `versions.clearance.witnessImage`: `clearance-witness` by digest; required with `clearance.witness.enabled`, and added exactly to Flight admission's allowed images |
+| `@@CLEARANCE_WITNESS_HOST@@` | `clearance.witness.host`, default `witness.<domain>`: the route the log's core reaches (through its hostAlias) |
+| `@@CLEARANCE_WITNESS_LOGS@@` | `clearance.witness.logsVkeys` (log verifier keys, type 0x01, checked): the witness's `--logs-file`, one per line, as a JSON string |
+| `@@CLEARANCE_WITNESS_STORAGE_SIZE@@`, `@@CLEARANCE_WITNESS_STORAGE_CLASS@@` | `clearance.witness.storage.size` (default `64Mi`) and `storageClass` (line renders only when set): the witness's state claim |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)

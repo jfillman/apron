@@ -353,6 +353,76 @@ else
   ok "gate on without versions.clearance.cmpImage and waitImage is refused"
 fi
 
+echo "== 1c. the evidence ledger (clearance C-3): the log on the core's cluster, a witness on the protected one"
+# Public keys only (clearance ledger keygen prints them): the log's verifier key and the witness's cosignature key.
+LOGK='hangarplatform.dev/clearance/hangar-dev+108edc37+AetdxRXum9f4nBr0a6ahyidBM9om7vJErTsu6/TYqQkc'
+WITK='hangarplatform.dev/witness/hangar-prod+df3c5653+BFmnD24M4mdUFnMP9nWpmurlGFfwfX3QK3zYcpjFtlEW'
+WITNESS_IMG=ghcr.io/acme/clearance-witness@sha256:2222222222222222222222222222222222222222222222222222222222222222
+LEDGER_SET=(--set clearance.ledger.enabled=true --set "clearance.ledger.witnesses=[{name: hangar-prod, vkey: ${WITK}, url: http://witness.hangar-prod.local}]"
+  --set clearance.ledger.hostAlias=192.0.2.9=witness.hangar-prod.local)
+WIT_SET=(--set clearance.witness.enabled=true --set clearance.witness.name=hangar-prod --set "clearance.witness.logsVkeys=[${LOGK}]"
+  --set "versions.clearance.witnessImage=${WITNESS_IMG}" --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight
+  --set promotion.promoter.repo=acme-flight/promoter --set admission.flight.enabled=true)
+new "${TMP}/led-dev" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set tower.hostAliasIP=192.0.2.5 "${LEDGER_SET[@]}"
+new "${TMP}/led-dev-notower" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${LEDGER_SET[@]}" \
+  --set clearance.ledger.quorum=all
+new "${TMP}/led-prod" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${WIT_SET[@]}"
+render_ok "${TMP}/led-dev" "ledger on (dev, with Tower's host alias)"
+render_ok "${TMP}/led-dev-notower" "ledger on (dev, no Tower host alias)"
+render_ok "${TMP}/led-prod" "witness on (prod)"
+CA=55-clearance/clearance/application.yaml
+has "${TMP}/led-dev/${CA}" '^        ledger:$' "ledger on: the chart's ledger values"
+has "${TMP}/led-dev/${CA}" 'existingSecret: clearance-ledger-key' "ledger on: the log key is the Secret ledger-key.yaml makes"
+has "${TMP}/led-dev/${CA}" 'witnessPolicy: "witness hangar-prod hangarplatform.dev/witness/hangar-prod\+df3c5653\+[A-Za-z0-9+/]+ http://witness.hangar-prod.local\\nquorum hangar-prod\\n"' \
+  "ledger on: the policy is witness <name> <cosignature vkey> <url>, then quorum"
+has "${TMP}/led-dev/${CA}" 'egress: \[\{"to": \[\{"ipBlock": \{"cidr": "192.0.2.9/32"\}\}\], "ports": \[\{"protocol": "TCP", "port": 80\}\]\}\]' \
+  "ledger on: the core's egress reaches the witness's address and port only"
+has "${TMP}/led-dev/${CA}" 'hostAliases: \[\{ip: "192.0.2.5", hostnames: \["backstage.hangar-prod.local"\]\}, \{"ip": "192.0.2.9", "hostnames": \["witness.hangar-prod.local"\]\}\]' \
+  "ledger on: the core keeps Tower's host alias and gains the witness's"
+has "${TMP}/led-dev-notower/${CA}" 'hostAliases: \[\{"ip": "192.0.2.9", "hostnames": \["witness.hangar-prod.local"\]\}\]' "ledger on without Tower's alias: the core gets the witness's"
+has "${TMP}/led-dev/55-clearance/clearance-config/ledger-key.yaml" 'key: hangar-ledger-hangar-dev-key' "ledger on: the key is Infisical's hangar-ledger-<cluster>-key by default"
+has "${TMP}/led-dev/55-clearance/clearance-config/ledger-key.yaml" 'secretKey: ledger-key' "ledger on: the Secret has the key the chart mounts"
+expect "${TMP}/led-dev" "ledger on" 55-clearance/clearance-config/ledger-key.yaml '!56-clearance-witness'
+WD=56-clearance-witness
+expect "${TMP}/led-prod" "witness on" ${WD}/application.yaml ${WD}/witness.yaml ${WD}/routes.yaml '!55-clearance/clearance-config/ledger-key.yaml'
+has "${TMP}/led-prod/${WD}/witness.yaml" "image: ${WITNESS_IMG}" "witness on: the pinned image"
+has "${TMP}/led-prod/${WD}/witness.yaml" '^    type: Recreate$' "witness on: Recreate (one replica, one claim)"
+has "${TMP}/led-prod/${WD}/witness.yaml" 'key: hangar-witness-hangar-prod-key' "witness on: the key is Infisical's hangar-witness-<cluster>-key by default"
+has "${TMP}/led-prod/${WD}/witness.yaml" 'secretKey: witness-key' "witness on: the Secret has the key the witness reads"
+has "${TMP}/led-prod/${WD}/witness.yaml" '[-][-]logs-file=/etc/clearance-witness/config/logs' "witness on: the flags the chart passes"
+has "${TMP}/led-prod/${WD}/witness.yaml" '^  logs: "hangarplatform.dev/clearance/hangar-dev\+108edc37\+' "witness on: the log's public key in the ConfigMap"
+has "${TMP}/led-prod/${WD}/witness.yaml" '^  egress: \[\]$' "witness on: no egress at all"
+has "${TMP}/led-prod/${WD}/witness.yaml" 'pod-security.kubernetes.io/enforce: restricted' "witness on: restricted namespace"
+has "${TMP}/led-prod/${WD}/routes.yaml" '^    - witness.hangar-prod.local$' "witness on: the route's host is witness.<domain>"
+has "${TMP}/led-prod/${WD}/routes.yaml" 'value: /add-checkpoint' "witness on: the route carries add-checkpoint"
+has "${TMP}/led-prod/30-policy/kyverno-policies/flight-images.yaml" "\"${WITNESS_IMG}\"\]'" "witness on: Flight admission allows exactly the witness image"
+if grep -rnE 'PRIVATE KEY|AGE-SECRET-KEY|PRIVATE\+KEY\+' "${TMP}/led-dev" "${TMP}/led-prod" >/dev/null; then bad "ledger/witness: key material in a render"; else ok "ledger/witness: no private key material in a render"; fi
+# Off by default, and keys present but off render what absent keys render.
+new "${TMP}/led-abs" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set versions.clearance.witnessImage=
+mkdir -p "${TMP}/led-offprod" "${TMP}/led-offdev"
+cp "${LAB}/prod/cluster.yaml" "${TMP}/led-offprod/cluster.yaml"
+printf 'clearance:\n  ledger: {enabled: false}\n  witness: {enabled: false}\n' >>"${TMP}/led-offprod/cluster.yaml"
+cp "${LAB}/dev/cluster.yaml" "${TMP}/led-offdev/cluster.yaml"
+printf 'clearance:\n  ledger: {enabled: false}\n  witness: {enabled: false}\n' >>"${TMP}/led-offdev/cluster.yaml"
+render_ok "${TMP}/led-offprod" "ledger and witness explicitly off (prod)"
+render_ok "${TMP}/led-offdev" "ledger and witness explicitly off (dev)"
+expect "${TMP}/led-offprod" "witness off" '!56-clearance-witness'
+expect "${TMP}/led-offdev" "ledger off" '!55-clearance/clearance-config/ledger-key.yaml'
+if grep -rnE 'ledger|witness' "${TMP}/led-offdev/${CA}" "${TMP}/led-offprod/30-policy/kyverno-policies/flight-images.yaml" 2>/dev/null | grep -v '^[^:]*:[0-9]*: *#' | grep -q .; then
+  bad "ledger/witness off: a value leaked into the core's Application or Flight admission"
+else
+  ok "ledger/witness off: nothing in the core's Application or Flight admission"
+fi
+if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/led-offdev" >/dev/null; then ok "ledger/witness keys off == absent (dev), byte for byte"; else bad "ledger/witness off differs from absent (dev)"; fi
+if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/prod" "${TMP}/led-offprod" >/dev/null; then ok "ledger/witness keys off == absent (prod), byte for byte"; else bad "ledger/witness off differs from absent (prod)"; fi
+# Refusals: render-time (image) and check-time.
+new "${TMP}/led-noimg" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${WIT_SET[@]}" --set 'versions.clearance.witnessImage='
+if python3 hack/render.py --cluster "${TMP}/led-noimg/cluster.yaml" >/dev/null 2>&1; then bad "witness on without versions.clearance.witnessImage rendered"; else ok "witness on without versions.clearance.witnessImage is refused"; fi
+
 echo "== 2. re-render"
 out="$(python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml")"
 grep -q '0 added, 0 changed, 0 removed' <<<"${out}" && ok "second render changes nothing" || bad "re-render not idempotent: ${out}"
@@ -400,6 +470,11 @@ refuse "an invalid name" "${D}" 'name: Hangar_Dev'
 refuse "a name longer than 63" "${D}" "name: $(printf 'a%.0s' {1..64})"
 refuse "no scm owner" "${P}" 'scm: {owner: ""}'
 refuse "an unknown runtime" "${P}" 'runtime: {type: minikube}'
+refuse "the ledger without a witness" "${D}" 'clearance: {ledger: {enabled: true}}'
+refuse "a ledger witness listed by the log's own key (not a cosignature key)" "${D}" 'clearance: {ledger: {enabled: true, witnesses: [{name: w, vkey: "hangarplatform.dev/clearance/hangar-dev+108edc37+AetdxRXum9f4nBr0a6ahyidBM9om7vJErTsu6/TYqQkc", url: "http://w.local"}]}}'
+refuse "a ledger witness key with a bad hash" "${D}" 'clearance: {ledger: {enabled: true, witnesses: [{name: w, vkey: "hangarplatform.dev/witness/hangar-prod+df3c5654+BFmnD24M4mdUFnMP9nWpmurlGFfwfX3QK3zYcpjFtlEW", url: "http://w.local"}]}}'
+refuse "the witness on a lower-zone cluster" "${D}" 'clearance: {witness: {enabled: true, name: w, logsVkeys: ["hangarplatform.dev/clearance/hangar-dev+108edc37+AetdxRXum9f4nBr0a6ahyidBM9om7vJErTsu6/TYqQkc"]}}'
+refuse "the witness listing a cosignature key as a log" "${P}" 'clearance: {witness: {enabled: true, name: w, logsVkeys: ["hangarplatform.dev/witness/hangar-prod+df3c5653+BFmnD24M4mdUFnMP9nWpmurlGFfwfX3QK3zYcpjFtlEW"]}}'
 refuse "providerGithub off the control plane" "${P}" 'components: {crossplane: {providerGithub: true}}'
 refuse "glidepath off the control plane" "${P}" 'components: {glidepath: true}'
 refuse "autopilot off the control plane" "${P}" 'components: {autopilot: true}'

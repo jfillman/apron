@@ -21,6 +21,9 @@ versions:
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:d231cf8c368e011f326586886191958a19ad413b321dcadf0ec3fa8a9f65de60
     argocdAgentChart: 0.36.0
+    # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
+    # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
+    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:546a25ccd47f3d8bbbefa6759838a811204810750c4f7fb8852af06ab4ef9c85
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.4.2

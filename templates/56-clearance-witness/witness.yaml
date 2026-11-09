@@ -1,0 +1,177 @@
+# The ledger's witness (clearance charts/clearance-witness, rendered here as plain manifests because the chart is not
+# published, only the image). One replica on a ReadWriteOnce claim, Recreate so a rollout never runs two; the signing
+# key is the Infisical secret clearance.witness.keySecret (made by `clearance ledger keygen --witness`, never written
+# here); the logs it cosigns for are public vkeys in a ConfigMap. The witness calls nothing: it only answers.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: clearance-witness
+  labels:
+    hangar.io/component: clearance-witness
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+data:
+  # The logs this witness cosigns for, one vkey (public) per line (--logs-file). A log's name is the origin of its
+  # checkpoints; several lines with one name are a key rotation in progress.
+  logs: @@CLEARANCE_WITNESS_LOGS@@
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-witness-key
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-witness-key
+    creationPolicy: Owner
+  data:
+    - secretKey: witness-key
+      remoteRef: {key: @@CLEARANCE_WITNESS_KEY_SECRET@@}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clearance-witness-state
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+  annotations:
+    # The witness's memory of what it cosigned: never pruned.
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  accessModes: [ReadWriteOnce]
+#@if clearance.witness.storage.storageClass
+  storageClassName: "@@CLEARANCE_WITNESS_STORAGE_CLASS@@"
+#@end
+  resources:
+    requests:
+      storage: @@CLEARANCE_WITNESS_STORAGE_SIZE@@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+  annotations:
+    hangar.io/witness-name: "@@CLEARANCE_WITNESS_NAME@@"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {app.kubernetes.io/name: clearance-witness}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clearance-witness
+        hangar.io/component: clearance-witness
+    spec:
+      serviceAccountName: clearance-witness
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: witness
+          image: @@CLEARANCE_WITNESS_IMAGE@@
+          imagePullPolicy: IfNotPresent
+          args:
+            - --listen=:8080
+            - --key-file=/etc/clearance-witness/key/witness-key
+            - --logs-file=/etc/clearance-witness/config/logs
+            - --state-file=/var/lib/clearance-witness/state.json
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: key, mountPath: /etc/clearance-witness/key, readOnly: true}
+            - {name: config, mountPath: /etc/clearance-witness/config, readOnly: true}
+            - {name: state, mountPath: /var/lib/clearance-witness}
+      volumes:
+        - name: key
+          secret:
+            secretName: clearance-witness-key
+            defaultMode: 0400
+            items:
+              - {key: witness-key, path: witness-key}
+        - name: config
+          configMap:
+            name: clearance-witness
+        - name: state
+          persistentVolumeClaim:
+            claimName: clearance-witness-state
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: clearance-witness}
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}
+---
+# Who may reach the witness: the cluster's Gateway, on 8080 (the route in routes.yaml lets only the log's add-checkpoint
+# POST and the health check through). It calls nothing, so it has no egress at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-witness
+  namespace: clearance-witness
+  labels: {hangar.io/component: clearance-witness}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance-witness}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress: []

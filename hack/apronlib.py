@@ -19,6 +19,28 @@ class ApronError(Exception):
     pass
 
 
+def parse_vkey(vkey):
+    """A C2SP signed-note verifier key, `<name>+<8 hex>+<base64>`, as (name, key type byte), or raises ApronError.
+    It checks the key's shape and that the hash is the one the note format derives from the name and the key, so a
+    mistyped or truncated key is refused here, not by a witness at runtime. Type 0x01 is a log's Ed25519 key; type
+    0x04 is a tlog-cosignature (witness) key, the form a witness policy lists."""
+    import base64
+    import hashlib
+    m = re.fullmatch(r"([^\s+]+)\+([0-9a-f]{8})\+([A-Za-z0-9+/]+={0,2})", str(vkey))
+    if not m:
+        raise ApronError(f"{vkey!r} is not a verifier key (<name>+<8 hex>+<base64>)")
+    name, h, b64 = m.groups()
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except ValueError:
+        raise ApronError(f"{vkey!r}: the key part is not base64")
+    if len(raw) != 33:
+        raise ApronError(f"{vkey!r}: an Ed25519 verifier key is a type byte and 32 bytes")
+    if hashlib.sha256(name.encode() + b"\n" + raw).hexdigest()[:8] != h:
+        raise ApronError(f"{vkey!r}: the key hash does not match its name and key")
+    return name, raw[0]
+
+
 # --- YAML subset reader ----------------------------------------------------------------------------------------------
 
 def _strip_comment(line):
