@@ -204,6 +204,11 @@ spec:
                 podSelector:
                   matchExpressions:
                     - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate, agent-definitions, agent-release]}
+#@if clearance.observe.enabled
+              # This cluster's own audit collector; another cluster's comes through the Gateway.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-k8s}}
+#@end
               # The cluster's Gateway: GitHub's webhooks, clearance register, Tower's clear/deny.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
           api:

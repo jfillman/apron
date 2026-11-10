@@ -11,6 +11,7 @@ or a leftover `@@` is an error naming file:line. Deterministic and re-runnable: 
 renders are removed (tracked in DIR/.apron-rendered); DIR/cluster.yaml and DIR/.git are never touched.
 """
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -153,6 +154,7 @@ def tokens(v):
         **clearance_gate_tokens(g),
         **clearance_ledger_tokens(g),
         **clearance_witness_tokens(g),
+        **clearance_observe_tokens(g),
         **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
@@ -417,6 +419,38 @@ def clearance_ledger_tokens(g):
     out["CLEARANCE_LEDGER_STORAGE_SIZE"] = str(g("clearance.ledger.storage.size", "") or "1Gi")
     out["CLEARANCE_LEDGER_STORAGE_CLASS"] = str(g("clearance.ledger.storage.storageClass", "") or "")
     return out
+
+
+def clearance_observe_tokens(g):
+    """Clearance's Kubernetes audit collector (clearance charts/clearance-observe-k8s). The API server's flags and the TLS
+    Secret are hack/observe-audit.sh's. Only used where clearance.observe.enabled; the values are checked when it is on."""
+    on = bool(g("clearance.observe.enabled", False))
+    image, chart = g("versions.clearance.observeK8sImage", "") or "", g("versions.clearance.observeK8sChart", "") or ""
+    namespaces = [str(n) for n in (g("clearance.observe.protectedNamespaces", None) or [])]
+    service_ip = str(g("clearance.observe.serviceIP", "") or "")
+    if on:
+        if "@sha256:" not in image or not chart:
+            raise ApronError("clearance.observe.enabled needs versions.clearance.observeK8sImage (by digest) and observeK8sChart")
+        if not namespaces:
+            raise ApronError("clearance.observe.protectedNamespaces is required: the namespaces the collector watches")
+        try:
+            ipaddress.ip_address(service_ip)
+        except ValueError:
+            raise ApronError("clearance.observe.serviceIP is required: the collector's pinned ClusterIP, the one its "
+                             "certificate names (hack/observe-audit.sh prepare --service-ip)") from None
+    repo, _, digest = image.partition("@")
+    argocd_ns = str(g("clearance.observe.argocdNamespace", "") or "argocd")
+    return {
+        "CLEARANCE_OBSERVE_CHART_VERSION": chart,
+        "CLEARANCE_OBSERVE_IMAGE_REPOSITORY": repo,
+        # The chart builds <repository>:<tag>, so the digest pin goes in the tag.
+        "CLEARANCE_OBSERVE_IMAGE_TAG": f"v{chart}@{digest}" if digest else "",
+        "CLEARANCE_OBSERVE_PROTECTED_NAMESPACES": json.dumps(namespaces),
+        "CLEARANCE_OBSERVE_ARGOCD_NAMESPACE": argocd_ns,
+        # Both Argo CD instances name this service account the same; only the namespace differs.
+        "CLEARANCE_OBSERVE_ARGO_SUBJECT": f"system:serviceaccount:{argocd_ns}:argocd-application-controller",
+        "CLEARANCE_OBSERVE_SERVICE_IP": service_ip,
+    }
 
 
 def clearance_witness_tokens(g):

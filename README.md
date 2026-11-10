@@ -121,6 +121,12 @@ a Recreate rollout), renders `55-clearance/clearance-config/ledger-key.yaml` (an
 | `clearance.ledger.keySecret` | the Infisical secret name of the log's signing key; default `hangar-ledger-<cluster>-key` |
 | `clearance.ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait`, `storage.size` / `storage.storageClass` | the chart's `ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait` (default true) and `persistence` (default 1Gi) |
 
+**The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into
+`clearance-system`, on any cluster. Set `clearance.observe.protectedNamespaces`, `serviceIP` (the pinned ClusterIP its
+certificate names) and `argocdNamespace` (default `argocd`). The core registers it through `clearance.extraProviders` and,
+for another cluster's collector, `foreignServiceAccounts`. The TLS Secret and the API server flags are node work:
+[docs/observe-audit.md](docs/observe-audit.md).
+
 **The witness, on a protected cluster (`hangar-prod`, zone upper).** The `clearance-witness` chart is not published, only
 its image, so `56-clearance-witness/` renders the same objects as plain manifests: namespace `clearance-witness`
 (Pod Security `restricted`), one replica with `Recreate`, a state claim that is never pruned, a ConfigMap of the logs'
