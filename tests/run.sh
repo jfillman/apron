@@ -406,13 +406,14 @@ has "${TMP}/led-prod/${WD}/routes.yaml" 'value: /add-checkpoint' "witness on: th
 has "${TMP}/led-prod/30-policy/kyverno-policies/flight-images.yaml" "\"${WITNESS_IMG}\"\]'" "witness on: Flight admission allows exactly the witness image"
 if grep -rnE 'PRIVATE KEY|AGE-SECRET-KEY|PRIVATE\+KEY\+' "${TMP}/led-dev" "${TMP}/led-prod" >/dev/null; then bad "ledger/witness: key material in a render"; else ok "ledger/witness: no private key material in a render"; fi
 echo "== 1c-2. the Kubernetes audit collector (clearance O-3)"
-OBS_SET=(--set clearance.observe.enabled=true --set 'clearance.observe.protectedNamespaces=[app-a-prod]' --set clearance.observe.serviceIP=10.96.200.50
+OBS_SET=(--set clearance.observe.enabled=true --set 'clearance.observe.protectedNamespaces=[app-a-prod]' --set 'clearance.observe.kubeletNodes=[node-a]' --set clearance.observe.serviceIP=10.96.200.50
   --set versions.clearance.observeK8sImage=ghcr.io/acme/clearance-observe-k8s@sha256:3333333333333333333333333333333333333333333333333333333333333333)
 new "${TMP}/obs-prod" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${OBS_SET[@]}"
 render_ok "${TMP}/obs-prod" "collector on"
 OA="${TMP}/obs-prod/57-clearance-observe/application.yaml"
 has "${OA}" 'tag: "v[0-9.]+@sha256:[0-9a-f]{64}"' "collector on: the image is pinned by digest"
 has "${OA}" 'clusterIP: "10.96.200.50"' "collector on: the pinned ClusterIP"
+has "${OA}" 'kubeletNodes: \["node-a"\]' "collector on: the kubelet nodes"
 has "${OA}" 'namespace: argocd-apps$' "collector on: the Argo CD namespace"
 has "${OA}" 'system:serviceaccount:argocd-apps:argocd-application-controller' "collector on: that instance's controller"
 expect "${TMP}/led-prod" "collector off" '!57-clearance-observe/application.yaml'
