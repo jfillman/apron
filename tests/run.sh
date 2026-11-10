@@ -408,7 +408,7 @@ if grep -rnE 'PRIVATE KEY|AGE-SECRET-KEY|PRIVATE\+KEY\+' "${TMP}/led-dev" "${TMP
 echo "== 1c-2. the Kubernetes audit collector (clearance O-3)"
 OBS_SET=(--set clearance.observe.enabled=true --set 'clearance.observe.protectedNamespaces=[app-a-prod]' --set clearance.observe.serviceIP=10.96.200.50
   --set versions.clearance.observeK8sImage=ghcr.io/acme/clearance-observe-k8s@sha256:3333333333333333333333333333333333333333333333333333333333333333)
-new "${TMP}/obs-prod" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${OBS_SET[@]}" --set clearance.observe.argocdNamespace=argocd-apps
+new "${TMP}/obs-prod" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${OBS_SET[@]}"
 render_ok "${TMP}/obs-prod" "collector on"
 OA="${TMP}/obs-prod/57-clearance-observe/application.yaml"
 has "${OA}" 'tag: "v[0-9.]+@sha256:[0-9a-f]{64}"' "collector on: the image is pinned by digest"

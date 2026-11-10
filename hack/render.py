@@ -154,7 +154,7 @@ def tokens(v):
         **clearance_gate_tokens(g),
         **clearance_ledger_tokens(g),
         **clearance_witness_tokens(g),
-        **clearance_observe_tokens(g),
+        **clearance_observe_tokens(v, g),
         **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
@@ -421,7 +421,7 @@ def clearance_ledger_tokens(g):
     return out
 
 
-def clearance_observe_tokens(g):
+def clearance_observe_tokens(v, g):
     """Clearance's Kubernetes audit collector (clearance charts/clearance-observe-k8s). The API server's flags and the TLS
     Secret are hack/observe-audit.sh's. Only used where clearance.observe.enabled; the values are checked when it is on."""
     on = bool(g("clearance.observe.enabled", False))
@@ -439,7 +439,8 @@ def clearance_observe_tokens(g):
             raise ApronError("clearance.observe.serviceIP is required: the collector's pinned ClusterIP, the one its "
                              "certificate names (hack/observe-audit.sh prepare --service-ip)") from None
     repo, _, digest = image.partition("@")
-    argocd_ns = str(g("clearance.observe.argocdNamespace", "") or "argocd")
+    # The instance that syncs tenant apps: the same choice as XR_APP_NAMESPACE.
+    argocd_ns = str(g("clearance.observe.argocdNamespace", "") or ("argocd" if v["isControlPlane"] else "argocd-apps"))
     return {
         "CLEARANCE_OBSERVE_CHART_VERSION": chart,
         "CLEARANCE_OBSERVE_IMAGE_REPOSITORY": repo,
