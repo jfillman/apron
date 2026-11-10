@@ -123,7 +123,8 @@ a Recreate rollout), renders `55-clearance/clearance-config/ledger-key.yaml` (an
 
 **The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into
 `clearance-system`, on any cluster. Set `clearance.observe.protectedNamespaces`, `serviceIP` (the pinned ClusterIP its
-certificate names) and `argocdNamespace` (default `argocd` on the control plane, else `argocd-apps`). The core registers it through `clearance.extraProviders` and,
+certificate names), `kubeletNodes` (node names whose kubelets' pod-token requests are routine; a node not listed shows as
+out-of-band) and `argocdNamespace` (default `argocd` on the control plane, else `argocd-apps`). The core registers it through `clearance.extraProviders` and,
 for another cluster's collector, `foreignServiceAccounts`. The TLS Secret and the API server flags are node work:
 [docs/observe-audit.md](docs/observe-audit.md).
 

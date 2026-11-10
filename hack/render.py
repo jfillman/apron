@@ -427,6 +427,7 @@ def clearance_observe_tokens(v, g):
     on = bool(g("clearance.observe.enabled", False))
     image, chart = g("versions.clearance.observeK8sImage", "") or "", g("versions.clearance.observeK8sChart", "") or ""
     namespaces = [str(n) for n in (g("clearance.observe.protectedNamespaces", None) or [])]
+    kubelet_nodes = [str(n) for n in (g("clearance.observe.kubeletNodes", None) or [])]
     service_ip = str(g("clearance.observe.serviceIP", "") or "")
     if on:
         if "@sha256:" not in image or not chart:
@@ -447,6 +448,7 @@ def clearance_observe_tokens(v, g):
         # The chart builds <repository>:<tag>, so the digest pin goes in the tag.
         "CLEARANCE_OBSERVE_IMAGE_TAG": f"v{chart}@{digest}" if digest else "",
         "CLEARANCE_OBSERVE_PROTECTED_NAMESPACES": json.dumps(namespaces),
+        "CLEARANCE_OBSERVE_KUBELET_NODES": json.dumps(kubelet_nodes),
         "CLEARANCE_OBSERVE_ARGOCD_NAMESPACE": argocd_ns,
         # Both Argo CD instances name this service account the same; only the namespace differs.
         "CLEARANCE_OBSERVE_ARGO_SUBJECT": f"system:serviceaccount:{argocd_ns}:argocd-application-controller",

@@ -30,6 +30,7 @@ spec:
           namespace: @@CLEARANCE_OBSERVE_ARGOCD_NAMESPACE@@
         rules:
           argoControllerSubject: "@@CLEARANCE_OBSERVE_ARGO_SUBJECT@@"
+          kubeletNodes: @@CLEARANCE_OBSERVE_KUBELET_NODES@@
         webhook:
           service:
             clusterIP: "@@CLEARANCE_OBSERVE_SERVICE_IP@@"
