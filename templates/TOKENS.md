@@ -166,6 +166,9 @@ the render with `file:line`.
 | `@@CLEARANCE_LEDGER_CHECKPOINT_INTERVAL@@`, `@@CLEARANCE_LEDGER_STALL_AFTER@@` | `clearance.ledger.checkpointInterval`, `stallAfter` (Go durations; each line renders only when set) |
 | `@@CLEARANCE_LEDGER_TIER3_WAIT@@` | `clearance.ledger.tier3Wait`, default `true`: a tier 3 change waits while evidence cannot be checkpointed |
 | `@@CLEARANCE_LEDGER_STORAGE_SIZE@@`, `@@CLEARANCE_LEDGER_STORAGE_CLASS@@` | `clearance.ledger.storage.size` (default `1Gi`) and `storageClass` (line renders only when set): the log's ReadWriteOnce volume |
+| `@@CLEARANCE_OBSERVE_CHART_VERSION@@`, `@@CLEARANCE_OBSERVE_IMAGE_REPOSITORY@@`, `@@CLEARANCE_OBSERVE_IMAGE_TAG@@` | `versions.clearance.observeK8sChart` and `observeK8sImage` (by digest; the digest pin goes in the tag) - only under `clearance.observe.enabled` |
+| `@@CLEARANCE_OBSERVE_PROTECTED_NAMESPACES@@`, `@@CLEARANCE_OBSERVE_SERVICE_IP@@` | `clearance.observe.protectedNamespaces` and `serviceIP` (checked when on) |
+| `@@CLEARANCE_OBSERVE_ARGOCD_NAMESPACE@@`, `@@CLEARANCE_OBSERVE_ARGO_SUBJECT@@` | `clearance.observe.argocdNamespace`, default `argocd` on the control plane and `argocd-apps` elsewhere, and its application controller's subject |
 | `@@CLEARANCE_WITNESS_NAME@@` | `clearance.witness.name`: the name the log's operator lists this witness under (an annotation on the Deployment) - only under `#@if clearance.witness.enabled` (the directory) |
 | `@@CLEARANCE_WITNESS_KEY_SECRET@@` | `clearance.witness.keySecret`, default `hangar-witness-<cluster name>-key`: the Infisical secret holding the witness's signing key (private) |
 | `@@CLEARANCE_WITNESS_IMAGE@@` | `versions.clearance.witnessImage`: `clearance-witness` by digest; required with `clearance.witness.enabled`, and added exactly to Flight admission's allowed images |

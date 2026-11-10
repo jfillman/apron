@@ -1,0 +1,45 @@
+# Clearance's Kubernetes audit collector (clearance docs/observe-k8s.md, O-3): receives this cluster's API server audit
+# batches and reports what happened outside the gate. Holds no key of its own beyond the webhook's TLS Secret, which
+# hack/observe-audit.sh creates: the chart creates no certificate. Rendered with clearance.observe.enabled; the chart and
+# image are versions.clearance.observeK8s*.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-observe-k8s
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
+    repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+    chart: clearance-observe-k8s
+    targetRevision: "@@CLEARANCE_OBSERVE_CHART_VERSION@@"
+    helm:
+      releaseName: clearance-observe-k8s
+      valuesObject:
+        image:
+          repository: @@CLEARANCE_OBSERVE_IMAGE_REPOSITORY@@
+          tag: "@@CLEARANCE_OBSERVE_IMAGE_TAG@@"
+        cluster: "@@CLUSTER_NAME@@"
+        coreURL: "@@CLEARANCE_GATE_URL@@"
+        protectedNamespaces: @@CLEARANCE_OBSERVE_PROTECTED_NAMESPACES@@
+        argocd:
+          namespace: @@CLEARANCE_OBSERVE_ARGOCD_NAMESPACE@@
+        rules:
+          argoControllerSubject: "@@CLEARANCE_OBSERVE_ARGO_SUBJECT@@"
+        webhook:
+          service:
+            clusterIP: "@@CLEARANCE_OBSERVE_SERVICE_IP@@"
+        auditPolicyMirror: kube-system/audit-policy
+        hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clearance-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]
