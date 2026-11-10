@@ -155,6 +155,7 @@ def tokens(v):
         **clearance_ledger_tokens(g),
         **clearance_witness_tokens(g),
         **clearance_observe_tokens(v, g),
+        **clearance_observe_aws_tokens(g),
         **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
@@ -258,7 +259,10 @@ def clearance_tokens(g):
         "CLEARANCE_NOTIFIERS_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("notifiers", []) or [])),
         "CLEARANCE_PEOPLE_LIST": json.dumps(list(people)),
         "CLEARANCE_ADMINS_LIST": json.dumps([f"user:{p}" for p in (c("admins", people) or [])]),
-        "CLEARANCE_AUDITORS_LIST": json.dumps([f"user:{p}" for p in (c("auditors", people) or [])]),
+        # extraAuditors are principal globs appended verbatim (a service account, not a user:), e.g. the AWS collector's
+        # "clearance-system/clearance-observe-aws", which reads clearance-api for outcomes.
+        "CLEARANCE_AUDITORS_LIST": json.dumps([f"user:{p}" for p in (c("auditors", people) or [])]
+                                              + [str(a) for a in (c("extraAuditors", []) or [])]),
         "CLEARANCE_GITHUB_WORKFLOWS_LIST": json.dumps(list(workflows)),
         "CLEARANCE_RUNTIME_IMAGES_LIST": json.dumps(list(g("autopilot.customImages", None) or [])),
         "CLEARANCE_TRUSTED_REGISTRIES_LIST": json.dumps(list(registries)),
@@ -453,6 +457,49 @@ def clearance_observe_tokens(v, g):
         # Both Argo CD instances name this service account the same; only the namespace differs.
         "CLEARANCE_OBSERVE_ARGO_SUBJECT": f"system:serviceaccount:{argocd_ns}:argocd-application-controller",
         "CLEARANCE_OBSERVE_SERVICE_IP": service_ip,
+    }
+
+
+def clearance_observe_aws_tokens(g):
+    """Clearance's AWS collector (clearance charts/clearance-observe-aws), installed into clearance-system so its service
+    account is the one the AWS roles trust. Only used where clearance.observeAWS.enabled; the values are checked when on.
+    Registering the collector as provider observe-aws and as an auditor is cluster.yaml's (extraProviders, extraAuditors)."""
+    k = lambda key, d="": g(f"clearance.observeAWS.{key}", None) if g(f"clearance.observeAWS.{key}", None) is not None else d  # noqa: E731
+    on = bool(k("enabled", False))
+    image, chart = g("versions.clearance.observeAWSImage", "") or "", g("versions.clearance.observeAWSChart", "") or ""
+    account, queue, role = str(k("account") or ""), str(k("queueURL") or ""), str(k("roleARN") or "")
+    apply_roles = [str(r) for r in (k("applyRoles", []) or [])]
+    if on:
+        if "@sha256:" not in image or not chart:
+            raise ApronError("clearance.observeAWS.enabled needs versions.clearance.observeAWSImage (by digest) and observeAWSChart")
+        for key, val in (("account", account), ("queueURL", queue), ("roleARN", role)):
+            if not val:
+                raise ApronError(f"clearance.observeAWS.{key} is required")
+        if not apply_roles:
+            raise ApronError("clearance.observeAWS.applyRoles is required: the role names that apply changes, which the collector matches")
+    region = str(k("region", "") or "us-east-1")
+    repo, _, digest = image.partition("@")
+    jl = lambda key, d=(): json.dumps([str(x) for x in (k(key, list(d)) or [])])  # noqa: E731
+    return {
+        "CLEARANCE_OBSERVE_AWS_CHART_VERSION": chart,
+        "CLEARANCE_OBSERVE_AWS_IMAGE_REPOSITORY": repo,
+        "CLEARANCE_OBSERVE_AWS_IMAGE_TAG": f"v{chart}@{digest}" if digest else "",
+        "CLEARANCE_OBSERVE_AWS_ACCOUNT": json.dumps(account),
+        "CLEARANCE_OBSERVE_AWS_REGION": json.dumps(region),
+        "CLEARANCE_OBSERVE_AWS_QUEUE_URL": json.dumps(queue),
+        "CLEARANCE_OBSERVE_AWS_ENVIRONMENT": json.dumps(str(k("environment") or "")),
+        "CLEARANCE_OBSERVE_AWS_ROLE_ARN": json.dumps(role),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_ROLE_ARN": json.dumps(str(k("trailRoleARN") or "")),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_NAME": json.dumps(str(g("clearance.observeAWS.trail.name", None) or "organization")),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_BUCKET": json.dumps(str(g("clearance.observeAWS.trail.bucket", None) or "")),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_PREFIX": json.dumps(str(g("clearance.observeAWS.trail.prefix", None) or "")),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_REGION": json.dumps(str(g("clearance.observeAWS.trail.region", None) or "us-east-1")),
+        "CLEARANCE_OBSERVE_AWS_TRAIL_REGIONS": json.dumps([str(x) for x in (g("clearance.observeAWS.trail.regions", None) or ["us-east-1"])]),
+        "CLEARANCE_OBSERVE_AWS_DATA_BUCKETS": jl("dataBuckets"),
+        "CLEARANCE_OBSERVE_AWS_RULES": jl("rules", ("observe-aws-cloudtrail", "observe-aws-config")),
+        "CLEARANCE_OBSERVE_AWS_APPLY_ROLES": json.dumps(apply_roles),
+        "CLEARANCE_OBSERVE_AWS_SSO_ADMIN_ROLES": jl("ssoAdminRoles"),
+        "CLEARANCE_OBSERVE_AWS_GOVERNED_ACCOUNTS": jl("governedAccounts"),
     }
 
 

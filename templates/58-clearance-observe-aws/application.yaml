@@ -1,0 +1,56 @@
+# Clearance's AWS collector (clearance docs/observe-aws.md): reads this cluster's AWS organization's CloudTrail and
+# Config events from an SQS queue and reports what happened outside the gate. Installed into clearance-system, fixed:
+# the AWS roles trust system:serviceaccount:clearance-system:clearance-observe-aws. Rendered with
+# clearance.observeAWS.enabled; the chart and image are versions.clearance.observeAWS*. The core registers it through
+# clearance.extraProviders and clearance-api through clearance.extraAuditors.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-observe-aws
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
+    repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+    chart: clearance-observe-aws
+    targetRevision: "@@CLEARANCE_OBSERVE_AWS_CHART_VERSION@@"
+    helm:
+      releaseName: clearance-observe-aws
+      valuesObject:
+        image:
+          repository: @@CLEARANCE_OBSERVE_AWS_IMAGE_REPOSITORY@@
+          tag: "@@CLEARANCE_OBSERVE_AWS_IMAGE_TAG@@"
+        apiURL: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"
+        coreURL: "@@CLEARANCE_GATE_URL@@"
+        account: @@CLEARANCE_OBSERVE_AWS_ACCOUNT@@
+        region: @@CLEARANCE_OBSERVE_AWS_REGION@@
+        queueURL: @@CLEARANCE_OBSERVE_AWS_QUEUE_URL@@
+        environment: @@CLEARANCE_OBSERVE_AWS_ENVIRONMENT@@
+        aws:
+          roleARN: @@CLEARANCE_OBSERVE_AWS_ROLE_ARN@@
+          trailRoleARN: @@CLEARANCE_OBSERVE_AWS_TRAIL_ROLE_ARN@@
+        trail:
+          name: @@CLEARANCE_OBSERVE_AWS_TRAIL_NAME@@
+          bucket: @@CLEARANCE_OBSERVE_AWS_TRAIL_BUCKET@@
+          prefix: @@CLEARANCE_OBSERVE_AWS_TRAIL_PREFIX@@
+          region: @@CLEARANCE_OBSERVE_AWS_TRAIL_REGION@@
+          regions: @@CLEARANCE_OBSERVE_AWS_TRAIL_REGIONS@@
+        dataBuckets: @@CLEARANCE_OBSERVE_AWS_DATA_BUCKETS@@
+        rules: @@CLEARANCE_OBSERVE_AWS_RULES@@
+        ruleset:
+          applyRoles: @@CLEARANCE_OBSERVE_AWS_APPLY_ROLES@@
+          ssoAdminRoles: @@CLEARANCE_OBSERVE_AWS_SSO_ADMIN_ROLES@@
+          governedAccounts: @@CLEARANCE_OBSERVE_AWS_GOVERNED_ACCOUNTS@@
+        hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clearance-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]

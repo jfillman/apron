@@ -24,6 +24,9 @@ versions:
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
     observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:85683e38ca43aa6c96a3bc710996ff2ac0baa4e34b11505bebdf54754aaa89c3
     observeK8sChart: 0.39.2
+    # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2.
+    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:47daca535311191c63ba34adb273a4e8097117c7739ec86a81def73b3e9ecb24
+    observeAWSChart: 0.39.2
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
     witnessImage: ghcr.io/jfillman/clearance-witness@sha256:546a25ccd47f3d8bbbefa6759838a811204810750c4f7fb8852af06ab4ef9c85
