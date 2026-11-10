@@ -14,7 +14,8 @@
 #            Live cluster: check the node is CTX's, the collector is up and reachable from the node with the real
 #            client certificate, then install the files and flags. Backs up the manifest, waits, rolls back on failure.
 #   verify   --context CTX
-#            API server ready, flags live, batches arriving at the collector, none refused.
+#            API server ready, flags live, no batch refused. It cannot see delivery: the collector logs no line per
+#            batch. Delivery is the k8s-audit-webhook source in the core's GET /v1/coverage.
 #   rollback --context CTX --node-exec "CMD"
 #            Take the audit flags and mount back out of the manifest. The files stay on the node.
 #
@@ -127,7 +128,8 @@ apply_manifest() {
     return 0
   fi
   warn "API server not ready with the audit flags after ${WAIT_SECONDS}s - restoring the backup"
-  node cp "${backup}" "${MANIFEST}"
+  node cp "${backup}" "${BACKUP_DIR}/kube-apiserver.yaml.staged"
+  node mv "${BACKUP_DIR}/kube-apiserver.yaml.staged" "${MANIFEST}"
   WAIT_SECONDS=300 wait_for_flag absent && echo "  restored; the API server is back on the old manifest" \
     || warn "the API server is not back yet either: check the node (crictl ps -a; the kubelet log)"
   die "change rolled back"
@@ -166,6 +168,7 @@ cmd_prepare() {
   [ ! -e "${DIR}/collector.key" ] || die "${DIR} already holds keys. Use a new --dir to rotate; nothing was changed."
   ( umask 077; mkdir -p "${DIR}" )
   chmod 700 "${DIR}"
+  DIR="$(cd "${DIR}" && pwd)"
   log "prepare: ${DIR} (service IP ${SERVICE_IP})"
 
   ( umask 077; cd "${DIR}"
@@ -254,7 +257,7 @@ cmd_secret() {
 
 # --- install --------------------------------------------------------------------------------------------------------
 cmd_install() {
-  need CONTEXT context; need NODE_EXEC node-exec; need DIR dir; require kubectl; require jq; require openssl; python_yaml
+  need CONTEXT context; need NODE_EXEC node-exec; need DIR dir; require kubectl; require openssl; python_yaml
   local f ip svc_ip ready code
   for f in audit-policy.yaml webhook.kubeconfig collector-server-ca.crt apiserver-audit-client.crt apiserver-audit-client.key service-ip; do
     [ -s "${DIR}/${f}" ] || die "${DIR}/${f} is missing: run prepare"
@@ -350,7 +353,7 @@ cmd_verify() {
   refused="$(grep -c "audit batch refused" "${TMP}/log" || true)"
   [ "${refused}" = "0" ] || die "${refused} audit batches refused in the last 10 minutes; read the collector log (401: no certificate, 403: wrong name)"
   ok "no audit batch refused in the last 10 minutes"
-  echo "  batch delivery and coverage: GET /v1/coverage?scope=<cluster> on the core shows source k8s-audit-webhook healthy."
+  echo "  this does not prove delivery. Check GET /v1/coverage?scope=<cluster> on the core: source k8s-audit-webhook, now: healthy."
 }
 
 # --- rollback -------------------------------------------------------------------------------------------------------
