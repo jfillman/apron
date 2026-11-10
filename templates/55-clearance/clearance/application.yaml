@@ -209,12 +209,22 @@ spec:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-k8s}}
 #@end
+#@if clearance.observeAWS.enabled
+              # The AWS collector: records to the core.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-aws}}
+#@end
               # The cluster's Gateway: GitHub's webhooks, clearance register, Tower's clear/deny.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
           api:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
               - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+#@if clearance.observeAWS.enabled
+              # The AWS collector: outcomes from clearance-api.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-aws}}
+#@end
           # Cilium matches the API server as the kube-apiserver entity, not an ipBlock: the chart renders the
           # CiliumNetworkPolicy for TokenReview (clearance 0.31.0; it replaced clearance-config's own).
           kubeAPIServer:

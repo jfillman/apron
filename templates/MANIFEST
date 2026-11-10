@@ -104,6 +104,9 @@
 # 57 Clearance's Kubernetes audit collector (clearance O-3): the API server flags are hack/observe-audit.sh, on the node
 57-clearance-observe/                   clearance.observe.enabled
 
+# 58 Clearance's AWS collector (clearance observe-aws): reads CloudTrail/Config events from an SQS queue
+58-clearance-observe-aws/               clearance.observeAWS.enabled
+
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes
 60-gateway-routes/grafana-httproute.yaml          components.gatewayRoutes and components.observability and observability.full

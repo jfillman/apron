@@ -128,6 +128,15 @@ out-of-band) and `argocdNamespace` (default `argocd` on the control plane, else 
 for another cluster's collector, `foreignServiceAccounts`. The TLS Secret and the API server flags are node work:
 [docs/observe-audit.md](docs/observe-audit.md).
 
+**The AWS collector (`clearance.observeAWS.enabled`).** `58-clearance-observe-aws/` installs Clearance's AWS collector
+into `clearance-system` (fixed: the AWS roles trust `clearance-system:clearance-observe-aws`). Set
+`clearance.observeAWS.account`, `queueURL`, `roleARN`, `applyRoles` (required), and optionally `region`, `environment`,
+`trailRoleARN`, `trail.{name,bucket,prefix,region,regions}`, `dataBuckets`, `rules`, `ssoAdminRoles`, `governedAccounts`.
+The core and clearance-api admit its pod. Registering it is yours, in cluster.yaml: a `clearance.extraProviders` entry
+named `observe-aws` (principal `clearance-system/clearance-observe-aws`; kinds observation, assessment, resolution,
+observation.health, observation.verification, deploy.exception) and `clearance.extraAuditors:
+[clearance-system/clearance-observe-aws]` (principal globs appended verbatim after the `user:` auditors).
+
 **The witness, on a protected cluster (`hangar-prod`, zone upper).** The `clearance-witness` chart is not published, only
 its image, so `56-clearance-witness/` renders the same objects as plain manifests: namespace `clearance-witness`
 (Pod Security `restricted`), one replica with `Recreate`, a state claim that is never pruned, a ConfigMap of the logs'
