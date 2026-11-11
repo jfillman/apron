@@ -1,7 +1,7 @@
 # Who may reach the Autopilot gateway and its database (ingress only; the gateway's own egress is open: the API
 # server, the Clearance core, glidepath-api, Prometheus, Loki, the OpenTelemetry collector's OTLP port 4318 for its log
 # lines, and an OIDC issuer's JWKS).
-#   clearance      the gateway's MCP port and the model proxy's (8081), from agent-run namespaces only. function-agentrun
+#   autopilot-gateway  the gateway's MCP port and the model proxy's (8081), from agent-run namespaces only. function-agentrun
 #                  labels each run namespace hangar.io/agent-run=true and its egress policy allows this pod and port; this
 #                  is the other half. kubelet probes and `kubectl port-forward` reach the pod from the node.
 #                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
@@ -11,12 +11,12 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: clearance
+  name: autopilot-gateway
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: clearance}
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -47,7 +47,7 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: clearance}
+            matchLabels: {app.kubernetes.io/name: autopilot-gateway}
         - podSelector:
             matchLabels: {app.kubernetes.io/name: autopilot-api}
       ports:

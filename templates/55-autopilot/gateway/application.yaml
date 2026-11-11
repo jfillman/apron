@@ -2,7 +2,7 @@
 # and the run tree, budgets, tool dispatch to Hangar's backends, the model proxy, the human inbox and person controls.
 # It asks the Clearance core (55-clearance) for every decision and records through it; it writes no evidence. It runs
 # in autopilot-system because run pods reach it there: function-agentrun's egress allows only pods labelled
-# app.kubernetes.io/name=clearance in that namespace, port 8080 (the label predates the product split, R-4).
+# app.kubernetes.io/name=autopilot-gateway (clearance until R-10c) in that namespace, port 8080.
 # A directory source of this folder, everything but this file:
 #   identity.yaml       the ServiceAccount and its cluster grants (TokenReview, the read-only Airframe reader); its
 #                       AgentRun Role is in agentrun-grants, its glidepath-api grants in 50-glidepath's values
@@ -10,11 +10,14 @@
 #   model-key.yaml      the model provider's key for the model proxy, from Infisical (sync wave 0)
 #   gateway.yaml        the gateway Deployment, its Service and the model-proxy Service (sync wave 1)
 #   autopilot-api.yaml  the gateway's read API (`autopilot-gateway api`), two replicas, route autopilot-api.<domain>
-#   routes.yaml         the gateway's routes on clearance.<domain>: /mcp, the inbox, person controls, Run
+#   routes.yaml         the gateway's routes on autopilot.<domain> and clearance.<domain>: /mcp, the inbox, person controls, Run
 #   networkpolicy.yaml  ingress to the gateway (agent-run namespaces) and to autopilot-pg
 #   argo-sync.yaml      argo.sync.lower's grant, confined by an admission policy (sync wave -1)
 #   catalog-token-policy.yaml  only the gateway, its read API, the core and clearance-api may hold a token for Tower's
 #                       catalog (audience backstage-catalog; sync wave -1)
+# The Application keeps its name, autopilot-clearance, and its subcomponent label: nothing in the tree prunes (no
+# prune on the root or on this Application, no finalizer), so renaming it would orphan this folder's live objects under an
+# Application that no longer exists. Renamed with the other deferred objects in R-10e.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -28,7 +31,7 @@ spec:
   source:
     repoURL: @@REPO_URL@@
     targetRevision: main
-    path: 55-autopilot/clearance
+    path: 55-autopilot/gateway
     directory:
       exclude: "application.yaml"
   destination:

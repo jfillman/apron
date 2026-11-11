@@ -187,8 +187,25 @@ has "${K}/dev/00-bootstrap/backstage-ingestor-rbac/rbac.yaml" \
 has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" \
   'hangar:eks-man:system:serviceaccount:app-backstage-prod:tower-actor' "eks-dev: glidepath-api allows Tower's actor"
 has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" "${ISS}/AAA1" "eks-dev: Fulcio trusts the EKS issuer"
-has "${K}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "https://clearance\.eks-dev\.aws\.example\.dev"' "eks-dev: Clearance's URL over https"
-has "${LAB}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "http://clearance\.hangar-dev\.local"' "lab: Clearance's URL stays http"
+has "${K}/dev/55-autopilot/gateway/autopilot-api.yaml" 'value: "https://autopilot\.eks-dev\.aws\.example\.dev"' "eks-dev: Clearance's URL over https"
+has "${LAB}/dev/55-autopilot/gateway/autopilot-api.yaml" 'value: "http://autopilot\.hangar-dev\.local"' "lab: Clearance's URL stays http"
+# R-10c: the gateway is autopilot-gateway (label, Deployment, SA, Services), the old `clearance` Service stays as an alias
+# on the new label, and every list that named the old principal names both.
+G="${LAB}/dev/55-autopilot/gateway"
+has "${G}/gateway.yaml" '^  name: autopilot-gateway$' "lab: gateway Deployment is autopilot-gateway"
+has "${G}/gateway.yaml" 'serviceAccountName: autopilot-gateway' "lab: gateway runs as SA autopilot-gateway"
+has "${G}/gateway.yaml" 'selector: \{app.kubernetes.io/name: autopilot-gateway\}' "lab: Services select the new label"
+has "${G}/gateway.yaml" 'gateway-v0.5.0@sha256:7443db2df1e81a1b10d82efe1ba3ce3573580935c5570050639a5990760189df' "lab: gateway image pinned"
+has "${G}/autopilot-api.yaml" 'gateway-v0.5.0@sha256:7443db2df1e81a1b10d82efe1ba3ce3573580935c5570050639a5990760189df' "lab: read API on the same image"
+has "${G}/autopilot-api.yaml" 'AUTOPILOT_GATEWAY_URL' "lab: read API uses AUTOPILOT_GATEWAY_URL"
+if grep -rn 'app.kubernetes.io/name: clearance[},]' "${G}" >/dev/null; then bad "lab: a gateway object still carries the label clearance"; else ok "lab: no gateway object carries the label clearance"; fi
+if [ "$(grep -c '^  name: clearance$' "${G}/gateway.yaml")" = 1 ]; then ok "lab: exactly the clearance Service alias keeps the old name"; else bad "lab: the clearance Service alias is missing or duplicated"; fi
+has "${G}/argo-sync.yaml" "autopilot-system:autopilot-gateway'" "lab: argo-sync admits the new principal"
+has "${G}/argo-sync.yaml" "autopilot-system:clearance'" "lab: argo-sync still admits the old principal"
+has "${LAB}/dev/50-glidepath/glidepath-control-plane/values.yaml" 'system:serviceaccount:autopilot-system:autopilot-gateway' "lab: glidepath-api delegates the new principal"
+has "${LAB}/dev/50-glidepath/glidepath-control-plane/values.yaml" 'system:serviceaccount:autopilot-system:clearance' "lab: glidepath-api still delegates the old principal"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" 'autopilot-system/autopilot-gateway", "autopilot-system/clearance"' "lab: the provider registers both principals"
+has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:fcf43470a97e22c28bb23d2230a381c0289d01afb9b53f0c69b429dc8b198ede' "lab: function-agentrun v0.3.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
 has "${K}/dev/10-crds-operators/crossplane/function-agentrun-runtime.yaml" "value: '\\{\\}'" "eks-dev: no runtime classes by default"

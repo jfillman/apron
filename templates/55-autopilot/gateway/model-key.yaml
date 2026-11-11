@@ -7,7 +7,7 @@ kind: ExternalSecret
 metadata:
   name: clearance-model-key
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:

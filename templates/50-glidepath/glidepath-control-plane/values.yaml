@@ -106,22 +106,25 @@ api:
     - @@TOWER_USER_INGESTOR@@
     - @@TOWER_USER_ACTOR@@
     # Clearance names the session's principal on every call, so a write's audit line carries both identities.
-    # Clearance's deployed identity (55-autopilot/clearance).
+    # The gateway's deployed identity (55-autopilot/gateway), then its old name (R-10c; retired with R-10e).
+    - system:serviceaccount:autopilot-system:autopilot-gateway
     - system:serviceaccount:autopilot-system:clearance
   readers:
     users:
       - @@TOWER_USER_INGESTOR@@
-    # Clearance's glidepath.* tools (55-autopilot/clearance): reads only; each agent is narrowed further by
+    # Clearance's glidepath.* tools (55-autopilot/gateway): reads only; each agent is narrowed further by
     # its definition's profile.glidepath.apps before any call.
     serviceAccounts:
-      - { name: clearance, namespace: autopilot-system }
+      - { name: autopilot-gateway, namespace: autopilot-system }
+      - { name: clearance, namespace: autopilot-system }   # the old name, one release (R-10c)
   # Who may re-run and cancel PipelineRuns through the API (glidepath-api-operator, cluster-wide). Tower writes as
   # tower-actor, owner-checked in Tower first; Clearance's glidepath.run.rerun/.cancel are T1, per agent definition.
   operators:
     users:
       - @@TOWER_USER_ACTOR@@
     serviceAccounts:
-      - { name: clearance, namespace: autopilot-system }
+      - { name: autopilot-gateway, namespace: autopilot-system }
+      - { name: clearance, namespace: autopilot-system }   # the old name, one release (R-10c)
   # Who may promote and roll back through the API (glidepath-api-releaser, cluster-wide; glidepath docs/admin/api.md
   # "Promote and roll back"). T2: each only starts the app's release pipeline, whose PR a person merges. Tower
   # owner-checks first; Clearance's glidepath.promote/.rollback are per agent definition.
@@ -129,7 +132,8 @@ api:
     users:
       - @@TOWER_USER_ACTOR@@
     serviceAccounts:
-      - { name: clearance, namespace: autopilot-system }
+      - { name: autopilot-gateway, namespace: autopilot-system }
+      - { name: clearance, namespace: autopilot-system }   # the old name, one release (R-10c)
 #@if autopilot.people and components.gatewayRoutes
   # People call glidepath-api directly over the Gateway with a people-dex ID token for its public client
   # `glidepath-api` (55-autopilot/people-dex), as people:<GitHub login>, only for cluster.yaml autopilot.people; each
@@ -154,8 +158,12 @@ promoter:
 
 #@if components.autopilot
 # The agents' GitHub App (Autopilot AP-B1, hangar D4; glidepath docs/admin/release.md "The agent installation token"):
-# the broker's /agent-installation-token for Clearance (autopilot-system/clearance, the chart's default caller), and
+# the broker's /agent-installation-token for the gateway (autopilot-system/autopilot-gateway, and its old name clearance
+# for one release, R-10c; the chart's default caller is the old name only), and
 # the App's id and key from this cluster's Infisical project (agent-app-id, agent-app-private-key).
 agentToken:
   enabled: true
+  callers:
+    - system:serviceaccount:autopilot-system:autopilot-gateway
+    - system:serviceaccount:autopilot-system:clearance
 #@end

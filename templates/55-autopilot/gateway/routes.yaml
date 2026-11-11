@@ -5,7 +5,7 @@ kind: HTTPRoute
 metadata:
   name: clearance-mcp
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   parentRefs:
     - name: @@GATEWAY_NAME@@
@@ -36,5 +36,5 @@ spec:
         - path: {type: RegularExpression, value: "^/v1/agents/[a-z0-9-]+/runs$"}
           method: POST
       backendRefs:
-        - name: clearance
+        - name: autopilot-gateway
           port: 8080

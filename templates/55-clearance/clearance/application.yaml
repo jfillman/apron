@@ -7,8 +7,8 @@
 # The database, its reader role, the GitHub App's Secret and the routes are clearance-config's (beside this file).
 #
 # Names: fullnameOverride clearance gives the Services clearance-core and clearance-api; nameOverride clearance-core
-# keeps the chart's app.kubernetes.io/name off `clearance`, which in autopilot-system means the Autopilot gateway
-# (its Service selector, and function-agentrun's run-pod egress, both match app.kubernetes.io/name=clearance).
+# keeps the chart's app.kubernetes.io/name off `clearance`, which in autopilot-system meant the Autopilot gateway
+# (its Service selector, and function-agentrun's run-pod egress, both matched it until R-10c, which renamed the gateway's label to autopilot-gateway).
 # Namespace: @@CLEARANCE_NAMESPACE@@ (clearance.namespace, default clearance-system). The gateway is in autopilot-system.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

@@ -102,7 +102,7 @@ spec:
           kubernetes.io/metadata.name: autopilot-system
       podSelector:
         matchLabels:
-          app.kubernetes.io/name: clearance
+          app.kubernetes.io/name: autopilot-gateway
   - ports:
     - port: 8081
       protocol: TCP
@@ -112,7 +112,7 @@ spec:
           kubernetes.io/metadata.name: autopilot-system
       podSelector:
         matchLabels:
-          app.kubernetes.io/name: model-proxy
+          app.kubernetes.io/name: autopilot-gateway
   podSelector: {}
   policyTypes:
   - Egress
@@ -161,8 +161,10 @@ spec:
           value: /workspace
         - name: HANGAR_LIMITS
           value: '{"githubCalls":50,"modelTokens":100000,"toolCalls":100}'
+        - name: AUTOPILOT_URL
+          value: http://autopilot-gateway.autopilot-system.svc:8080
         - name: CLEARANCE_URL
-          value: http://clearance.autopilot-system.svc:8080
+          value: http://autopilot-gateway.autopilot-system.svc:8080
         - name: MODEL_PROXY_URL
           value: http://model-proxy.autopilot-system.svc:8081
         - name: HANGAR_TOKEN_DIR
@@ -219,6 +221,10 @@ spec:
       - name: hangar-tokens
         projected:
           sources:
+          - serviceAccountToken:
+              audience: autopilot
+              expirationSeconds: 3600
+              path: autopilot-token
           - serviceAccountToken:
               audience: clearance
               expirationSeconds: 3600

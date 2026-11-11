@@ -597,6 +597,9 @@ spec:
     # comment. Nothing else changed.
     # 2026-11-11: v0.3.172 -> v0.3.173. airframe: the AgentRepository XRD and Composition (Autopilot M4: a team's
     # repository of prompt-only agents), added to the include list on components.autopilot clusters only, beside Agent.
+    # 2026-11-11: v0.3.173 -> v0.3.174. airframe#145 (R-10c): the AgentRun Composition names the gateway autopilot-gateway:
+    # gateway_service, clearance_selector and model_proxy_selector (run egress follows the gateway's renamed pod label).
+    # Nothing else changed.
     targetRevision: @@AIRFRAME_CATALOG_VERSION@@
     path: .
     directory:

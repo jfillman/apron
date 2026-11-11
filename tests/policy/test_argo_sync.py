@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""argo.sync.lower's grant (templates/55-autopilot/clearance/argo-sync.yaml) against a real kube-apiserver (envtest).
+"""argo.sync.lower's grant (templates/55-autopilot/gateway/argo-sync.yaml) against a real kube-apiserver (envtest).
 
 It installs an Application CRD stand-in (preserve-unknown-fields, like Argo CD's for these fields), the Role, binding,
 policy and binding from argo-sync.yaml, and two Applications in argocd-apps (gate-api-dev in gate-api-lower,
-gate-api-prod in gate-api), then acts as system:serviceaccount:autopilot-system:clearance by impersonation:
+gate-api-prod in gate-api), then acts as system:serviceaccount:autopilot-system:autopilot-gateway (or its old name, clearance) by impersonation:
 
   allowed   the adapter's exact merge patch (operation: initiatedBy, info, sync {}) on the lower app
   denied    the same on the upper app; a second sync while one is in flight; a patch that also changes spec, a
@@ -25,9 +25,9 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from test_agentrun_grants import CLEARANCE, Apiserver  # noqa: E402
+from test_agentrun_grants import CLEARANCE, CLEARANCE_OLD, Apiserver  # noqa: E402
 
-POLICY = HERE.parents[1] / "templates" / "55-autopilot" / "clearance" / "argo-sync.yaml"
+POLICY = HERE.parents[1] / "templates" / "55-autopilot" / "gateway" / "argo-sync.yaml"
 CRD = {"apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition",
        "metadata": {"name": "applications.argoproj.io"},
        "spec": {"group": "argoproj.io", "scope": "Namespaced",
@@ -83,6 +83,9 @@ def main():
 
         print("-- allowed")
         check("the adapter's sync of a lower app", True, patch("gate-api-dev", {"operation": OP}))
+        clear("gate-api-dev")
+        check("the same sync as the old name (clearance), for one release", True,
+              patch("gate-api-dev", {"operation": OP}, who=CLEARANCE_OLD))
         print("-- denied")
         check("a second sync while one is in flight", False, patch("gate-api-dev", {"operation": OP}), "in flight")
         clear("gate-api-dev")
