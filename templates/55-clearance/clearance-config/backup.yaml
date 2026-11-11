@@ -1,0 +1,95 @@
+# A nightly pg_dump of clearance-pg onto a volume in this namespace (rendered with clearance.backup.enabled). The evidence
+# chain is the one thing Clearance cannot rebuild, and CloudNativePG has no object store on this cluster (no
+# barmanObjectStore, no ScheduledBackup, no Backup), so this is the backup. It is a copy on the same cluster's storage,
+# not off-cluster: a lost cluster loses it too. Take a dump off the cluster before any risky change (the cutover runbook
+# of R-10d does).
+#
+# The job reads as clearance_reader (reader-credentials.yaml: pg_read_all_data, no write grant), never as the owner. It
+# writes <name>.partial, checks it with `pg_restore --list`, renames it, then keeps the newest clearance.backup.keep
+# dumps (default 7). A custom-format dump restores with `pg_restore --no-owner` into a fresh clearance-pg.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clearance-pg-backup
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-pg-backup}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    # The dumps are the backup: never pruned with the Application.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: @@CLEARANCE_BACKUP_STORAGE_SIZE@@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clearance-pg-backup
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-pg-backup}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: "@@CLEARANCE_BACKUP_SCHEDULE@@"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: clearance-pg-backup
+            hangar.io/component: clearance
+            hangar.io/subcomponent: clearance-pg-backup
+        spec:
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: dump
+              # The same image as the Cluster (postgres.yaml): pg_dump of the server's own major version.
+              image: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+              command:
+                - sh
+                - -ceu
+                - |
+                  cd /backup
+                  rm -f ./*.partial
+                  out="clearance-pg-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  pg_dump --format=custom --no-owner --host=clearance-pg-rw --dbname=clearance --file="${out}.partial"
+                  pg_restore --list "${out}.partial" >/dev/null
+                  mv "${out}.partial" "${out}"
+                  echo "wrote ${out} $(wc -c < "${out}") bytes sha256 $(sha256sum "${out}" | cut -d' ' -f1)"
+                  ls -1t ./clearance-pg-*.dump | tail -n +$((KEEP + 1)) | while read -r old; do echo "removing ${old}"; rm -f "${old}"; done
+              env:
+                - {name: KEEP, value: "@@CLEARANCE_BACKUP_KEEP@@"}
+                - {name: PGUSER, valueFrom: {secretKeyRef: {name: clearance-pg-reader, key: username}}}
+                - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: clearance-pg-reader, key: password}}}
+                - {name: PGSSLMODE, value: require}
+                - {name: PGCONNECT_TIMEOUT, value: "10"}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - {name: backup, mountPath: /backup}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: backup
+              persistentVolumeClaim: {claimName: clearance-pg-backup}
+            - name: tmp
+              emptyDir: {}

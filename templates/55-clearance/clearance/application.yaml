@@ -9,6 +9,7 @@
 # Names: fullnameOverride clearance gives the Services clearance-core and clearance-api; nameOverride clearance-core
 # keeps the chart's app.kubernetes.io/name off `clearance`, which in autopilot-system means the Autopilot gateway
 # (its Service selector, and function-agentrun's run-pod egress, both match app.kubernetes.io/name=clearance).
+# Namespace: @@CLEARANCE_NAMESPACE@@ (clearance.namespace, default clearance-system). The gateway is in autopilot-system.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -196,8 +197,12 @@ spec:
           enabled: true
           core:
             from:
-              # The Autopilot gateway, the one registered provider.
-              - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+              # The Autopilot gateway, the one registered provider. It stays in autopilot-system (the run pods' egress names
+              # that namespace), so this is a cross-namespace rule; its label is clearance.gatewayPodNames.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: autopilot-system}}
+                podSelector:
+                  matchExpressions:
+                    - {key: app.kubernetes.io/name, operator: In, values: @@CLEARANCE_GATEWAY_POD_NAMES@@}
               # Glidepath's gates in each app's -cicd namespace (agent-gates, clearance-gate, agent-definitions,
               # agent-release), as pipeline-runner.
               - namespaceSelector: {}
@@ -219,7 +224,11 @@ spec:
           api:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
-              - podSelector: {matchLabels: {app.kubernetes.io/name: clearance}}
+              # The Autopilot gateway's reads (autopilot-system; see the core's rule above).
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: autopilot-system}}
+                podSelector:
+                  matchExpressions:
+                    - {key: app.kubernetes.io/name, operator: In, values: @@CLEARANCE_GATEWAY_POD_NAMES@@}
 #@if clearance.observeAWS.enabled
               # The AWS collector: outcomes from clearance-api.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
@@ -233,9 +242,11 @@ spec:
             to:
               - podSelector: {matchLabels: {cnpg.io/cluster: clearance-pg}}
           extraEgress:
-            # people-dex's keys, Tower's catalog and JWKS, GitHub's API: outside the namespace or the cluster.
+            # people-dex's keys (autopilot-system, 55-identity), Tower's catalog and JWKS, GitHub's API: outside the
+            # namespace or the cluster.
             - to:
-                - podSelector: {matchLabels: {app.kubernetes.io/name: people-dex}}
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: autopilot-system}}
+                  podSelector: {matchLabels: {app.kubernetes.io/name: people-dex}}
               ports: [{protocol: TCP, port: 5556}]
             - ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 80}]
 #@if clearance.attestation.keyless

@@ -101,6 +101,19 @@ On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccou
 `clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
 `feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
 
+## Where Clearance runs (`clearance.namespace`) and its nightly dump (`clearance.backup`)
+
+`clearance.namespace` (default `clearance-system`) is where the core, clearance-api, clearance-pg, the ledger volume, their
+ExternalSecrets and the Clearance routes run; every in-cluster URL to the core and clearance-api follows it. The Autopilot
+gateway stays in `autopilot-system`, so the core's and the api's NetworkPolicies admit it by namespace plus pod label
+(`clearance.gatewayPodNames`, default `[clearance, autopilot-gateway]`: the gateway's `app.kubernetes.io/name` before and
+after its rename). External hostnames do not depend on the namespace.
+
+CloudNativePG has no object store on these clusters, so `clearance.backup.enabled: true` renders
+`55-clearance/clearance-config/backup.yaml`: a PVC and a nightly CronJob that `pg_dump`s clearance-pg (as the read-only
+role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
+`clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
+
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 
 Clearance C-3 (clearance `docs/core.md`, "The evidence ledger (C-3)") keeps a transparency log of the evidence chain's

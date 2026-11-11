@@ -1,4 +1,5 @@
-# clearance-pg: only the core (the one writer), the api (its read-only role) and the CloudNativePG operator. The
+# clearance-pg: only the core (the one writer), the api (its read-only role), the nightly dump job (backup.yaml; it
+# reads as the same role) and the CloudNativePG operator. The
 # chart's own NetworkPolicies cover the core's and the api's pods; this one covers the database's.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -14,6 +15,10 @@ spec:
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: clearance-core, app.kubernetes.io/instance: clearance}
+#@if clearance.backup.enabled
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: clearance-pg-backup}
+#@end
       ports:
         - {protocol: TCP, port: 5432}
     - from:
