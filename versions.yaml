@@ -5,7 +5,7 @@
 # no-hardcoded-cluster-names branches: cut new tags from them and set those tags here before rebuilding.
 versions:
   airframe:
-    catalog: v0.3.173 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions. v0.3.172..v0.3.173 adds xrds/agentrepository.yaml + compositions/agentrepository (Autopilot M4) and a comment in xrds/agentrun.yaml
+    catalog: v0.3.174 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions. v0.3.172..v0.3.173 adds xrds/agentrepository.yaml + compositions/agentrepository (Autopilot M4) and a comment in xrds/agentrun.yaml; v0.3.173..v0.3.174 (airframe#145): the AgentRun Composition names the gateway autopilot-gateway (gateway_service, clearance_selector, model_proxy_selector)
     clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
     analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
     defaultChart: v0.3.173 # cluster-defaults.yaml defaultChart: the app chart every environment renders
