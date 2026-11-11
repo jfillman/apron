@@ -132,7 +132,9 @@ the render with `file:line`.
 |---|---|
 | `@@CLEARANCE_CHART_VERSION@@` | `versions.clearance.chart`, the clearance chart's version (OCI, `<registry>/<owner>/charts/clearance`) |
 | `@@CLEARANCE_IMAGE_DIGEST@@` | `versions.clearance.imageDigest`, the image index the chart's default tag is pinned to |
-| `@@CLEARANCE_NAMESPACE@@` | `clearance.namespace`, default `clearance-system` (hangar-dev: `autopilot-system`, where clearance-pg lives) |
+| `@@CLEARANCE_NAMESPACE@@` | `clearance.namespace`, default `clearance-system` (hangar-dev too since R-10d; it was `autopilot-system` before): where the core, clearance-api, clearance-pg and the ledger volume run. The Autopilot gateway stays in `autopilot-system` |
+| `@@CLEARANCE_GATEWAY_POD_NAMES@@` | `clearance.gatewayPodNames`, default `["clearance", "autopilot-gateway"]`: the gateway pods' `app.kubernetes.io/name` values the core's and api's NetworkPolicies admit from `autopilot-system` (both names, so the gateway's rename does not cut it off) |
+| `@@CLEARANCE_BACKUP_SCHEDULE@@`, `@@CLEARANCE_BACKUP_KEEP@@`, `@@CLEARANCE_BACKUP_STORAGE_SIZE@@` | `clearance.backup.schedule` (default `17 2 * * *`), `.keep` (default 7 dumps) and `.storageSize` (default `5Gi`): the nightly pg_dump of clearance-pg, rendered with `clearance.backup.enabled` |
 | `@@CLEARANCE_PROVIDERS@@` | the registered runtime provider, the Autopilot gateway (`autopilot-system/clearance`, version `versions.autopilot.gateway`, `"definitions": true`), a YAML flow list |
 | `@@CLEARANCE_VERIFIERS_LIST@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks), `github:<glob>` for each `clearance.githubWorkflows` entry, and `clearance.verifiers` |
 | `@@CLEARANCE_DELEGATES_LIST@@` | Tower's backend (`<tower.cluster>/<tower.namespace>/backstage-ingestor`) when `tower.cluster` is set, plus `clearance.delegates` |

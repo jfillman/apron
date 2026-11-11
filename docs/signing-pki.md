@@ -24,7 +24,7 @@ Order matters: `signing.trustedRoot` first (safe: verifiers learn the new chain 
 Nothing to add to Fulcio's `config.yaml`: it already lists the cluster's issuer (`fulcio.publicIssuers`, the public
 issuer, and the in-cluster default) as `type: kubernetes` with client-id `sigstore`, and sets no subject rule, so the core
 is admitted. Its certificate's SAN is `https://kubernetes.io/namespaces/<clearance namespace>/serviceaccounts/clearance-core`
-(namespace `autopilot-system` on hangar-dev) and the issuer extension is the issuer that signed its token. Verifiers pin
+(namespace `clearance-system` on hangar-dev since R-10d; attestations made before the move carry `autopilot-system`, so a verifier of old and new evidence accepts both) and the issuer extension is the issuer that signed its token. Verifiers pin
 exactly those with `clearance attest verify --identity ... --issuer ...`.
 
 ## `signing-pki/` (the cluster repo, next to `cluster.yaml`)

@@ -247,9 +247,19 @@ def clearance_tokens(g):
     return {
         "CLEARANCE_CHART_VERSION": g("versions.clearance.chart"),
         "CLEARANCE_IMAGE_DIGEST": g("versions.clearance.imageDigest"),
-        # The namespace the chart installs into: clearance-system unless set. hangar-dev keeps autopilot-system,
-        # where its evidence database (clearance-pg) has lived since AP-A2.
+        # The namespace the chart installs into: clearance-system unless clearance.namespace says otherwise (R-10d moved
+        # hangar-dev's core, clearance-pg and the ledger volume there from autopilot-system).
         "CLEARANCE_NAMESPACE": c("namespace", "clearance-system"),
+        # The Autopilot gateway's pod label app.kubernetes.io/name, the one place the core's and the api's NetworkPolicies
+        # (and the pg_dump job's) learn it. The gateway stays in autopilot-system, a different namespace from the core's,
+        # so each rule is a namespaceSelector plus this podSelector. Both names are listed so the policy admits the
+        # gateway before and after the gateway's own rename from `clearance` to `autopilot-gateway` (R-10).
+        "CLEARANCE_GATEWAY_POD_NAMES": json.dumps(list(c("gatewayPodNames", None) or ["clearance", "autopilot-gateway"])),
+        # The nightly pg_dump of clearance-pg (clearance-config backup.yaml, clearance.backup.enabled): cron schedule,
+        # how many dumps the PVC keeps, and its size.
+        "CLEARANCE_BACKUP_SCHEDULE": str(g("clearance.backup.schedule", "") or "17 2 * * *"),
+        "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
+        "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
         # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
                                             "principals": ["autopilot-system/clearance"],

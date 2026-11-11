@@ -1,7 +1,8 @@
 # Clearance's durable store and evidence sink (the core's internal/store/pg; before R-4, clearance.pg): one CloudNativePG cluster, one instance, owned by this
 # Application. CNPG creates the `clearance` database and owner and writes the connection URI to the Secret
 # clearance-pg-app (key `uri`), which the core reads as CLEARANCE_DSN; no credential is written by hand.
-# Evidence is retention-bound data: the volume outlives a pod restart, not a cluster rebuild (no backup yet).
+# Evidence is retention-bound data: the volume outlives a pod restart, not a cluster rebuild. No object store backs
+# CloudNativePG here, so backup.yaml (clearance.backup.enabled) dumps the database nightly onto a volume beside it.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

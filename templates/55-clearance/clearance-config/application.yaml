@@ -5,7 +5,9 @@
 #   github-app.yaml          the Clearance GitHub App's Secret and its webhook route (only with the App)
 #   routes.yaml              clearance-api.<domain> and the gate's clear/deny on clearance.<domain>
 #   networkpolicy.yaml       who reaches clearance-pg: the core, the api, the CloudNativePG operator
-#   cilium-kube-apiserver.yaml  the core's and the api's egress to the API server (TokenReview), on Cilium
+#   backup.yaml              the nightly pg_dump of clearance-pg onto a volume here (clearance.backup.enabled): CloudNativePG has no
+#                            object store on this cluster, so no barman backup
+#   (the core's and the api's egress to the API server, TokenReview, on Cilium, is the clearance chart's own CiliumNetworkPolicy)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
