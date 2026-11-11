@@ -120,4 +120,7 @@ spec:
     # Autopilot M4: an app's Agent pins live in its xr-requests folder (airframe xrds/agent.yaml).
     - group: catalog.hangar.io
       kind: Agent
+    # Autopilot M4: a team's repository of prompt-only agents (airframe xrds/agentrepository.yaml).
+    - group: catalog.hangar.io
+      kind: AgentRepository
 #@end
