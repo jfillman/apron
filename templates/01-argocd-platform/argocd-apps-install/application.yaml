@@ -92,6 +92,15 @@ spec:
         # cluster scope" (found live 2026-08-24 moving ephemeral-envs.yaml's watch here).
 #@if not isControlPlane
         notifications:
+          # argocd-notifications-secret has ONE owner: the ExternalSecret
+          # argocd-notifications-relay-token (creationPolicy: Owner). With the chart also
+          # creating it, ESO's hourly refresh and this app's selfHeal each rewrote the
+          # Secret, and the Clearance collector saw two out-of-band writes every hour
+          # (2026-11-10). ESO adopts the existing Secret in place (sets its
+          # ownerReference), and Argo CD stops tracking an object that has one, so the
+          # switch needs no delete and no gap.
+          secret:
+            create: false
           notifiers:
             service.webhook.glidepath-relay: |
               url: @@RELAY_URL@@
