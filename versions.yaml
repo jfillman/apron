@@ -25,8 +25,8 @@ versions:
     observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:4a6c212d765e246e5f27a22fc13456e2f05666b2d2081f565a15217679b31e80
     observeK8sChart: 0.40.0
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
-    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:ebc18e46a4828d6d6fff34eaeaf683e17254e74b7493f65dd6be78f295726ad5
-    observeAWSChart: 0.40.2
+    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:df63920d196487531f9674dd64cf3b4417556932cfb682e73e1f2766a9533908
+    observeAWSChart: 0.40.3
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
     witnessImage: ghcr.io/jfillman/clearance-witness@sha256:546a25ccd47f3d8bbbefa6759838a811204810750c4f7fb8852af06ab4ef9c85
