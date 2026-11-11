@@ -1,0 +1,27 @@
+# Autopilot's hardened sandbox tier (cluster.yaml autopilot.hardenedRuntime): the RuntimeClass a `sandbox: hardened`
+# AgentRun's pod names. Rendered only where the cluster has the runtime; hangar-infra's eks-cluster module installs
+# gVisor on a node group with gvisor = true and labels and taints it hangar.io/runtime=gvisor. The same cluster.yaml key
+# puts {"hardened": "gvisor"} in function-agentrun's HANGAR_RUNTIME_CLASSES, so the function never names a class this
+# cluster lacks, and a cluster without the key Rejects hardened runs (never downgrades them).
+# A directory source of this folder, everything but this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: autopilot-sandbox-runtime
+  namespace: argocd
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: sandbox-runtime
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 55-autopilot/sandbox-runtime
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      selfHeal: true

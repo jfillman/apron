@@ -1,0 +1,18 @@
+# gVisor (runsc) for Autopilot's hardened runs. scheduling puts every pod that names this class on the gVisor nodes and
+# tolerates their taint, so function-agentrun adds runtimeClassName and nothing else.
+# No overhead: Kubernetes would add it to each run's ResourceQuota usage, which function-agentrun sizes from the compute
+# class alone, and a hardened run would then be refused by its own quota. Measure the Sentry's real cost before adding it
+# (and grow the quota with it).
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+  labels:
+    hangar.io/component: autopilot
+    hangar.io/subcomponent: sandbox-runtime
+handler: runsc
+scheduling:
+  nodeSelector:
+    hangar.io/runtime: gvisor
+  tolerations:
+    - {key: hangar.io/runtime, operator: Equal, value: gvisor, effect: NoSchedule}

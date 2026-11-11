@@ -63,10 +63,11 @@ cluster and without the full catalog.
 | `namespaces/` | `autopilot-system` (Clearance, the model proxy) and `autopilot-runs` (AgentRun XRs), pod security restricted | never labelled `hangar.io/ephemeral-env` |
 | `agent-sandbox/` | the kubernetes-sigs/agent-sandbox controller, chart pinned by commit and image by digest (v1.0.8) | a run's Sandbox `shutdownTime` ends its pod with no Clearance or Crossplane involved |
 | `clearance/` | the Autopilot gateway (Deployment `clearance`), its read API (`autopilot-api`), `autopilot-pg`, their NetworkPolicies and routes (`autopilot.<domain>`: `/mcp`, the inbox, person controls, Run, and a public `GET /healthz`) | ingress default-deny but for run namespaces and the cluster Gateway; with `observability.full` both send a copy of their log lines to the OTel collector (OTLP/HTTP, on to Loki as `service_name` `autopilot-gateway` / `autopilot-api`) |
+| `sandbox-runtime/` | with `autopilot.hardenedRuntime: gvisor` only: RuntimeClass `gvisor` (handler `runsc`), scheduled onto nodes labelled and tainted `hangar.io/runtime=gvisor` (hangar-infra's eks-cluster `gvisor = true` node group) | the same key gives function-agentrun `HANGAR_RUNTIME_CLASSES`; without it a `sandbox: hardened` run is Rejected, never downgraded. `apron check` refuses it on kind and kiac, which have no gVisor |
 | `agentrun-grants/` | provider-kubernetes's ClusterRole for a run's objects, the ValidatingAdmissionPolicy that confines it, a second policy on who may create such Objects, Clearance's Role | the grant only ships with the policy: run namespaces (`agent-r-*`) only, no pod-security label changes, no PR-sweep label, `serviceAccountName: run` only (decision D15); and a provider-kubernetes Object with a run-kind manifest comes only from Crossplane core for an AgentRun, never hand-made |
 
 It also gives provider-kubernetes a stable service account (`10-crds-operators/crossplane/provider-kubernetes-runtime.yaml`)
-and installs function-agentrun with the cluster's name (`function-agentrun-runtime.yaml`). Runs land only once the
+and installs function-agentrun with the cluster's name and its runtime classes (`function-agentrun-runtime.yaml`). Runs land only once the
 cluster's registry record has `airframe.autopilotReady`, set after autopilot's `tools/netpol_canary.py` passes.
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
