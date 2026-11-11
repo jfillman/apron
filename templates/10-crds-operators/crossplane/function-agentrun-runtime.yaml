@@ -1,7 +1,9 @@
 # DeploymentRuntimeConfig for function-agentrun (Autopilot AP-A3). The AgentRun Composition is shared by every
 # cluster, so it cannot say which cluster it runs on; the function reads that from HANGAR_CLUSTER_NAME and looks up
 # this cluster's registry record (crossplane-system/<name>) for airframe.autopilotReady. Unset or unknown means
-# every AgentRun is Rejected. Own runtime config, never the shared "default" one.
+# every AgentRun is Rejected. HANGAR_RUNTIME_CLASSES says which runtime class a `sandbox: hardened` run gets (cluster.yaml
+# autopilot.hardenedRuntime, the same key that renders 55-autopilot/sandbox-runtime/); "{}" Rejects hardened runs.
+# Own runtime config, never the shared "default" one.
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:
@@ -22,3 +24,5 @@ spec:
               env:
                 - name: HANGAR_CLUSTER_NAME
                   value: @@CLUSTER_NAME@@
+                - name: HANGAR_RUNTIME_CLASSES
+                  value: '@@AUTOPILOT_RUNTIME_CLASSES@@'

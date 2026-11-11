@@ -119,6 +119,10 @@ def tokens(v):
         # own repo), globs, e.g. ghcr.io/<owner>/*@sha256:*: the gateway checks definitions against them and clearance-api
         # lists them at GET /v1/runtimes for New agent. Empty: catalog images only.
         "AUTOPILOT_CUSTOM_IMAGES": ",".join(g("autopilot.customImages", None) or []),
+        # Autopilot's hardened sandbox tier (autopilot.hardenedRuntime): function-agentrun's HANGAR_RUNTIME_CLASSES, the
+        # same key that renders 55-autopilot/sandbox-runtime/. "{}" when unset: hardened runs are Rejected.
+        "AUTOPILOT_RUNTIME_CLASSES": json.dumps({"hardened": g("autopilot.hardenedRuntime")}, separators=(",", ":"))
+        if g("autopilot.hardenedRuntime", None) else "{}",
         # Glidepath's admin-owned release-signing policy (glidepath ADR-0027): YAML flow lists, "[]" when unset.
         "RELEASE_SIGNERS": json.dumps(list(g("releaseSigning.signers", None) or [])),
         "RELEASE_MERGERS": json.dumps(list(g("releaseSigning.mergers", None) or [])),

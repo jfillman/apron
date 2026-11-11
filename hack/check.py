@@ -115,6 +115,14 @@ def violations(v, fleet=None):
         add("components.serviceCatalog.scope must be full or attached-tier-only")
     if on("components.autopilot") and not on("components.clearance"):
         add("components.autopilot needs components.clearance: the gateway asks the Clearance core for every decision")
+    hr = get(v, "autopilot.hardenedRuntime")
+    if hr not in (None, "", "gvisor"):
+        add(f"autopilot.hardenedRuntime must be gvisor or unset (got {hr!r}): it names the RuntimeClass Apron renders")
+    elif hr and not on("components.autopilot"):
+        add("autopilot.hardenedRuntime needs components.autopilot: it is the runtime class of Autopilot's hardened runs")
+    elif hr and get(v, "runtime.type") in ("kind", "kiac"):
+        add(f"autopilot.hardenedRuntime: {get(v, 'runtime.type')} nodes have no gVisor; leave it unset so hardened runs are "
+            "Rejected, not scheduled onto nodes without runsc")
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

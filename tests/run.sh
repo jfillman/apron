@@ -189,6 +189,28 @@ has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" \
 has "${K}/dev/50-glidepath/glidepath-control-plane/values.yaml" "${ISS}/AAA1" "eks-dev: Fulcio trusts the EKS issuer"
 has "${K}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "https://clearance\.eks-dev\.aws\.example\.dev"' "eks-dev: Clearance's URL over https"
 has "${LAB}/dev/55-autopilot/clearance/autopilot-api.yaml" 'value: "http://clearance\.hangar-dev\.local"' "lab: Clearance's URL stays http"
+# Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
+expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
+has "${K}/dev/10-crds-operators/crossplane/function-agentrun-runtime.yaml" "value: '\\{\\}'" "eks-dev: no runtime classes by default"
+has "${LAB}/dev/10-crds-operators/crossplane/function-agentrun-runtime.yaml" "value: '\\{\\}'" "lab: no runtime classes"
+mkdir -p "${K}/gv" && cp "${K}/dev/cluster.yaml" "${K}/gv/cluster.yaml" && printf 'autopilot: {hardenedRuntime: gvisor}\n' >>"${K}/gv/cluster.yaml"
+python3 hack/check.py --cluster "${K}/gv/cluster.yaml" >/dev/null 2>"${TMP}/gv-check" \
+  && ok "eks-dev with gvisor: passes check" || bad "eks-dev with gvisor: check: $(cat "${TMP}/gv-check")"
+render_ok "${K}/gv" "eks-dev with gvisor"
+expect "${K}/gv" "eks-dev with gvisor" 55-autopilot/sandbox-runtime/runtimeclass.yaml 55-autopilot/sandbox-runtime/application.yaml
+has "${K}/gv/55-autopilot/sandbox-runtime/runtimeclass.yaml" '^handler: runsc$' "eks-dev with gvisor: RuntimeClass handler runsc"
+has "${K}/gv/10-crds-operators/crossplane/function-agentrun-runtime.yaml" \
+  "value: '\\{\"hardened\":\"gvisor\"\\}'" "eks-dev with gvisor: function-agentrun gets HANGAR_RUNTIME_CLASSES"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${K}/gv/10-crds-operators/crossplane/function-agentrun-runtime.yaml" <<'PY2' \
+    && ok "eks-dev with gvisor: HANGAR_RUNTIME_CLASSES parses as the JSON object the function expects" \
+    || bad "eks-dev with gvisor: HANGAR_RUNTIME_CLASSES does not parse"
+import json, sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+env = {e["name"]: e["value"] for e in d["spec"]["deploymentTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]}
+assert json.loads(env["HANGAR_RUNTIME_CLASSES"]) == {"hardened": "gvisor"}, env
+PY2
+fi
 expect "${K}/prod" "eks-prod" 00-bootstrap/backstage-ingestor-rbac/rbac.yaml 10-crds-operators/external-secrets/cluster-secret-store.yaml \
   '!66-tower-access' '!50-glidepath' '!60-gateway-routes/glidepath-relay-httproute.yaml'
 if grep -q 'resourceNames:.*glidepath-api\|- glidepath-api$' "${K}/prod/00-bootstrap/backstage-ingestor-rbac/rbac.yaml" "${K}/prod/00-bootstrap/backstage-ingestor-rbac/tower-actor-rbac.yaml"; then
@@ -533,6 +555,9 @@ refuse "signing.managedKeys off the control plane" "${P}" 'signing: {managedKeys
 refuse "signing.trustedRoot off the control plane" "${P}" 'signing: {trustedRoot: true}'
 refuse "keyless attestation off the control plane" "${P}" 'clearance: {attestation: {keyless: true}}'
 refuse "keyless attestation without Clearance" "${D}" 'components: {clearance: false}' 'clearance: {attestation: {keyless: true}}'
+refuse "autopilot.hardenedRuntime on kiac (no gVisor there)" "${D}" 'autopilot: {hardenedRuntime: gvisor}'
+refuse "an unknown autopilot.hardenedRuntime" "${D}" 'autopilot: {hardenedRuntime: kata}'
+refuse "autopilot.hardenedRuntime without autopilot" "${P}" 'autopilot: {hardenedRuntime: gvisor}'
 refuse "autopilot without the full catalog" "${D}" 'components: {serviceCatalog: {enabled: true, scope: attached-tier-only}}'
 refuse "a control plane in the upper zone" "${D}" 'zone: upper'
 refuse "an unknown role" "${P}" 'roles: [workloads, gateway]'
