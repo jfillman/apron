@@ -1,17 +1,17 @@
 # The gateway's trigger durability metrics (autopilot A-5, docs/admin/trigger-durability.md): Prometheus may reach the
 # metrics port (9090), a PodMonitor scrapes it, and the alerts. Copied from autopilot
 # docs/admin/monitoring/autopilot-triggers.yaml at the pinned gateway tag; keep the two in step.
-# Prometheus may reach the gateway's metrics port, and nothing else new. The gateway's other policy (clearance) stays
+# Prometheus may reach the gateway's metrics port, and nothing else new. The gateway's other policy (autopilot-gateway) stays
 # as it is; NetworkPolicies are additive.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: clearance-metrics
+  name: autopilot-gateway-metrics
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: clearance}
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -27,10 +27,10 @@ kind: PodMonitor
 metadata:
   name: autopilot-gateway
   namespace: autopilot-system
-  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   selector:
-    matchLabels: {app.kubernetes.io/name: clearance}
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
   namespaceSelector:
     matchNames: [autopilot-system]
   podMetricsEndpoints:
@@ -43,7 +43,7 @@ kind: PrometheusRule
 metadata:
   name: autopilot-triggers
   namespace: autopilot-system
-  labels: {release: kube-prometheus-stack, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {release: kube-prometheus-stack, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
   groups:
     - name: autopilot-triggers

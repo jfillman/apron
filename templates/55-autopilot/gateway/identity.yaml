@@ -1,12 +1,12 @@
-# Clearance's identity. No token Secret: the kubelet projects a short-lived token into the gateway's pod.
+# The gateway's identity (autopilot-system/autopilot-gateway since R-10c; it was `clearance`). No token Secret: the kubelet projects a short-lived token into the gateway's pod.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: clearance
+  name: autopilot-gateway
   namespace: autopilot-system
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 automountServiceAccountToken: false
 ---
 # Callers present a service-account token for the `clearance` audience; Clearance checks it with a TokenReview
@@ -18,12 +18,16 @@ metadata:
   name: autopilot-clearance-auth-delegator
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: system:auth-delegator
 subjects:
+  - kind: ServiceAccount
+    name: autopilot-gateway
+    namespace: autopilot-system
+  # The old name, for one release (R-10c; retired with R-10e).
   - kind: ServiceAccount
     name: clearance
     namespace: autopilot-system
@@ -37,7 +41,7 @@ metadata:
   name: autopilot-clearance-airframe-reader
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 rules:
   - apiGroups: ["catalog.hangar.io"]
     resources: ["*"]
@@ -52,12 +56,16 @@ metadata:
   name: autopilot-clearance-airframe-reader
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: autopilot-clearance-airframe-reader
 subjects:
+  - kind: ServiceAccount
+    name: autopilot-gateway
+    namespace: autopilot-system
+  # The old name, for one release (R-10c; retired with R-10e).
   - kind: ServiceAccount
     name: clearance
     namespace: autopilot-system

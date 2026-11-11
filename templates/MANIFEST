@@ -81,7 +81,7 @@
 # 50 glidepath (the CI/CD control plane)
 50-glidepath/                           components.glidepath
 55-autopilot/                           components.autopilot
-55-autopilot/clearance/routes.yaml      components.autopilot and components.gatewayRoutes
+55-autopilot/gateway/routes.yaml      components.autopilot and components.gatewayRoutes
 55-autopilot/sandbox-runtime/            components.autopilot and autopilot.hardenedRuntime == 'gvisor'
 
 # 55 identity: people-dex, the people sign-in both products use (D19 interim; spec R-7 open question 13)

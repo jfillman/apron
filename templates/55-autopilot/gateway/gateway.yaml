@@ -6,27 +6,27 @@
 # glidepath-api (its delegates/readers/operators/releasers list this identity), Thanos Query and Loki (no credential),
 # and its own log lines to the OpenTelemetry collector (on to Loki) when the cluster runs the full observability stack.
 # Losing Postgres ends the process (exit 70) and the kubelet restarts it; it starts again once the database answers.
-# Callers authenticate with a service-account token for the `clearance` audience, or (people) an ID token from
+# Callers authenticate with a service-account token for the `clearance` audience (runs: `autopilot` or `clearance`), or (people) an ID token from
 # people-dex (55-autopilot/people-dex, GitHub sign-in, autopilot.people only). The SA token mounted here (API server audience)
 # is what Clearance uses for TokenReview, the Airframe reads, AgentRuns and glidepath-api.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: clearance
+  name: autopilot-gateway
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 1
   strategy: {type: Recreate}
   selector:
-    matchLabels: {app.kubernetes.io/name: clearance}
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+      labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
     spec:
-      serviceAccountName: clearance
+      serviceAccountName: autopilot-gateway
       automountServiceAccountToken: true
       enableServiceLinks: false
 #@if tower.hostAliasIP
@@ -42,6 +42,9 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
+          # gateway-v0.5.0 = autopilot (R-10a/R-10b): settings are AUTOPILOT_* (the CLEARANCE_* names still work for one
+          # release), run pods get AUTOPILOT_URL and an `autopilot`-audience token, and the gateway accepts the audiences
+          # autopilot and clearance from runs (AUTOPILOT_RUN_AUDIENCES).
           # gateway-v0.4.1 = autopilot dd849aa: no clearance package in the image (autopilot#74); the read API reads
           # only the gateway's gateway_* tables (autopilot#75).
           # gateway-v0.4.0 = autopilot 7afd5d3: the gateway calls the Clearance core (v0.29.0) for every decision and record,
@@ -56,7 +59,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.2@sha256:96f3ca1f8bd9d404087e1e8d0da16a4f67a63b51833fc457a37447f75af58434
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.5.0@sha256:7443db2df1e81a1b10d82efe1ba3ce3573580935c5570050639a5990760189df
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
@@ -68,7 +71,7 @@ spec:
               valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
             # The Clearance core (55-clearance) decides every call and records it; its token is the projected one below.
             - {name: CLEARANCE_CORE_URL, value: "http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc:8080"}
-            - {name: CLEARANCE_AUDIENCE, value: clearance}
+            - {name: AUTOPILOT_AUDIENCE, value: clearance}
             - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
             - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
             - {name: AIRFRAME_CLUSTER, value: "@@CLUSTER_NAME@@"}
@@ -116,7 +119,7 @@ spec:
             - {name: TOWER_ISSUER, value: "@@TOWER_ISSUER@@"}
             - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
             - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
-            - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: AUTOPILOT_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
 #@if autopilot.customImages
             # Custom runtime images (cluster.yaml autopilot.customImages): globs a definition's runtime.image may match
@@ -127,16 +130,16 @@ spec:
             # People (D19 interim): ID tokens from people-dex (GitHub sign-in) for its public client `clearance`, as
             # user:<GitHub login>, and only for cluster.yaml autopilot.people. The issuer is the browser-facing URL;
             # the keys are read in-cluster.
-            - {name: CLEARANCE_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
-            - {name: CLEARANCE_OIDC_AUDIENCE, value: clearance}
-            - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
-            - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
-            - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            - {name: AUTOPILOT_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: AUTOPILOT_OIDC_AUDIENCE, value: clearance}
+            - {name: AUTOPILOT_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+            - {name: AUTOPILOT_OIDC_USER_CLAIM, value: preferred_username}
+            - {name: AUTOPILOT_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
             # Person controls (clearance v0.17.0 control.py): beside each agent's owner group, these principals may freeze
             # or end any session and hold or release any agent's triggers (POST /v1/sessions/{id}/freeze|end,
             # POST|DELETE /v1/agents/{name}/hold), through Tower's backend as the delegate or signed in themselves.
-            - {name: CLEARANCE_ADMINS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
-            - {name: CLEARANCE_RESOURCE_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@/mcp"}
+            - {name: AUTOPILOT_ADMINS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
+            - {name: AUTOPILOT_RESOURCE_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@/mcp"}
 #@end
           readinessProbe:
             httpGet: {path: /healthz, port: mcp}
@@ -179,11 +182,25 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: autopilot-gateway
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+spec:
+  selector: {app.kubernetes.io/name: autopilot-gateway}
+  ports:
+    - {name: mcp, port: 8080, targetPort: mcp}
+---
+# The old name, kept for one release (R-10c): run pods created on the old contract carry CLEARANCE_URL =
+# http://clearance.autopilot-system.svc:8080, and people's MCP clients may still use the clearance.<domain> alias. Same
+# pod, same port. Retired with the clearance.<domain> alias (R-10e).
+apiVersion: v1
+kind: Service
+metadata:
   name: clearance
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
-  selector: {app.kubernetes.io/name: clearance}
+  selector: {app.kubernetes.io/name: autopilot-gateway}
   ports:
     - {name: mcp, port: 8080, targetPort: mcp}
 ---
@@ -194,8 +211,8 @@ kind: Service
 metadata:
   name: model-proxy
   namespace: autopilot-system
-  labels: {app.kubernetes.io/name: clearance, hangar.io/component: autopilot, hangar.io/subcomponent: clearance}
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
 spec:
-  selector: {app.kubernetes.io/name: clearance}
+  selector: {app.kubernetes.io/name: autopilot-gateway}
   ports:
     - {name: model, port: 8081, targetPort: model}

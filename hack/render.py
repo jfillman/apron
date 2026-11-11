@@ -260,9 +260,11 @@ def clearance_tokens(g):
         "CLEARANCE_BACKUP_SCHEDULE": str(g("clearance.backup.schedule", "") or "17 2 * * *"),
         "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
         "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
-        # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
+        # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml). Both the new
+        # (autopilot-gateway) and the old (clearance) principal for one release of R-10c, so a rollback or a straggler pod
+        # still registers; the old one goes with R-10e.
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
-                                            "principals": ["autopilot-system/clearance"],
+                                            "principals": ["autopilot-system/autopilot-gateway", "autopilot-system/clearance"],
                                             # it publishes its cluster-pinned definitions (PUT /v1/definitions)
                                             "definitions": True}] + list(c("extraProviders", []) or [])),
         "CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST": json.dumps(foreign),

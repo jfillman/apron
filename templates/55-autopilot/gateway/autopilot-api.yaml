@@ -61,7 +61,7 @@ spec:
       containers:
         - name: api
           # The gateway's image (gateway.yaml pins the same digest); `api` selects its read API.
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.4.2@sha256:96f3ca1f8bd9d404087e1e8d0da16a4f67a63b51833fc457a37447f75af58434
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.5.0@sha256:7443db2df1e81a1b10d82efe1ba3ce3573580935c5570050639a5990760189df
           args: [api]
           ports:
             - {name: http, containerPort: 8080}
@@ -70,8 +70,8 @@ spec:
               valueFrom: {secretKeyRef: {name: autopilot-pg-reader, key: uri}}
             # Clearance's reads, named in /v1/contract.
             - {name: CLEARANCE_API_URL, value: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"}
-            - {name: CLEARANCE_AUDIENCE, value: clearance}
-            - {name: CLEARANCE_GATEWAY_URL, value: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@"}
+            - {name: AUTOPILOT_AUDIENCE, value: clearance}
+            - {name: AUTOPILOT_GATEWAY_URL, value: "@@GATEWAY_SCHEME@@://autopilot.@@CLUSTER_DOMAIN@@"}
 #@if components.observability and observability.full
             # Its log lines to Loki: a copy of each goes to the cluster's OpenTelemetry collector (40-observability
             # otel-collector, logs pipeline -> Loki /otlp) over OTLP/HTTP (autopilot otlp_logs.py, gateway-v0.4.2+;
@@ -92,7 +92,7 @@ spec:
             - {name: TOWER_ISSUER, value: "@@TOWER_ISSUER@@"}
             - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
             - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
-            - {name: CLEARANCE_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
+            - {name: AUTOPILOT_DELEGATES, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
             - {name: GATEWAY_API_NOTIFIERS, value: "@@TOWER_CLUSTER@@/@@TOWER_NAMESPACE@@/backstage-ingestor"}
 #@end
 #@if autopilot.customImages
@@ -103,11 +103,11 @@ spec:
 #@end
 #@if autopilot.people and components.gatewayRoutes
             # People sign in as at the gateway (people-dex); cluster.yaml autopilot.people are this API's auditors.
-            - {name: CLEARANCE_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
-            - {name: CLEARANCE_OIDC_AUDIENCE, value: clearance}
-            - {name: CLEARANCE_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
-            - {name: CLEARANCE_OIDC_USER_CLAIM, value: preferred_username}
-            - {name: CLEARANCE_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            - {name: AUTOPILOT_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: AUTOPILOT_OIDC_AUDIENCE, value: clearance}
+            - {name: AUTOPILOT_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+            - {name: AUTOPILOT_OIDC_USER_CLAIM, value: preferred_username}
+            - {name: AUTOPILOT_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
             - {name: GATEWAY_API_AUDITORS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
 #@end
           readinessProbe:

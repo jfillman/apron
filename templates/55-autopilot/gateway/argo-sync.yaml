@@ -17,7 +17,7 @@ metadata:
   namespace: argocd-apps
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 rules:
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
@@ -30,12 +30,16 @@ metadata:
   namespace: argocd-apps
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: autopilot-clearance-argo-sync
 subjects:
+  - kind: ServiceAccount
+    name: autopilot-gateway
+    namespace: autopilot-system
+  # The old name, for one release (R-10c; retired with R-10e).
   - kind: ServiceAccount
     name: clearance
     namespace: autopilot-system
@@ -46,7 +50,7 @@ metadata:
   name: autopilot-clearance-argo-sync
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
@@ -59,7 +63,9 @@ spec:
         resources: ["applications"]
   matchConditions:
     - name: clearance-only
-      expression: request.userInfo.username == 'system:serviceaccount:autopilot-system:clearance'
+      expression: >-
+        request.userInfo.username in ['system:serviceaccount:autopilot-system:autopilot-gateway',
+                                      'system:serviceaccount:autopilot-system:clearance']
   validations:
     - expression: >-
         has(oldObject.spec) && has(oldObject.spec.project) && oldObject.spec.project.endsWith('-lower')
@@ -90,7 +96,7 @@ metadata:
   name: autopilot-clearance-argo-sync
   labels:
     hangar.io/component: autopilot
-    hangar.io/subcomponent: clearance
+    hangar.io/subcomponent: gateway
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
