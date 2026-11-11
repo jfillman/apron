@@ -22,8 +22,8 @@ versions:
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:e235f87bfa6f46b4ad213022a534a32df6be1677d15ca222d3d8a049b2234853
     argocdAgentChart: 0.40.0
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
-    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:4a6c212d765e246e5f27a22fc13456e2f05666b2d2081f565a15217679b31e80
-    observeK8sChart: 0.40.0
+    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:96a0b06d948d7247c040c3d71623a7ec919c82b831c7f1e578b6458b1bb17c01
+    observeK8sChart: 0.40.3
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
     observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:df63920d196487531f9674dd64cf3b4417556932cfb682e73e1f2766a9533908
     observeAWSChart: 0.40.3
