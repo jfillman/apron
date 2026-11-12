@@ -323,3 +323,8 @@ choice, not a rule: either profile runs on any runtime. Steps 1-6 above with `--
 | `tests/run.sh` | offline tests: renders, re-render, every invariant refused |
 | `apron`, `hack/apron_fleet.py`, `tests/cli/` | the CLI (`init`, `render`, `up`, `fleet`, `identity`, `verify`, `resume`, `down`) and its tests |
 | `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md), [the CLI](docs/cli.md), [after `apron up`](docs/after-up.md) |
+
+## License
+
+Copyright 2026 James Fillman. Licensed under the [Apache License, Version 2.0](LICENSE).
+See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute.
