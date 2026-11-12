@@ -12,27 +12,27 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.43.0
-    imageDigest: sha256:1f3a32de6cfc5c6f7de550984a099a05ebe9dfbdcd92618bea203e04cf5d1287
+    chart: 0.44.0
+    imageDigest: sha256:e1158fd3233e7faff880f4a5c4dc7cc9f6838e26b6b60c032e26c0bd3357d252
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
-    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:24cec8847838551c155dfefff9b9b806704aad7c9ae6c9f31f16dfa9b681a118
-    waitImage: ghcr.io/jfillman/clearance-wait@sha256:c1b69f913a1fe9a8122382d5c1add478b498fa4d9af786b79aa1d328373c64a8
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:a3f56622a7dcec944964f8fad1ac2f91cdb4e1db91f6ba45985742ceee9f7c48
+    waitImage: ghcr.io/jfillman/clearance-wait@sha256:2333054e3f6e6f91f65866c2884639bab592c1bb850012ef98c287c4e92be1b6
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
-    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:bd679ea2f337866538e295c6294796408522e5ddb239ec6640a30cda25101d7b
-    argocdAgentChart: 0.43.0
+    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:0e5537fda55b74974a6c86bf9421e127d711ab9983aa798789db6f9b47dd500a
+    argocdAgentChart: 0.44.0
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
-    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:87543ab9e7db0e210ab3022b28b27cce63dfdd547bae88249ccc8057fde0ed41
-    observeK8sChart: 0.43.0
+    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:32b8d0df8c829d2e9be643111fd1c6e2225a32b21b23ceeb2b7449f68e810eaf
+    observeK8sChart: 0.44.0
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
-    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:8998ae4108a492d5be38715d142b0d62defeab12741b05d2c7498eee648ef0b6
-    observeAWSChart: 0.43.0
+    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:4d5f7710deb750450af61f4f880fdf5abe3548ce12f2ad645af4790bd0be941f
+    observeAWSChart: 0.44.0
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
-    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:f9c77db381f95b3e9f63f7a7a0197fd51e34d0ad3b40d801cb66faf5dd3b9154
+    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:1ada6545d0e68606d041b6a84a4e2bbf19f168fcb71e6be5023da3deda3aa8b3
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
-    gateway: gateway-v0.7.0
+    gateway: gateway-v0.8.0
   glidepath: main # 50-glidepath: control plane, catalog, Rekor values (a tag once one is cut)
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
