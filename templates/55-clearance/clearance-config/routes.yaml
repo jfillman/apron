@@ -41,6 +41,9 @@ spec:
         # CLEARANCE_ADMINS for the person the delegate names.
         - path: {type: RegularExpression, value: "^/v1/observations/[0-9]+/resolution$"}
           method: POST
+        # The same, in bulk (up to 200 items; one resolution record per item, one batch id).
+        - path: {type: Exact, value: /v1/observations/resolutions}
+          method: POST
       backendRefs:
         - name: clearance-core
           port: 8080
