@@ -204,12 +204,17 @@ spec:
                 podSelector:
                   matchExpressions:
                     - {key: app.kubernetes.io/name, operator: In, values: @@CLEARANCE_GATEWAY_POD_NAMES@@}
-              # Glidepath's gates in each app's -cicd namespace (agent-gates, clearance-gate, agent-definitions,
-              # agent-release), as pipeline-runner.
+              # Glidepath's gates in each app's -cicd namespace (clearance-gate, agent-definitions, agent-release, and
+              # agent-gates where the Clearance GitHub App does not report the agent checks; C-7), as pipeline-runner.
               - namespaceSelector: {}
                 podSelector:
                   matchExpressions:
+#@if (clearance.githubApp or autopilot.githubApp) and clearance.githubAppId
+                    - {key: hangar.io/clearance-client, operator: In, values: [clearance-gate, agent-definitions, agent-release]}
+#@end
+#@if not ((clearance.githubApp or autopilot.githubApp) and clearance.githubAppId)
                     - {key: hangar.io/clearance-client, operator: In, values: [agent-gates, clearance-gate, agent-definitions, agent-release]}
+#@end
 #@if clearance.observe.enabled
               # This cluster's own audit collector; another cluster's comes through the Gateway.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
