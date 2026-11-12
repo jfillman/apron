@@ -195,8 +195,8 @@ G="${LAB}/dev/55-autopilot/gateway"
 has "${G}/gateway.yaml" '^  name: autopilot-gateway$' "lab: gateway Deployment is autopilot-gateway"
 has "${G}/gateway.yaml" 'serviceAccountName: autopilot-gateway' "lab: gateway runs as SA autopilot-gateway"
 has "${G}/gateway.yaml" 'selector: \{app.kubernetes.io/name: autopilot-gateway\}' "lab: Services select the new label"
-has "${G}/gateway.yaml" 'gateway-v0.6.0@sha256:c8fc7450f39a1f0a2401398287d062ad863da2b26df137ed60b7a87cf6308bf6' "lab: gateway image pinned"
-has "${G}/autopilot-api.yaml" 'gateway-v0.6.0@sha256:c8fc7450f39a1f0a2401398287d062ad863da2b26df137ed60b7a87cf6308bf6' "lab: read API on the same image"
+has "${G}/gateway.yaml" 'gateway-v0.7.0@sha256:e85d06729859a911de13d68567279d1d40538c7f1885fd112ec9e33d7bc68699' "lab: gateway image pinned"
+has "${G}/autopilot-api.yaml" 'gateway-v0.7.0@sha256:e85d06729859a911de13d68567279d1d40538c7f1885fd112ec9e33d7bc68699' "lab: read API on the same image"
 has "${G}/autopilot-api.yaml" 'AUTOPILOT_GATEWAY_URL' "lab: read API uses AUTOPILOT_GATEWAY_URL"
 if grep -rn 'app.kubernetes.io/name: clearance[},]' "${G}" >/dev/null; then bad "lab: a gateway object still carries the label clearance"; else ok "lab: no gateway object carries the label clearance"; fi
 if [ "$(grep -c '^  name: clearance$' "${G}/gateway.yaml")" = 1 ]; then ok "lab: exactly the clearance Service alias keeps the old name"; else bad "lab: the clearance Service alias is missing or duplicated"; fi
