@@ -71,11 +71,23 @@ spec:
               @@TOWER_CLUSTER@@:
                 url: http://thanos-query-frontend.observability.svc.cluster.local:9090
 #@end
-#@if components.clearance
-          # The agent gates (glidepath docs/admin/agent-gates.md): every PR checked against Clearance's record of agent
-          # PRs. The Clearance core runs on this cluster (55-clearance); without it the gate fails agent-looking PRs.
+#@if components.clearance and (clearance.githubApp or autopilot.githubApp) and clearance.githubAppId
+          # The agent gates (glidepath docs/admin/agent-gates.md, C-7): the Clearance GitHub App's check runs
+          # (`Clearance / agent-identity`, `Clearance / agent-scope`) are the required agent gate; Glidepath's
+          # agent-gates- check is retired and the onboarding resync removes its .tekton file. clearanceUrl stays: the
+          # deployment gate, agent definitions and agent releases still call the core.
           agentGates:
             clearanceUrl: http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc.cluster.local:8080
+            clearanceChecks: true
+            clearanceAppId: "@@CLEARANCE_GITHUB_APP_ID@@"
+#@end
+#@if components.clearance and not ((clearance.githubApp or autopilot.githubApp) and clearance.githubAppId)
+          # The agent gates (glidepath docs/admin/agent-gates.md): without the Clearance GitHub App, Glidepath's
+          # agent-gates- check asks the core (55-clearance) about every PR; without it the gate fails agent-looking PRs.
+          agentGates:
+            clearanceUrl: http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc.cluster.local:8080
+#@end
+#@if components.clearance
           # The deployment gate (glidepath docs/admin/clearance-gate.md): the PR comment links a holding change to the
           # portal's Clearances page. Clearance's URL and audience are agentGates' above.
           clearanceGate:
