@@ -139,6 +139,7 @@ the render with `file:line`.
 | `@@CLEARANCE_VERIFIERS_LIST@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks), `github:<glob>` for each `clearance.githubWorkflows` entry, and `clearance.verifiers` |
 | `@@CLEARANCE_DELEGATES_LIST@@` | Tower's backend (`<tower.cluster>/<tower.namespace>/backstage-ingestor`) when `tower.cluster` is set, plus `clearance.delegates` |
 | `@@CLEARANCE_NOTIFIERS_LIST@@` | the same Tower backend plus `clearance.notifiers`: clearance-api's notifiers |
+| `@@CLEARANCE_OBSERVATION_READERS_LIST@@` | the same Tower backend plus `clearance.observationReaders`: clearance-api's observation readers (machine pollers of coverage and observations only) |
 | `@@CLEARANCE_PEOPLE_LIST@@` | `clearance.people` (else `autopilot.people`): people-dex logins the core and clearance-api accept |
 | `@@CLEARANCE_ADMINS_LIST@@` | `clearance.admins` (else the people) as `user:<login>`: who may deny any held change and open break-glass windows |
 | `@@CLEARANCE_PROTECTED_ENVIRONMENTS_LIST@@` | `clearance.protectedEnvironments`, `<cluster glob>/<env glob>` entries the gate protects (D30); any other environment clears at tier 0. Empty (the default): every environment is protected |

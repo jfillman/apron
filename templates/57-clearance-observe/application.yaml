@@ -26,6 +26,11 @@ spec:
         cluster: "@@CLUSTER_NAME@@"
         coreURL: "@@CLEARANCE_GATE_URL@@"
         protectedNamespaces: @@CLEARANCE_OBSERVE_PROTECTED_NAMESPACES@@
+#@if not clearance.gate.enabled
+        # No Argo CD gate on this cluster (no agent, no ClearanceGrant CRD): the collector lists no grants (clearance 0.41.1).
+        grants:
+          enabled: false
+#@end
         argocd:
           namespace: @@CLEARANCE_OBSERVE_ARGOCD_NAMESPACE@@
         rules:

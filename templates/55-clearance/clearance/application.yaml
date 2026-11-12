@@ -185,6 +185,7 @@ spec:
           replicas: 2
           auditors: @@CLEARANCE_AUDITORS_LIST@@
           notifiers: @@CLEARANCE_NOTIFIERS_LIST@@
+          observationReaders: @@CLEARANCE_OBSERVATION_READERS_LIST@@
 #@if clearance.feedReaders
           # Who reads a protected cluster's signed grant feed: its Argo CD agent (clearance docs/gate.md).
           feedReaders: @@CLEARANCE_FEED_READERS_LIST@@

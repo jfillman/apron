@@ -273,6 +273,8 @@ def clearance_tokens(g):
                                                + list(c("verifiers", []) or [])),
         "CLEARANCE_DELEGATES_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("delegates", []) or [])),
         "CLEARANCE_NOTIFIERS_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("notifiers", []) or [])),
+        # Machine pollers that read coverage and observations only (clearance 0.41.1 api.observationReaders): Tower's backend.
+        "CLEARANCE_OBSERVATION_READERS_LIST": json.dumps(([tower_sa] if tower_sa else []) + list(c("observationReaders", []) or [])),
         "CLEARANCE_PEOPLE_LIST": json.dumps(list(people)),
         "CLEARANCE_ADMINS_LIST": json.dumps([f"user:{p}" for p in (c("admins", people) or [])]),
         # extraAuditors are principal globs appended verbatim (a service account, not a user:), e.g. the AWS collector's
