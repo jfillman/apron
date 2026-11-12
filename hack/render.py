@@ -462,6 +462,13 @@ def clearance_observe_tokens(v, g):
     repo, _, digest = image.partition("@")
     # The instance that syncs tenant apps: the same choice as XR_APP_NAMESPACE.
     argocd_ns = str(g("clearance.observe.argocdNamespace", "") or ("argocd" if v["isControlPlane"] else "argocd-apps"))
+    # The platform instance (G-ARGO-10a): where a second instance syncs this repository, its application controller's writes
+    # are GitOps, attributed to the Application they carry. On the control plane one instance does both, so there is none to name
+    # (the chart refuses a platform subject that is also the gated one).
+    platform_ns = str(g("clearance.observe.platformGitopsNamespace", "") or ("" if v["isControlPlane"] else "argocd"))
+    if platform_ns == argocd_ns:
+        platform_ns = ""
+    platform_subjects = [f"system:serviceaccount:{platform_ns}:argocd-application-controller"] if platform_ns else []
     return {
         "CLEARANCE_OBSERVE_CHART_VERSION": chart,
         "CLEARANCE_OBSERVE_IMAGE_REPOSITORY": repo,
@@ -473,6 +480,8 @@ def clearance_observe_tokens(v, g):
         # Both Argo CD instances name this service account the same; only the namespace differs.
         "CLEARANCE_OBSERVE_ARGO_SUBJECT": f"system:serviceaccount:{argocd_ns}:argocd-application-controller",
         "CLEARANCE_OBSERVE_SERVICE_IP": service_ip,
+        "CLEARANCE_OBSERVE_PLATFORM_GITOPS_SUBJECTS": json.dumps(platform_subjects),
+        "CLEARANCE_OBSERVE_PLATFORM_GITOPS_NAMESPACES": json.dumps([platform_ns] if platform_ns else []),
     }
 
 
