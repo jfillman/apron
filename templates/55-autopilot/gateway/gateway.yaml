@@ -42,7 +42,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.7.0 = gateway-v0.6.0 + A-11 (error passthrough, CLEARANCE_CORE_TIMEOUT 1s, airframe.capabilities appspec, apply merges onboarding files, run warnings, runtime-v0.1.7 pins; autopilot#94/#95/#96). gateway-v0.6.0 = gateway-v0.5.1 + the bundled agents published to the Clearance core (autopilot#93; needs clearance v0.42.0). gateway-v0.5.1 = gateway-v0.5.0 + runtime-v0.1.6 pins (R-10e) + the app-provisioner agent (autopilot#91). gateway-v0.5.0 = autopilot (R-10a/R-10b): settings are AUTOPILOT_* (the CLEARANCE_* names still work for one
+          # gateway-v0.8.0 = gateway-v0.7.0 + the propose scope (autopilot#97: airframe.apply opens the Flight-half PRs marked merge: person; parachute/app-provisioner proposeFlight; bundle 1.2.0 accepts glidepath contract v1 and v2), Clearance v0.44.0 client (#98). gateway-v0.7.0 = gateway-v0.6.0 + A-11 (error passthrough, CLEARANCE_CORE_TIMEOUT 1s, airframe.capabilities appspec, apply merges onboarding files, run warnings, runtime-v0.1.7 pins; autopilot#94/#95/#96). gateway-v0.6.0 = gateway-v0.5.1 + the bundled agents published to the Clearance core (autopilot#93; needs clearance v0.42.0). gateway-v0.5.1 = gateway-v0.5.0 + runtime-v0.1.6 pins (R-10e) + the app-provisioner agent (autopilot#91). gateway-v0.5.0 = autopilot (R-10a/R-10b): settings are AUTOPILOT_* (the CLEARANCE_* names still work for one
           # release), run pods get AUTOPILOT_URL and an `autopilot`-audience token, and the gateway accepts the audiences
           # autopilot and clearance from runs (AUTOPILOT_RUN_AUDIENCES).
           # gateway-v0.4.1 = autopilot dd849aa: no clearance package in the image (autopilot#74); the read API reads
@@ -59,7 +59,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.7.0@sha256:e85d06729859a911de13d68567279d1d40538c7f1885fd112ec9e33d7bc68699
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.8.0@sha256:7a969e5c083ffcb9413fec7336e7306b3d6699f3b5c16844878625cdaf685556
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
