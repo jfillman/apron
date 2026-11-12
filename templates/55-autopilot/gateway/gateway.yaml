@@ -42,7 +42,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: gateway
-          # gateway-v0.5.1 = gateway-v0.5.0 + runtime-v0.1.6 pins (R-10e) + the app-provisioner agent (autopilot#91). gateway-v0.5.0 = autopilot (R-10a/R-10b): settings are AUTOPILOT_* (the CLEARANCE_* names still work for one
+          # gateway-v0.6.0 = gateway-v0.5.1 + the bundled agents published to the Clearance core (autopilot#93; needs clearance v0.42.0). gateway-v0.5.1 = gateway-v0.5.0 + runtime-v0.1.6 pins (R-10e) + the app-provisioner agent (autopilot#91). gateway-v0.5.0 = autopilot (R-10a/R-10b): settings are AUTOPILOT_* (the CLEARANCE_* names still work for one
           # release), run pods get AUTOPILOT_URL and an `autopilot`-audience token, and the gateway accepts the audiences
           # autopilot and clearance from runs (AUTOPILOT_RUN_AUDIENCES).
           # gateway-v0.4.1 = autopilot dd849aa: no clearance package in the image (autopilot#74); the read API reads
@@ -59,7 +59,7 @@ spec:
           # matched by name). gateway-v0.3.21 = autopilot 3fe98f2 with clearance v0.24.0: nine glidepath reads (live runs, live.watch,
           # live logs, release runs, evidence, tests, events, previews). gateway-v0.3.20 = autopilot f6c16ee with
           # clearance v0.23.0. Multi-arch index digest (amd64, arm64).
-          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.5.1@sha256:95eeae759c8de0b02f494bfef395c3bd43bd5fe179fe86cea56e36bff651537f
+          image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/autopilot-gateway:gateway-v0.6.0@sha256:c8fc7450f39a1f0a2401398287d062ad863da2b26df137ed60b7a87cf6308bf6
           ports:
             - {name: mcp, containerPort: 8080}
             - {name: model, containerPort: 8081}
