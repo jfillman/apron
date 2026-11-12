@@ -37,6 +37,10 @@ spec:
     - matches:
         - path: {type: RegularExpression, value: "^/v1/clearances/[A-Za-z0-9-]+/(clear|deny)$"}
           method: POST
+        # An admin's resolution of an observed change (O-5; Tower's Exceptions tab, clearance.coreUrl). The core checks
+        # CLEARANCE_ADMINS for the person the delegate names.
+        - path: {type: RegularExpression, value: "^/v1/observations/[0-9]+/resolution$"}
+          method: POST
       backendRefs:
         - name: clearance-core
           port: 8080
