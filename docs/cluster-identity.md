@@ -98,6 +98,10 @@ The node's filesystem survives restarts. A recreated cluster gets the configurat
   ServiceAccount (`hangar-crossplane-<hub name>` for `crossplane-system:provider-aws-*`, `glidepath-deploy-<function>`
   for `app-<app>-cicd:glidepath-cloud-deployer`). Enable with `components.cloudTargets` and `aws.accountId`. Records:
   Airframe `docs/admin/cloud-credentials.md`, Glidepath `docs/admin/cloud-deploy-identity.md`.
+  A cluster that needs fewer Provider pods drops them one by one (each default `true`): `components.crossplane.awsIam`,
+  `awsEc2`, `awsRds` and `azure` (the Azure family and containerapp providers, their config, credentials and runtime).
+  Dropping one makes the XRs that compose its kinds (AwsLambdaTarget/AwsEcsTarget IAM roles, ECS networking,
+  ManagedPostgreSQL, AzureContainerAppTarget) fail on that cluster; check there are none first.
 
 Lessons from the first rollouts that apply to any consumer:
 

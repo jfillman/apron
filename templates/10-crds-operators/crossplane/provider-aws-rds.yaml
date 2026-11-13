@@ -1,0 +1,18 @@
+# Crossplane provider-aws-rds (cloud dependency: ManagedPostgreSQL).
+# Its own file so a cluster can drop it: components.crossplane.awsRds (templates/MANIFEST).
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-rds
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-rds:v2.9.0
+  # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
