@@ -60,7 +60,7 @@ spec:
                   memory: 512Mi
                 limits:
                   memory: 2Gi
-#@if fleet.hubAddress and not infisical.host
+#@if runtime.labNetworking and fleet.hubAddress and not infisical.host
           hostAliases:
             - ip: "@@HUB_ADDRESS@@"
               hostnames:
