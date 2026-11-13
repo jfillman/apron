@@ -669,6 +669,7 @@ D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
 refuse "web on without a gateway scheme" "${D}" 'clearance: {web: {enabled: true}}'
 refuse "web idpCidrs that is not a CIDR" "${D}" 'clearance: {web: {idpCidrs: [dex.example.com]}}'
+refuse "web idpCidrs with a slash that is not a CIDR" "${D}" 'clearance: {web: {idpCidrs: [dex.example.com/x]}}'
 refuse "an invalid name" "${D}" 'name: Hangar_Dev'
 refuse "a name longer than 63" "${D}" "name: $(printf 'a%.0s' {1..64})"
 refuse "no scm owner" "${P}" 'scm: {owner: ""}'

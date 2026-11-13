@@ -154,7 +154,13 @@ def violations(v, fleet=None):
             add("clearance.web.enabled needs gateway.scheme: https: the web server refuses an http public URL or issuer (its "
                 "cookies are Secure, __Host-)")
     cidrs = get(v, "clearance.web.idpCidrs") or []
-    if cidrs and not (isinstance(cidrs, list) and all(isinstance(x, str) and "/" in x for x in cidrs)):
+    def cidr_ok(x):
+        try:
+            __import__("ipaddress").ip_network(x, strict=True)
+            return isinstance(x, str)
+        except ValueError:
+            return False
+    if cidrs and not (isinstance(cidrs, list) and all(cidr_ok(x) for x in cidrs)):
         add("clearance.web.idpCidrs is a list of CIDRs, e.g. [203.0.113.10/32]")
     # the target registry publisher (clearance Map; docs/clearance-map.md)
     if get(v, "clearance.targets.enabled") is not None and not isinstance(get(v, "clearance.targets.enabled"), bool):

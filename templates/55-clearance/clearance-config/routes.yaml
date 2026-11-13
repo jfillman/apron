@@ -62,7 +62,7 @@ spec:
 #@if clearance.web.enabled
 ---
 # The standalone web UI (clearance web) on clearance.<domain>: the UI, /auth/* and /api/*. Every path, but the gate route above
-# matches its two POST patterns more specifically and keeps them; /v1/* is not the UI's.
+# matches its POST patterns more specifically and keeps them; /v1/* is not the UI's.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
