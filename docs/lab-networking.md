@@ -22,6 +22,8 @@ When `runtime.labNetworking` is not `true`:
 | `fleet.hubAddress` | pins the hub's hostnames for Backstage, External Secrets, the Infisical provider and Prometheus | refused; never rendered |
 | `clearance.gate.hostAlias` | the core's address for Argo CD's repo-server, the agent, the wait Job, the collectors and the target publisher (and the egress pinned to it) | refused; never rendered |
 | `clearance.ledger.hostAlias` | the witness's address for the core, and its egress pin | refused; never rendered |
+| `clearance.slack.idp.hostAlias` | an address for `dex.<domain>` in the Slack service's pod, and its egress pin | refused; never rendered |
+| `clearance.slack.tls.mode: dns01-route53` | the Gateway serves the Slack host's certificate and the host resolves to a LAN address (the lab path); off a lab use `gateway-existing` | refused; never rendered |
 | `<name>.local` defaults | `domain`, `fleet.hubDomain`, `tower.domain` (and so `tower.baseUrl`) default to `<name>.local` | no default: `domain` and, with `tower.cluster`, `tower.domain` are required; a `.local` value for `domain`, `fleet.hubDomain`, `tower.domain`, `tower.baseUrl`, `fleet.relayUrl` or `infisical.url` is refused |
 | Backstage `hostAliases` (`65-backstage/backstage/deployment.yaml`) | the hub's gateway names through the LAN forward | not rendered |
 

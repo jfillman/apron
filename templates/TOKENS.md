@@ -190,6 +190,15 @@ the render with `file:line`.
 | `@@CLEARANCE_WITNESS_HOST@@` | `clearance.witness.host`, default `witness.<domain>`: the route the log's core reaches (through its hostAlias) |
 | `@@CLEARANCE_WITNESS_LOGS@@` | `clearance.witness.logsVkeys` (log verifier keys, type 0x01, checked): the witness's `--logs-file`, one per line, as a JSON string |
 | `@@CLEARANCE_WITNESS_STORAGE_SIZE@@`, `@@CLEARANCE_WITNESS_STORAGE_CLASS@@` | `clearance.witness.storage.size` (default `64Mi`) and `storageClass` (line renders only when set): the witness's state claim |
+| `@@CLEARANCE_SLACK_PUBLIC_URL@@`, `@@CLEARANCE_SLACK_HOST@@` | `clearance.slack.publicUrl` (an https origin, checked) as a JSON string, and its host name: the link pages' URL (chart `slack.publicUrl`), the Dex client's redirect `https://<host>/link/idp`, the route, the Gateway listener and the certificate - only under `clearance.slack.enabled` |
+| `@@CLEARANCE_SLACK_CLIENT_ID@@`, `@@CLEARANCE_SLACK_TRANSPORT@@` (default `socket`) | `clearance.slack.slackClientId` (the Slack app's Client ID, public) as a JSON string; `clearance.slack.transport` (`socket` or `events`) |
+| `@@CLEARANCE_SLACK_WEB_URL@@` | `clearance.slack.webUrl`, default `<gateway.scheme>://clearance.<domain>/changes/{id}` with `clearance.web.enabled`, else empty (tier 3 goes to the CLI), as a JSON string |
+| `@@CLEARANCE_SLACK_ROUTES@@` | `clearance.slack.routes` (`groups`, `apps`, `scopes`, `default`, `security`, `ops`; channel ids) normalised, a JSON map: the chart's `slack.routes` |
+| `@@CLEARANCE_SLACK_IMAGE_DIGEST@@` | `versions.clearance.slackImageDigest`: `clearance-slack` by digest (chart `slack.image.digest`) |
+| `@@CLEARANCE_SLACK_IDP_PEERS@@`, `@@CLEARANCE_SLACK_IDP_PORT@@` | the pod's egress to the IdP's public issuer URL (discovery, token endpoint): `clearance.slack.idp.hostAlias` as one `/32`, else `idp.cidrs` (default `["0.0.0.0/0"]`), as `ipBlock` peers; port 443 with `gateway.scheme: https`, else 80 |
+| `@@CLEARANCE_SLACK_HOST_ALIASES@@` | `clearance.slack.idp.hostAlias` as the chart's `slack.hostAliases` for `dex.<domain>` (`[]` when unset: the name resolves by DNS) |
+| `@@CLEARANCE_SLACK_ACME_EMAIL@@`, `@@CLEARANCE_SLACK_ACME_SERVER@@` | `clearance.slack.tls.dns01.email` (required) and `.server` (default Let's Encrypt production) - only under `tls.mode: dns01-route53` |
+| `@@CLEARANCE_SLACK_DNS01_ZONE_ID@@`, `@@CLEARANCE_SLACK_DNS01_REGION@@` (default `us-east-1`), `@@CLEARANCE_SLACK_DNS01_ROLE_ARN@@` | `clearance.slack.tls.dns01.hostedZoneID`, `region`, `roleARN` (the role is only used with `auth: serviceAccount`, the default) |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)

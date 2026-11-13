@@ -10,6 +10,7 @@ nav:
   - Control-plane tuning: control-plane-tuning.md
   - Signing PKI (C-2a): signing-pki.md
   - Clearance Map (targets, attestation trust): clearance-map.md
+  - Clearance Slack: clearance-slack.md
   - Lab-only networking: lab-networking.md
 
 plugins:

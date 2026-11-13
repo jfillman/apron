@@ -188,6 +188,25 @@ spec:
           # trust (the `clearance` client's trustedPeers lists clearance-web, 55-identity dex.yaml). Needs clearance chart 0.47.0+.
           upstreamAudience: clearance
 #@end
+#@if clearance.slack.enabled
+        # The Slack service (clearance chart slack.*, 0.47.1+; docs/clearance-slack.md here): one replica, Socket Mode by default
+        # (outbound only). Its Secret is clearance-config's slack-secret.yaml (Infisical keys + the generated Postgres DSN of its
+        # own role and database); the route, the certificate and the people-dex client `clearance-slack` are beside it. The chart
+        # adds its service account to delegates, api.notifiers and api.observationReaders itself.
+        slack:
+          enabled: true
+          image:
+            digest: "@@CLEARANCE_SLACK_IMAGE_DIGEST@@"
+          existingSecret: clearance-slack
+          idpClientSecret: true
+          transport: @@CLEARANCE_SLACK_TRANSPORT@@
+          publicUrl: @@CLEARANCE_SLACK_PUBLIC_URL@@
+          webUrl: @@CLEARANCE_SLACK_WEB_URL@@
+          slackClientId: @@CLEARANCE_SLACK_CLIENT_ID@@
+          idpClientId: clearance-slack
+          routes: @@CLEARANCE_SLACK_ROUTES@@
+          hostAliases: @@CLEARANCE_SLACK_HOST_ALIASES@@
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri
@@ -299,6 +318,21 @@ spec:
                   podSelector:
                     matchExpressions:
                       - {key: app.kubernetes.io/name, operator: In, values: @@CLEARANCE_GATEWAY_POD_NAMES@@}
+#@end
+#@if clearance.slack.enabled
+          slack:
+            # The link pages: only the cluster's Gateway. Slack itself is reached outbound (Socket Mode; the chart's 443 to the
+            # internet); the IdP is people-dex, discovery and the token endpoint through the Gateway at its public issuer URL
+            # (clearance.slack.idp.hostAlias or .cidrs) and its keys in-cluster, like the core's.
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
+            extraEgress:
+              - to:
+                  - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: autopilot-system}}
+                    podSelector: {matchLabels: {app.kubernetes.io/name: people-dex}}
+                ports: [{protocol: TCP, port: 5556}]
+              - to: @@CLEARANCE_SLACK_IDP_PEERS@@
+                ports: [{protocol: TCP, port: @@CLEARANCE_SLACK_IDP_PORT@@}]
 #@end
           # Cilium matches the API server as the kube-apiserver entity, not an ipBlock: the chart renders the
           # CiliumNetworkPolicy for TokenReview (clearance 0.31.0; it replaced clearance-config's own).

@@ -61,6 +61,15 @@ data:
         secretEnv: CLEARANCE_WEB_CLIENT_SECRET
         redirectURIs: ["@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@/auth/callback"]
 #@end
+#@if clearance.slack.enabled
+      # The Slack service's link page (clearance.slack.enabled): a CONFIDENTIAL client; the ID token it asks for has audience
+      # clearance-slack (the service verifies it itself: signature, issuer, audience, the core's allowlist) and is never sent to the
+      # core. Its secret comes from the env var of the Secret clearance-slack-idp (Infisical clearance-slack-idp-client-secret).
+      - id: clearance-slack
+        name: Clearance Slack
+        secretEnv: CLEARANCE_SLACK_CLIENT_SECRET
+        redirectURIs: ["https://@@CLEARANCE_SLACK_HOST@@/link/idp"]
+#@end
 ---
 # Same wave as the Deployment: a WaitForFirstConsumer PVC stays Pending until its pod schedules, so an earlier wave
 # would wait on it forever.
@@ -114,6 +123,10 @@ spec:
 #@if clearance.web.enabled
             - name: CLEARANCE_WEB_CLIENT_SECRET
               valueFrom: {secretKeyRef: {name: clearance-web-oidc, key: client-secret}}
+#@end
+#@if clearance.slack.enabled
+            - name: CLEARANCE_SLACK_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: clearance-slack-idp, key: client-secret}}
 #@end
           ports:
             - {name: http, containerPort: 5556}

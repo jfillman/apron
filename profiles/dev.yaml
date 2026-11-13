@@ -59,3 +59,5 @@ clearance:
     enabled: false              # the core keeps a Tessera log of the chain's hashes on a volume, countersigned by the witnesses
   web:                          # clearance standalone web UI (clearance web): needs gateway.scheme: https and clearance.people
     enabled: false              # Deployment + route on clearance.<domain>; the OWNER creates Infisical clearance-web-oidc-client-secret and the matching people-dex client (docs in README)
+  slack:                        # clearance Slack service (clearance chart slack.*, 0.47.1+): docs/clearance-slack.md
+    enabled: false              # needs publicUrl, slackClientId, tls.*; the OWNER creates the Infisical keys and the Slack app

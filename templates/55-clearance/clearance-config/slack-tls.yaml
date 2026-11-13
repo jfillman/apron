@@ -1,0 +1,119 @@
+# TLS for the Slack service's host (clearance.slack.tls.mode: dns01-route53): a real Let's Encrypt certificate from cert-manager's
+# DNS-01 solver against the Route 53 hosted zone of the public URL's domain. Nothing is exposed for the challenge: cert-manager
+# writes a TXT record under _acme-challenge.<host> in that zone, so the host itself may resolve to a private address (the lab's
+# LAN address) and the certificate is still publicly trusted. The Gateway's https listener for the host is Traefik's gateway.yaml,
+# referencing the Secret clearance-slack-tls this Certificate fills. All of it lives in the Gateway's namespace (the Issuer and
+# the Certificate's Secret are namespaced; Traefik reads the Secret from there).
+#
+# Credentials (clearance.slack.tls.dns01.auth):
+#   serviceAccount (default)  no stored key: cert-manager asks the API server for a token of the ServiceAccount below
+#                             (audience sts.amazonaws.com) and exchanges it for the IAM role dns01.roleARN with
+#                             AssumeRoleWithWebIdentity. The cluster's issuer must be an IAM OIDC provider, and the role's trust
+#                             names this ServiceAccount (docs/clearance-slack.md).
+#   static                    an IAM user's access key pair from Infisical (clearance-dns01-route53-access-key-id and
+#                             clearance-dns01-route53-secret-access-key), for a cluster whose issuer AWS does not trust.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: clearance-slack-acme
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  acme:
+    server: "@@CLEARANCE_SLACK_ACME_SERVER@@"
+    email: "@@CLEARANCE_SLACK_ACME_EMAIL@@"
+    privateKeySecretRef: {name: clearance-slack-acme-account}
+    solvers:
+      - dns01:
+          route53:
+            region: @@CLEARANCE_SLACK_DNS01_REGION@@
+            hostedZoneID: @@CLEARANCE_SLACK_DNS01_ZONE_ID@@
+#@if clearance.slack.tls.dns01.auth != 'static'
+            role: "@@CLEARANCE_SLACK_DNS01_ROLE_ARN@@"
+            auth:
+              kubernetes:
+                serviceAccountRef:
+                  name: clearance-dns01
+                  audiences: [sts.amazonaws.com]
+#@end
+#@if clearance.slack.tls.dns01.auth == 'static'
+            accessKeyIDSecretRef: {name: clearance-dns01-route53, key: access-key-id}
+            secretAccessKeySecretRef: {name: clearance-dns01-route53, key: secret-access-key}
+#@end
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: clearance-slack-tls
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  secretName: clearance-slack-tls
+  dnsNames: ["@@CLEARANCE_SLACK_HOST@@"]
+  issuerRef: {name: clearance-slack-acme, kind: Issuer}
+  privateKey: {rotationPolicy: Always}
+#@if clearance.slack.tls.dns01.auth != 'static'
+---
+# The ServiceAccount cert-manager takes a token for (its name is in the IAM role's trust policy), and the one right it needs:
+# create tokens for that account and no other.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clearance-dns01
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clearance-dns01-token
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [clearance-dns01]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clearance-dns01-token
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: clearance-dns01-token}
+subjects:
+  - {kind: ServiceAccount, name: cert-manager, namespace: cert-manager}
+#@end
+#@if clearance.slack.tls.dns01.auth == 'static'
+---
+# The IAM user's key pair, from the OWNER's Infisical project; never in git.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: clearance-dns01-route53
+  namespace: @@GATEWAY_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: platform-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: clearance-dns01-route53
+    creationPolicy: Owner
+  data:
+    - secretKey: access-key-id
+      remoteRef: {key: clearance-dns01-route53-access-key-id}
+    - secretKey: secret-access-key
+      remoteRef: {key: clearance-dns01-route53-secret-access-key}
+#@end

@@ -303,7 +303,8 @@ def parse_set(items):
 # ssh forwards, *.local names that are not in DNS) cannot resolve or route what a real network does. runtimes/kiac.yaml and
 # kind.yaml set runtime.labNetworking: true; every other runtime (eks, existing, ...) is not a lab, and none of these keys
 # may be set on it (hack/check.py refuses) nor rendered (hack/render.py blanks them; templates also test the flag).
-LAB_ONLY_KEYS = ("tower.hostAliasIP", "fleet.hubAddress", "clearance.gate.hostAlias", "clearance.ledger.hostAlias")
+LAB_ONLY_KEYS = ("tower.hostAliasIP", "fleet.hubAddress", "clearance.gate.hostAlias", "clearance.ledger.hostAlias",
+                "clearance.slack.idp.hostAlias")
 
 
 def lab_networking(v):
@@ -434,3 +435,143 @@ def evaluate(expr, values):
 def die(msg, code=1):
     print(f"error: {msg}", file=sys.stderr)
     sys.exit(code)
+
+
+# ---- Clearance Slack (clearance.slack.*; README "Clearance Slack", docs/clearance-slack.md) ----
+SLACK_MIN_CHART = (0, 47, 1)   # the first clearance chart with slack.* (clearance v0.47.1)
+_SLACK_CHANNEL = re.compile(r"^[CG][A-Z0-9]{8,}$")
+_SLACK_ROUTE_MAPS = ("groups", "apps", "scopes")
+_SLACK_ROUTE_ONES = ("default", "security", "ops")
+
+
+def clearance_slack_url(v):
+    """(scheme, host) of clearance.slack.publicUrl, or ("", "") when it is not an https origin."""
+    import urllib.parse
+    raw = get(v, "clearance.slack.publicUrl", "") or ""
+    try:
+        u = urllib.parse.urlparse(str(raw))
+        bad = u.scheme != "https" or not u.hostname or "." not in u.hostname or u.path not in ("", "/") or u.query or u.fragment \
+            or u.username or u.port
+    except ValueError:  # a non-numeric or out-of-range port
+        return "", ""
+    if bad:
+        return "", ""
+    return u.scheme, u.hostname
+
+
+def clearance_slack_problems(v):
+    """Everything wrong with clearance.slack.* in the resolved values `v`, as messages ([] when off or fine). Used by
+    `apron check` and by the renderer, so a cluster that does not pass never renders half a Slack service."""
+    out = []
+    add = out.append
+    s = get(v, "clearance.slack")
+    if s is None:
+        return out
+    if not isinstance(s, dict):
+        return ["clearance.slack must be a map (enabled, publicUrl, slackClientId, routes, ...)"]
+    en = s.get("enabled")
+    if en is not None and not isinstance(en, bool):
+        add("clearance.slack.enabled must be true or false")
+    if en is not True:
+        return out
+    k = "clearance.slack"
+    if get(v, "components.clearance") is not True:
+        add(f"{k}.enabled needs components.clearance: the service runs beside the core and clearance-api")
+    if not (get(v, "clearance.people") or get(v, "autopilot.people")):
+        add(f"{k}.enabled needs clearance.people: the link page signs people in at people-dex and the core's allowlist names who may link")
+    if get(v, "components.gatewayRoutes") is not True:
+        add(f"{k}.enabled needs components.gatewayRoutes: people-dex and the link pages are reached through the Gateway")
+    chart = str(get(v, "versions.clearance.chart", "") or "")
+    try:
+        have = tuple(int(x) for x in chart.split("."))
+    except ValueError:
+        have = ()
+    if have < SLACK_MIN_CHART:
+        add(f"{k}.enabled needs versions.clearance.chart {'.'.join(map(str, SLACK_MIN_CHART))} or later (first chart with slack.*; "
+            f"this cluster pins {chart or 'nothing'}): bump it together with versions.clearance.imageDigest")
+    digest = str(get(v, "versions.clearance.slackImageDigest", "") or "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        add(f"{k}.enabled needs versions.clearance.slackImageDigest (ghcr.io/<owner>/clearance-slack, sha256:<64 hex>)")
+    if not clearance_slack_url(v)[1]:
+        add(f"{k}.publicUrl is required: an https origin with a host name, no path, e.g. https://slack.clearance.example.com "
+            "(Slack accepts no other redirect for Sign in with Slack)")
+    cid = s.get("slackClientId")
+    if not isinstance(cid, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", cid):
+        add(f"{k}.slackClientId is required: the Slack app's Client ID (Basic Information), two numbers with a dot, as a quoted string")
+    transport = s.get("transport")
+    if transport is not None and transport not in ("socket", "events"):
+        add(f"{k}.transport must be socket or events (got {transport!r})")
+    web = s.get("webUrl")
+    if web not in (None, ""):
+        if not isinstance(web, str) or not re.match(r"^https?://[^/]+/.*\{id\}", web):
+            add(f"{k}.webUrl must be a URL containing {{id}} (the change), e.g. https://clearance.example.com/changes/{{id}}; "
+                "leave it unset to send tier 3 to the CLI")
+    routes = s.get("routes")
+    if routes is not None:
+        if not isinstance(routes, dict):
+            add(f"{k}.routes must be a map: groups, apps, scopes (name -> channel id) and default, security, ops (a channel id)")
+        else:
+            for key, val in routes.items():
+                if key in _SLACK_ROUTE_MAPS:
+                    if not isinstance(val, dict):
+                        add(f"{k}.routes.{key} must be a map of name -> channel id")
+                        continue
+                    for name, ch in val.items():
+                        if not (isinstance(ch, str) and _SLACK_CHANNEL.match(ch)):
+                            add(f"{k}.routes.{key}[{name}] must be a Slack channel id (C... or G..., not a name; got {ch!r})")
+                elif key in _SLACK_ROUTE_ONES:
+                    if val not in ("", None) and not (isinstance(val, str) and _SLACK_CHANNEL.match(val)):
+                        add(f"{k}.routes.{key} must be a Slack channel id (C... or G..., not a name; got {val!r})")
+                else:
+                    add(f"{k}.routes.{key} is not a route (groups, apps, scopes, default, security, ops): the service refuses a misspelled key at start")
+    mode = get(v, f"{k}.tls.mode", "gateway-existing") or "gateway-existing"
+    scheme = get(v, "gateway.scheme") or "http"
+    if mode not in ("dns01-route53", "gateway-existing"):
+        add(f"{k}.tls.mode must be dns01-route53 or gateway-existing (got {mode!r})")
+    elif mode == "gateway-existing":
+        if scheme != "https":
+            add(f"{k}.tls.mode gateway-existing means TLS already ends in front of the Gateway (gateway.scheme: https, e.g. the "
+                "cloud load balancer's certificate); this cluster's Gateway is plain http: use tls.mode: dns01-route53")
+    else:
+        if not lab_networking(v):
+            add(f"{k}.tls.mode dns01-route53 is the lab path (the Gateway serves the certificate, the host resolves to a LAN address); "
+                f"runtime {get(v, 'runtime.type')} is not a lab: use tls.mode: gateway-existing (TLS at the load balancer)")
+        if scheme == "https":
+            add(f"{k}.tls.mode dns01-route53 serves the certificate from the Gateway itself; gateway.scheme: https means TLS ends at a "
+                "load balancer in front of it (the https listener would be unreachable): use tls.mode: gateway-existing")
+        if get(v, "components.certManager") is not True:
+            add(f"{k}.tls.mode dns01-route53 needs components.certManager (cert-manager issues the certificate)")
+        d = f"{k}.tls.dns01"
+        if not re.fullmatch(r"Z[A-Z0-9]{5,}", str(get(v, f"{d}.hostedZoneID", "") or "")):
+            add(f"{d}.hostedZoneID is required: the Route 53 hosted zone of the public URL's domain (Z...)")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", str(get(v, f"{d}.email", "") or "")):
+            add(f"{d}.email is required: the address Let's Encrypt contacts about the certificate")
+        region = get(v, f"{d}.region")
+        if region not in (None, "") and not re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", str(region)):
+            add(f"{d}.region must be an AWS region, e.g. us-east-1")
+        server = get(v, f"{d}.server")
+        if server not in (None, "") and not str(server).startswith("https://"):
+            add(f"{d}.server must be the ACME directory URL (https://...); unset is Let's Encrypt production")
+        auth = get(v, f"{d}.auth", "serviceAccount") or "serviceAccount"
+        if auth not in ("serviceAccount", "static"):
+            add(f"{d}.auth must be serviceAccount (no stored key: the cluster's service-account token is exchanged for the role) or static (an IAM user's key pair in Infisical)")
+        elif auth == "serviceAccount" and not re.fullmatch(r"arn:aws[a-z-]*:iam::\d{12}:role/\S+", str(get(v, f"{d}.roleARN", "") or "")):
+            add(f"{d}.roleARN is required with auth: serviceAccount: the IAM role cert-manager assumes (arn:aws:iam::<account>:role/<name>); "
+                "or set auth: static")
+    alias = get(v, f"{k}.idp.hostAlias")
+    if alias not in (None, ""):
+        import ipaddress
+        try:
+            ipaddress.ip_address(str(alias))
+        except ValueError:
+            add(f"{k}.idp.hostAlias must be an IP address (where dex.<domain> answers for the pod)")
+    cidrs = get(v, f"{k}.idp.cidrs") or []
+    if cidrs:
+        import ipaddress
+        try:
+            ok = isinstance(cidrs, list) and all(isinstance(c, str) and ipaddress.ip_network(c, strict=True) for c in cidrs)
+        except ValueError:
+            ok = False
+        if not ok:
+            add(f"{k}.idp.cidrs is a list of CIDRs, e.g. [203.0.113.10/32]")
+    return out

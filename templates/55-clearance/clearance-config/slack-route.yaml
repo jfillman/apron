@@ -1,0 +1,27 @@
+# The Slack service's public host (clearance.slack.publicUrl): the link pages Sign in with Slack and people-dex redirect the
+# browser to (<publicUrl>/link/slack and /link/idp), and /healthz. Slack itself reaches nothing here on the default Socket Mode
+# transport; on `events` Slack POSTs /slack/*, which this route passes too. Every path goes to the pod, which refuses what it does
+# not serve. With tls.mode dns01-route53 the route attaches to the Gateway's https listener for this host only (slack-tls.yaml,
+# the Traefik gateway.yaml), so the host is never served in clear text; with gateway-existing TLS ends in front of the Gateway
+# and the route attaches to its one listener like every other.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-slack
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+#@if clearance.slack.tls.mode == 'dns01-route53'
+      sectionName: clearance-slack-https
+#@end
+  hostnames:
+    - @@CLEARANCE_SLACK_HOST@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: clearance-slack
+          port: 8080
