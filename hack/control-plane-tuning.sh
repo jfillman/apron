@@ -58,7 +58,7 @@ POLL_SECONDS="${POLL_SECONDS:-15}"
 COMPONENTS="scheduler controller-manager"   # apply order: the scheduler is the less critical one
 
 CMD="${1:-plan}"
-case "${CMD}" in -h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;; -*) CMD=plan ;; *) shift ;; esac
+case "${CMD}" in -h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}"; exit 0 ;; -*) CMD=plan ;; *) [ $# -gt 0 ] && shift ;; esac
 
 CLUSTER=""; NODE_EXEC=""; CLUSTER_DIR=""; LEASE=""; RENEW=""; RETRY=""; YES=false; ONLY=""; STAMP_WANT=""
 while [ $# -gt 0 ]; do
@@ -244,7 +244,7 @@ pod_up_with_flags() {
   pod_json "${comp}" | jq -e --arg f "--leader-elect-lease-duration=${LEASE}" --arg s "${since}" '
     (.spec.containers[0].command | index($f)) != null
     and ((.status.conditions // []) | any(.type == "Ready" and .status == "True"))
-    and ((.status.containerStatuses[0].state.running.startedAt // "") > $s)' >/dev/null 2>&1
+    and ((.status.containerStatuses[0].state.running.startedAt // "") >= $s)' >/dev/null 2>&1
 }
 restarts() { pod_json "$1" | jq -r '.status.containerStatuses[0].restartCount // empty' 2>/dev/null; }
 
