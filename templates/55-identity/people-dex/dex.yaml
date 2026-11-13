@@ -41,6 +41,12 @@ data:
         public: true
         # The device flow's callback under the issuer's path, matched exactly (Dex authflow validateRedirectURI).
         redirectURIs: ["/dex/device/callback"]
+#@if clearance.web.enabled
+        # Cross-client trust: the web UI's login (client clearance-web) may ask for ID tokens with audience clearance
+        # (scope audience:server:client_id:clearance), so the core and clearance-api accept them. Only that scope consults this
+        # list; the CLI's device flow is unchanged.
+        trustedPeers: ["clearance-web"]
+#@end
       # glidepath-api's own client (glidepath docs/admin/api.md "People"): its ID tokens carry aud glidepath-api, which
       # Clearance refuses and glidepath-api requires, so a token for one is never accepted by the other.
       - id: glidepath-api
