@@ -184,6 +184,9 @@ spec:
             existingSecret: clearance-web-oidc
             key: client-secret
           gatewayURL: "http://autopilot-gateway.autopilot-system.svc:8080"
+          # The core and the api require audience clearance (oidc.audience): the login asks people-dex for it by cross-client
+          # trust (the `clearance` client's trustedPeers lists clearance-web, 55-identity dex.yaml). Needs clearance chart 0.47.0+.
+          upstreamAudience: clearance
 #@end
         database:
           existingSecret: clearance-pg-app

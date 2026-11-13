@@ -638,10 +638,13 @@ has "${W}/${CA}" 'existingSecret: clearance-web-oidc' "web on: client secret by 
 has "${W}/${CA}" '203\.0\.113\.10/32' "web on: IdP egress from idpCidrs"
 has "${W}/55-clearance/clearance-config/routes.yaml" '^  name: clearance-web$' "web on: the route"
 has "${W}/55-identity/people-dex/dex.yaml" 'id: clearance-web' "web on: the Dex client"
+has "${W}/${CA}" 'upstreamAudience: clearance' "web on: the web asks for the core's audience"
+has "${W}/55-identity/people-dex/dex.yaml" 'trustedPeers: \["clearance-web"\]' "web on: the clearance client trusts clearance-web"
 has "${W}/55-identity/people-dex/dex.yaml" 'secretEnv: CLEARANCE_WEB_CLIENT_SECRET' "web on: Dex reads the secret from env"
 has "${W}/55-identity/people-dex/dex.yaml" 'https://clearance\.hangar-dev\.local/auth/callback' "web on: redirect URI"
 has "${W}/55-identity/people-dex/clearance-web-secret.yaml" 'key: clearance-web-oidc-client-secret' "web on: the Infisical key (Dex side)"
 has "${W}/55-clearance/clearance-config/web-secret.yaml" 'key: clearance-web-oidc-client-secret' "web on: the Infisical key (pod side)"
+if grep -rqE 'trustedPeers|upstreamAudience' "${LAB}/dev" "${LAB}/prod"; then bad "web off: trustedPeers or upstreamAudience rendered"; else ok "web off: no trustedPeers, no upstreamAudience"; fi
 if grep -rn 'clearance-web' "${LAB}/dev" "${LAB}/prod" >/dev/null; then bad "web off: clearance-web rendered"; else ok "web off: nothing of the web UI renders"; fi
 mkdir -p "${TMP}/web-offdev"
 cp "${LAB}/dev/cluster.yaml" "${TMP}/web-offdev/cluster.yaml"

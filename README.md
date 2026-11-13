@@ -141,7 +141,7 @@ It needs `components.clearance`, `clearance.people`, `components.gatewayRoutes` 
 an http public URL or issuer; `apron check` says so), and a clearance chart release that has `web.*` (0.47.0+: pin `versions.clearance.chart`).
 Apron creates no secret: the owner creates the Infisical secret **`clearance-web-oidc-client-secret`** (one random value); two
 ExternalSecrets named `clearance-web-oidc` (in `autopilot-system` for Dex's `secretEnv`, in the clearance namespace for the pod's
-file) read it. `clearance.web.idpCidrs` narrows the pod's egress to the IdP (default anywhere on 443).
+file) read it. The web asks people-dex for ID tokens with audience `clearance` (chart `web.upstreamAudience`) by cross-client trust: the `clearance` Dex client gets `trustedPeers: [clearance-web]` (the CLI's device flow is unchanged); a chart without that value (older than the release of clearance#164) would have the core refuse every forwarded call. `clearance.web.idpCidrs` narrows the pod's egress to the IdP (default anywhere on 443).
 
 **The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into
 `clearance-system`, on any cluster. Set `clearance.observe.protectedNamespaces`, `serviceIP` (the pinned ClusterIP its
