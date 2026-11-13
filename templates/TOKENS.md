@@ -36,7 +36,7 @@ the render with `file:line`.
 | `@@FLEET_REPO_URL@@` | `fleet.repoURL` - the hub's repo, whose `clusters.yaml` the cluster-registry reads; on the hub, its own `repoURL` |
 | `@@HUB_NAME@@` | `fleet.hub` - the control-plane cluster's name (only the reference-only `65-backstage` uses it) |
 | `@@HUB_DOMAIN@@` | `fleet.hubDomain`, derived `<fleet.hub>.local` |
-| `@@HUB_ADDRESS@@` | `fleet.hubAddress` - an IP for hostAliases when pods can't resolve `<hub domain>` (lab only; empty = no alias) |
+| `@@HUB_ADDRESS@@` | `fleet.hubAddress` - an IP for hostAliases when pods can't resolve `<hub domain>` (lab only: refused off `runtime.labNetworking`, docs/lab-networking.md; empty = no alias) |
 | `@@HUB_API_SERVER@@` | `fleet.hubApiServer` - the hub's API server URL as this cluster reaches it (`observability.remoteWrite`) |
 | `@@HUB_API_HOST@@` | the host part of `fleet.hubApiServer`, for the Prometheus pod's hostAliases |
 | `@@HUB_CA_DATA@@` | `fleet.hubCaData` - the hub API server's CA, base64 PEM (public) |

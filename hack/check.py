@@ -10,9 +10,10 @@ import argparse
 import os
 import re
 import sys
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ApronError, get, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import LAB_ONLY_KEYS, ApronError, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -73,6 +74,25 @@ def violations(v, fleet=None):
                     "cluster and never reach the hub. Pick a pod subnet that doesn't overlap your LAN")
         except ValueError:
             pass
+    # lab-only networking (docs/lab-networking.md): hostAliases, LAN addresses and *.local names exist because of the lab
+    # (kiac, kind); a runtime without runtime.labNetworking (eks, existing, ...) has real DNS and routable endpoints.
+    if not lab_networking(v):
+        rt = get(v, "runtime.type")
+        for key in LAB_ONLY_KEYS:
+            if get(v, key):
+                add(f"{key} is lab-only networking (a hostAlias or LAN address) and runtime {rt} is not a lab: use real DNS and "
+                    "a routable endpoint. Only kiac and kind set runtime.labNetworking (docs/lab-networking.md)")
+        if not get(v, "domain"):
+            add(f"domain is required on runtime {rt} (real DNS: <service>.<domain>); only a lab (kiac, kind) defaults to <name>.local")
+        if get(v, "tower.cluster") and not get(v, "tower.domain"):
+            add(f"tower.cluster is set without tower.domain on runtime {rt}: Tower's real DNS domain is required (only a lab "
+                "defaults to <tower cluster>.local)")
+        for key in ("domain", "fleet.hubDomain", "tower.domain", "tower.baseUrl", "fleet.relayUrl", "infisical.url"):
+            val = str(get(v, key) or "")
+            host = (urlparse(val).hostname if "://" in val else val.split("/")[0].split(":")[0]) or ""
+            if host == "local" or host.endswith(".local"):
+                add(f"{key} {val!r} is a .local name, which is not in real DNS: runtime {rt} is not a lab, so set it to a "
+                    "real DNS name (docs/lab-networking.md)")
     ctx = get(v, "runtime.existing.context")
     if get(v, "runtime.type") == "existing" and ctx and ctx != name and not on("runtime.existing.renameContext"):
         add(f"runtime.existing.context '{ctx}' is not the cluster name '{name}': a cluster's kubectl context IS its "

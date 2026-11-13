@@ -4,6 +4,7 @@
 # so no CNI step. Hosts reach Traefik on the node's IP and its NodePorts (see README "Local clusters").
 runtime:
   type: kiac
+  labNetworking: true          # lab name/IP plumbing (hostAliases, LAN addresses, *.local) may be rendered: docs/lab-networking.md
   nodeExec: container exec -i   # + <node>, for apron identity
   controlPlane:
     # kube-controller-manager and kube-scheduler leader election (defaults 15s/10s/2s): a slow etcd or API server made the

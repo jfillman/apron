@@ -3,6 +3,7 @@
 # (the one-name rule); `apron up --rename-context` renames runtime.existing.context to it.
 runtime:
   type: existing
+  labNetworking: false         # never a lab: no hostAliases, LAN addresses or *.local names are rendered (docs/lab-networking.md)
   nodeExec: ""                  # only needed for apron identity on a self-managed control plane
   existing:
     context: ""                 # the kubeconfig context to adopt; empty = the cluster's name

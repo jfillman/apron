@@ -5,6 +5,7 @@
 # identity provider config that Terraform associates (tower.trust: eks-oidc).
 runtime:
   type: eks
+  labNetworking: false         # never a lab: no hostAliases, LAN addresses or *.local names are rendered (docs/lab-networking.md)
   nodeExec: ""
   eks:
     region: us-east-1

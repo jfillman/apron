@@ -25,7 +25,7 @@ spec:
     targetRevision: 2.8.0
     helm:
       releaseName: external-secrets
-#@if fleet.hubAddress and not infisical.host
+#@if runtime.labNetworking and fleet.hubAddress and not infisical.host
       values: |
         hostAliases:
           - ip: "@@HUB_ADDRESS@@"

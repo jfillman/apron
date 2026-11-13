@@ -53,6 +53,13 @@ defaults to it.
   changes are on their `no-hardcoded-cluster-names` branches: cut tags from them and set those tags in `versions.yaml`
   before the rebuild uses them.
 
+## Lab-only networking (`runtime.labNetworking`)
+
+`hostAliases`, LAN addresses and `*.local` names exist only for the lab (`kiac`, `kind`). `runtime.labNetworking` is `true` for
+those two runtimes and `false` for `eks` and `existing`; off a lab, `tower.hostAliasIP`, `fleet.hubAddress`,
+`clearance.gate.hostAlias` and `clearance.ledger.hostAlias` are refused by `apron check` and never rendered, and no `<name>.local`
+default is derived (`domain` and `tower.domain` are required). See `docs/lab-networking.md`.
+
 ## Autopilot (`components.autopilot`, control-plane clusters only)
 
 `55-autopilot/` holds what Autopilot's agent runs need on the cluster. `apron check` refuses it off the control-plane
