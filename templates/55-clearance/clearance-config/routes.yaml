@@ -47,6 +47,16 @@ spec:
       backendRefs:
         - name: clearance-core
           port: 8080
+#@if clearance.targets.publishers
+    # Another cluster's Map target publisher (59-clearance-targets): its own source only. The core checks the provider's
+    # `targets` right; this route only lets the PUT reach it (it 404'd at the Gateway before, 2026-11-13).
+    - matches:
+        - path: {type: RegularExpression, value: "^/v1/targets/[a-z0-9][a-z0-9-]*$"}
+          method: PUT
+      backendRefs:
+        - name: clearance-core
+          port: 8080
+#@end
 #@if clearance.feedReaders
     # A protected cluster's Argo CD agent: its deploy.outcome and deploy.exception records, and the break-glass windows.
     # The feed and the keys it verifies are clearance-api's, on that host's route above.
