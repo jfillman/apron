@@ -78,6 +78,13 @@ spec:
           # globs. Any other environment clears at tier 0 (unprotected) and is recorded; an empty list protects all.
           protectedEnvironments: @@CLEARANCE_PROTECTED_ENVIRONMENTS_LIST@@
           breakglassMaxTTL: "4h"
+          # CLEARANCE_VIAS_EXTRA (Clearance 0.46.0+): surfaces beyond cli|web|slack|api the core records on a person's
+          # writes; Tower's backend sends `tower` once its clearance.via is set.
+          viasExtra: ["tower"]
+          # Server-side sign-in freshness (owner decision 7, 2026-11-13): a person's own token clears tier 3 or opens/closes
+          # break-glass only within 15 minutes of signing in. Delegate-named writes (Tower) stay exempt until Tower forwards
+          # the person's sign-in time (freshAuthDelegates: require).
+          freshAuthTier3Breakglass: "15m"
 #@if clearance.attestation.keyless
         # Keyless change attestations (C-2a; clearance docs/core.md, "What keyless needs from C-2a"): the core asks this
         # cluster's Fulcio for a short-lived certificate for its service account (SAN

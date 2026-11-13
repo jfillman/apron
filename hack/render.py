@@ -247,12 +247,9 @@ def clearance_tokens(g):
     publishers = [{"name": f"targets-{x['cluster']}", "version": str(g("versions.clearance.chart")),
                    "principals": [f"{x['namespace']}/clearance-targets" if not x["remote"]
                                   else f"{x['cluster']}/{x['namespace']}/clearance-targets"],
-                   # No kinds would mean every record kind but the observations (core.md): the narrowest one the core has
-                   # is a federated decision (always claimed, never Clearance's), so this is the least a registered
-                   # provider can be given. The right that matters is `targets`.
-                   # TODO: replace with the least-privilege targets-only spelling (no record kinds) when the Clearance PR that
-                   # adds it is released.
-                   "kinds": ["federated.decision"], "targets": [x["cluster"]]} for x in pubs]
+                   # `"kinds": []` grants no record kinds (Clearance 0.46.0+, clearance#158; an ABSENT kinds still means
+                   # every non-observation kind): the publisher may only PUT its own source's targets.
+                   "kinds": [], "targets": [x["cluster"]]} for x in pubs]
     for ns in sorted({x["namespace"] for x in pubs if x["remote"]}):
         foreign.append(f"{ns}/clearance-targets")
     flight = g("registries.flight.namespace", "") or ""
