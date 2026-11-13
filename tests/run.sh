@@ -570,6 +570,8 @@ has "${AC}" 'configMap: clearance-attest-trust' "attest trust: the api mounts th
 has "${AC}" 'trustRoot: trusted-root.json' "attest trust: the trusted root is the keyless trust"
 has "${AC}" 'identity: "https://kubernetes.io/namespaces/clearance-system/serviceaccounts/clearance-core"' "attest trust: the identity is the core's service account"
 has "${AC}" 'issuer: "https://hangarplatform.dev/oidc/hangar-dev"' "attest trust: the issuer is the cluster's"
+# clearance-api refuses an http Rekor link (not loopback, not an in-cluster Service): an http Gateway offers none.
+if grep -q 'rekorUrl: "http://rekor\.' "${AC}"; then bad "attest trust: an http public Rekor URL would crash clearance-api"; else ok "attest trust: no http public Rekor URL on an http Gateway"; fi
 has "${SG}/55-clearance/clearance-config/attest-trust.yaml" '^  trusted-root.json: "\{' "attest trust: the ConfigMap holds signing-pki/trusted-root.json"
 expect "${TMP}/aws-dev" "attest trust without the trusted root" '!55-clearance/clearance-config/attest-trust.yaml'
 if grep -q 'attest:' "${TMP}/aws-dev/55-clearance/clearance/application.yaml"; then bad "attest trust off: api.attest rendered"; else ok "attest trust off: api.attest not rendered"; fi

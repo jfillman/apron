@@ -693,7 +693,10 @@ def clearance_attest_tokens(v, g):
     issuer. The ConfigMap clearance-attest-trust holds the root (55-clearance/clearance-config/attest-trust.yaml)."""
     on = bool(g("clearance.attestation.keyless", False)) and bool(g("signing.trustedRoot", False)) and bool(g("components.clearance", False))
     ns = targets_namespace(g)
-    public_rekor = f"{g('gateway.scheme', '') or 'http'}://rekor.{g('domain')}" if g("components.glidepath", False) and g("components.gatewayRoutes", False) else ""
+    # clearance-api refuses a plain-http Rekor URL unless it is loopback or an in-cluster Service name (it is a link people
+    # follow), so the public Gateway host is offered only where the Gateway serves https; an http lab shows the index as text.
+    public_rekor = (f"https://rekor.{g('domain')}" if g("components.glidepath", False) and g("components.gatewayRoutes", False)
+                    and str(g("gateway.scheme", "") or "http") == "https" else "")
     return {
         "CLEARANCE_ATTEST_TRUST_ROOT_JSON": signing_file(v, "trusted-root.json") if on else '""',
         "CLEARANCE_ATTEST_IDENTITY": f"https://kubernetes.io/namespaces/{ns}/serviceaccounts/clearance-core",

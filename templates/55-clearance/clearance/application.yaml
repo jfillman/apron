@@ -227,7 +227,7 @@ spec:
             identity: "@@CLEARANCE_ATTEST_IDENTITY@@"
             issuer: "@@CLEARANCE_ATTEST_ISSUER@@"
 #@end
-#@if clearance.attestation.keyless and signing.trustedRoot and (clearance.attestation.rekorPublicUrl or (components.glidepath and components.gatewayRoutes))
+#@if clearance.attestation.keyless and signing.trustedRoot and (clearance.attestation.rekorPublicUrl or (components.glidepath and components.gatewayRoutes and gateway.scheme == 'https'))
             rekorUrl: "@@CLEARANCE_ATTEST_REKOR_PUBLIC_URL@@"
 #@end
 #@if tower.hostAliasIP
