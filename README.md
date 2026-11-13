@@ -134,6 +134,15 @@ a Recreate rollout), renders `55-clearance/clearance-config/ledger-key.yaml` (an
 | `clearance.ledger.keySecret` | the Infisical secret name of the log's signing key; default `hangar-ledger-<cluster>-key` |
 | `clearance.ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait`, `storage.size` / `storage.storageClass` | the chart's `ledger.retiredKeys`, `checkpointInterval`, `stallAfter`, `tier3Wait` (default true) and `persistence` (default 1Gi) |
 
+**The standalone web UI (`clearance.web.enabled`).** Default off. On, the clearance chart's `web.*` values run `clearance web`
+(one replica: sessions are in memory) at `<gateway.scheme>://clearance.<domain>/`, an HTTPRoute on that host (the gate's two POST
+routes keep their paths), and people-dex gets a confidential static client `clearance-web` (redirect `<public URL>/auth/callback`).
+It needs `components.clearance`, `clearance.people`, `components.gatewayRoutes` and **`gateway.scheme: https`** (the web server refuses
+an http public URL or issuer; `apron check` says so), and a clearance chart release that has `web.*` (0.47.0+: pin `versions.clearance.chart`).
+Apron creates no secret: the owner creates the Infisical secret **`clearance-web-oidc-client-secret`** (one random value); two
+ExternalSecrets named `clearance-web-oidc` (in `autopilot-system` for Dex's `secretEnv`, in the clearance namespace for the pod's
+file) read it. `clearance.web.idpCidrs` narrows the pod's egress to the IdP (default anywhere on 443).
+
 **The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into
 `clearance-system`, on any cluster. Set `clearance.observe.protectedNamespaces`, `serviceIP` (the pinned ClusterIP its
 certificate names), `kubeletNodes` (node names whose kubelets' pod-token requests are routine; a node not listed shows as

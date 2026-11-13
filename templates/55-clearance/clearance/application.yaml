@@ -171,6 +171,20 @@ spec:
           # Egress to the witnesses only (their port, and the host alias's address when there is one).
           egress: @@CLEARANCE_LEDGER_EGRESS@@
 #@end
+#@if clearance.web.enabled
+        # The standalone web UI (clearance chart web.*, 0.47.0+; docs/web.md there): ONE replica, sessions in memory. People sign in at
+        # people-dex as the confidential client clearance-web; its secret is web-secret.yaml's Secret (Infisical
+        # clearance-web-oidc-client-secret). The route is clearance-config's routes.yaml, the chart's own httpRoutes stay off.
+        web:
+          enabled: true
+          publicURL: "@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@"
+          issuer: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"
+          clientID: clearance-web
+          clientSecret:
+            existingSecret: clearance-web-oidc
+            key: client-secret
+          gatewayURL: "http://autopilot-gateway.autopilot-system.svc:8080"
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri
@@ -266,6 +280,22 @@ spec:
               # The AWS collector: outcomes from clearance-api.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-aws}}
+#@end
+#@if clearance.web.enabled
+          web:
+            # The cluster's Gateway is the only caller; the IdP is people-dex through the Gateway (clearance.web.idpCidrs, default
+            # anywhere on 443); the Autopilot gateway's person controls are in autopilot-system.
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
+            idp:
+              to: @@CLEARANCE_WEB_IDP_PEERS@@
+              ports: [443]
+            gateway:
+              to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: autopilot-system}}
+                  podSelector:
+                    matchExpressions:
+                      - {key: app.kubernetes.io/name, operator: In, values: @@CLEARANCE_GATEWAY_POD_NAMES@@}
 #@end
           # Cilium matches the API server as the kube-apiserver entity, not an ipBlock: the chart renders the
           # CiliumNetworkPolicy for TokenReview (clearance 0.31.0; it replaced clearance-config's own).

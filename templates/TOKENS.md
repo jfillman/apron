@@ -133,6 +133,7 @@ the render with `file:line`.
 | `@@CLEARANCE_CHART_VERSION@@` | `versions.clearance.chart`, the clearance chart's version (OCI, `<registry>/<owner>/charts/clearance`) |
 | `@@CLEARANCE_IMAGE_DIGEST@@` | `versions.clearance.imageDigest`, the image index the chart's default tag is pinned to |
 | `@@CLEARANCE_NAMESPACE@@` | `clearance.namespace`, default `clearance-system` (hangar-dev too since R-10d; it was `autopilot-system` before): where the core, clearance-api, clearance-pg and the ledger volume run. The Autopilot gateway stays in `autopilot-system` |
+| `@@CLEARANCE_WEB_IDP_PEERS@@` | `clearance.web.idpCidrs` (default `["0.0.0.0/0"]`) as NetworkPolicy `ipBlock` peers: where the web UI's pod reaches its IdP (people-dex through the Gateway, port 443); only under `#@if clearance.web.enabled` |
 | `@@CLEARANCE_GATEWAY_POD_NAMES@@` | `clearance.gatewayPodNames`, default `["autopilot-gateway"]`: the gateway pods' `app.kubernetes.io/name` values the core's and api's NetworkPolicies admit from `autopilot-system` |
 | `@@CLEARANCE_BACKUP_SCHEDULE@@`, `@@CLEARANCE_BACKUP_KEEP@@`, `@@CLEARANCE_BACKUP_STORAGE_SIZE@@` | `clearance.backup.schedule` (default `17 2 * * *`), `.keep` (default 7 dumps) and `.storageSize` (default `5Gi`): the nightly pg_dump of clearance-pg, rendered with `clearance.backup.enabled` |
 | `@@CLEARANCE_PROVIDERS@@` | the registered runtime provider, the Autopilot gateway (`autopilot-system/autopilot-gateway`; version `versions.autopilot.gateway`, `"definitions": true`), a YAML flow list |

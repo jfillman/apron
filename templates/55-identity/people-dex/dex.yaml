@@ -47,6 +47,14 @@ data:
         name: glidepath-api
         public: true
         redirectURIs: ["/dex/device/callback"]
+#@if clearance.web.enabled
+      # The Clearance web UI (clearance web, clearance.web.enabled): a CONFIDENTIAL client, authorization code + PKCE; its
+      # secret comes from the env var of the Secret clearance-web-oidc (Infisical clearance-web-oidc-client-secret).
+      - id: clearance-web
+        name: Clearance web
+        secretEnv: CLEARANCE_WEB_CLIENT_SECRET
+        redirectURIs: ["@@GATEWAY_SCHEME@@://clearance.@@CLUSTER_DOMAIN@@/auth/callback"]
+#@end
 ---
 # Same wave as the Deployment: a WaitForFirstConsumer PVC stays Pending until its pod schedules, so an earlier wave
 # would wait on it forever.
@@ -97,6 +105,10 @@ spec:
               valueFrom: {secretKeyRef: {name: people-dex-github, key: client-id}}
             - name: GITHUB_CLIENT_SECRET
               valueFrom: {secretKeyRef: {name: people-dex-github, key: client-secret}}
+#@if clearance.web.enabled
+            - name: CLEARANCE_WEB_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: clearance-web-oidc, key: client-secret}}
+#@end
           ports:
             - {name: http, containerPort: 5556}
             - {name: telemetry, containerPort: 5558}

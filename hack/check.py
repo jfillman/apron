@@ -140,6 +140,28 @@ def violations(v, fleet=None):
         if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
 
+    # the standalone web UI (clearance web, clearance chart web.enabled): signs people in at people-dex, so it needs the same
+    if get(v, "clearance.web.enabled") is not None and not isinstance(get(v, "clearance.web.enabled"), bool):
+        add("clearance.web.enabled must be true or false")
+    if on("clearance.web.enabled"):
+        if not on("components.clearance"):
+            add("clearance.web.enabled needs components.clearance: the UI runs beside the core and clearance-api")
+        if not (get(v, "clearance.people") or get(v, "autopilot.people")):
+            add("clearance.web.enabled needs clearance.people: people sign in at people-dex, where the web UI's client is registered")
+        if not on("components.gatewayRoutes"):
+            add("clearance.web.enabled needs components.gatewayRoutes: people-dex and clearance.<domain> are reached through the Gateway")
+        if get(v, "gateway.scheme") != "https":
+            add("clearance.web.enabled needs gateway.scheme: https: the web server refuses an http public URL or issuer (its "
+                "cookies are Secure, __Host-)")
+    cidrs = get(v, "clearance.web.idpCidrs") or []
+    def cidr_ok(x):
+        try:
+            __import__("ipaddress").ip_network(x, strict=True)
+            return isinstance(x, str)
+        except ValueError:
+            return False
+    if cidrs and not (isinstance(cidrs, list) and all(cidr_ok(x) for x in cidrs)):
+        add("clearance.web.idpCidrs is a list of CIDRs, e.g. [203.0.113.10/32]")
     # the target registry publisher (clearance Map; docs/clearance-map.md)
     if get(v, "clearance.targets.enabled") is not None and not isinstance(get(v, "clearance.targets.enabled"), bool):
         add("clearance.targets.enabled must be true or false")
