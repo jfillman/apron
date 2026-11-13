@@ -32,9 +32,13 @@
 10-crds-operators/crossplane/provider-github-runtime.yaml             components.crossplane.providerGithub
 10-crds-operators/crossplane/provider-aws-config.yaml                 components.cloudTargets
 10-crds-operators/crossplane/provider-aws-runtime.yaml                components.cloudTargets
-10-crds-operators/crossplane/provider-azure-config.yaml               components.cloudTargets
-10-crds-operators/crossplane/provider-azure-creds-external-secret.yaml    components.cloudTargets
-10-crds-operators/crossplane/provider-cloud-runtime.yaml              components.cloudTargets
+10-crds-operators/crossplane/provider-azure-config.yaml               components.cloudTargets and components.crossplane.azure
+10-crds-operators/crossplane/provider-azure-creds-external-secret.yaml    components.cloudTargets and components.crossplane.azure
+10-crds-operators/crossplane/provider-cloud-runtime.yaml              components.cloudTargets and components.crossplane.azure
+10-crds-operators/crossplane/provider-azure.yaml                      components.cloudTargets and components.crossplane.azure
+10-crds-operators/crossplane/provider-aws-iam.yaml                    components.cloudTargets and components.crossplane.awsIam
+10-crds-operators/crossplane/provider-aws-ec2.yaml                    components.cloudTargets and components.crossplane.awsEc2
+10-crds-operators/crossplane/provider-aws-rds.yaml                    components.cloudTargets and components.crossplane.awsRds
 # The Infisical host delivers provider-infisical's credential from its own Infisical project; a consumer has it
 # planted by hand (the only project it could come from is one this provider manages).
 10-crds-operators/crossplane/provider-infisical-creds-external-secret.yaml   infisical.host

@@ -1,0 +1,90 @@
+# Crossplane Azure providers (AzureContainerAppTarget): the family core and provider-azure-containerapp.
+# Their own file so a cluster can drop them: components.crossplane.azure (templates/MANIFEST), which also gates
+# provider-azure-config.yaml, provider-azure-creds-external-secret.yaml and provider-cloud-runtime.yaml.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-azure
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-azure:v2.8.0
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-cloud-runtime
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-containerapp
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-containerapp:v2.8.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-cloud-runtime
+---
+# NOT INSTALLED (airframe known gap 10): the Azure cloud-dependency providers. The Azure compositions are
+# render-tested only, the Azure identity still uses stored keys, and this node is at ~80% memory; each provider
+# pod costs ~250 MB. Uncomment together with the Azure block in managed-resource-activation.yaml.
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-servicebus
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-servicebus:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime
+# ---
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-storage
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-storage:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime
+# ---
+# apiVersion: pkg.crossplane.io/v1
+# kind: Provider
+# metadata:
+#   name: provider-azure-dbforpostgresql
+#   labels:
+#     hangar.io/component: cluster-config
+#     hangar.io/subcomponent: crds-operators
+#     hangar.io/origin: cloud-targets
+# spec:
+#   package: xpkg.upbound.io/upbound/provider-azure-dbforpostgresql:v2.8.0
+#   # Its family package is declared above (see provider-aws-lambda for why dependency resolution is skipped).
+#   skipDependencyResolution: true
+#   runtimeConfigRef:
+#     apiVersion: pkg.crossplane.io/v1beta1
+#     kind: DeploymentRuntimeConfig
+#     name: provider-cloud-runtime

@@ -9,6 +9,10 @@ infisical:
 components:
   crossplane:
     providerGithub: false
+    awsIam: true                # cloudTargets only: the provider-aws-iam / -ec2 / -rds / Azure packages, each droppable on its own
+    awsEc2: true
+    awsRds: true
+    azure: true                 # provider-family-azure + provider-azure-containerapp (and their config/credentials)
   cloudTargets: false
   certManager: true
   externalSecrets: true

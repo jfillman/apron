@@ -1,0 +1,20 @@
+# Crossplane provider-aws-ec2 (AwsEcsTarget network: the 8 EC2 kinds; cloud-dependency database networking).
+# Its own file so a cluster can drop it: components.crossplane.awsEc2 (templates/MANIFEST).
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-ec2
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+    hangar.io/origin: cloud-targets
+spec:
+  package: xpkg.upbound.io/upbound/provider-aws-ec2:v2.9.0
+  # Its family package (provider-family-aws/-azure) is declared above, with the runtime config the
+  # family needs. Without this, Crossplane also installs the family as a dependency, the lock holds the
+  # same package twice ("node ... already exists") and every package on the cluster stops resolving.
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    apiVersion: pkg.crossplane.io/v1beta1
+    kind: DeploymentRuntimeConfig
+    name: provider-aws-runtime
