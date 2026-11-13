@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stand-in for kubectl: answers from files in $FAKE_STATE (contexts, nodes, pod-<name>.json, lease-<name>.json).
+S="${FAKE_STATE}"; echo "kubectl $*" >>"${S}/log"
+args=" $* "
+case "${args}" in
+  *" config get-contexts "*) cat "${S}/contexts" ;;
+  *" get nodes "*) cat "${S}/nodes" ;;
+  *" get pod "*) n="$(sed -E 's/.* get pod ([^ ]+).*/\1/' <<<"${args}")"; cat "${S}/pod-${n}.json" ;;
+  *" get lease "*) n="$(sed -E 's/.* get lease ([^ ]+).*/\1/' <<<"${args}")"; cat "${S}/lease-${n}.json" ;;
+  *) exit 1 ;;
+esac

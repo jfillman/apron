@@ -76,6 +76,7 @@ the render with `file:line`.
 |---|---|
 | `@@CALICO_VERSION@@` | `runtime.cni.version` (runtimes/kind.yaml, v3.29.1) |
 | `@@KIND_POD_SUBNET@@`, `@@KIND_MAX_PODS@@` | `runtime.kind.podSubnet`, `runtime.kind.maxPods` |
+| `@@CP_LEASE_DURATION@@`, `@@CP_RENEW_DEADLINE@@`, `@@CP_RETRY_PERIOD@@` | `runtime.controlPlane.leaderElection.leaseDuration` / `renewDeadline` / `retryPeriod` (60s/40s/10s on kind and kiac) |
 | `@@KIND_HOST_HTTP_PORT@@`, `@@KIND_HOST_HTTPS_PORT@@` | `runtime.kind.hostHttpPort` / `hostHttpsPort` (80/443) |
 
 ## Versions (versions.yaml)

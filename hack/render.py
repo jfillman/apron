@@ -182,6 +182,9 @@ def tokens(v):
         "KIND_MAX_PODS": g("runtime.kind.maxPods", ""),
         "KIND_HOST_HTTP_PORT": g("runtime.kind.hostHttpPort", ""),
         "KIND_HOST_HTTPS_PORT": g("runtime.kind.hostHttpsPort", ""),
+        "CP_LEASE_DURATION": g("runtime.controlPlane.leaderElection.leaseDuration", ""),
+        "CP_RENEW_DEADLINE": g("runtime.controlPlane.leaderElection.renewDeadline", ""),
+        "CP_RETRY_PERIOD": g("runtime.controlPlane.leaderElection.retryPeriod", ""),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
 
@@ -913,6 +916,7 @@ def cli_values(v):
     out["runtime"] = {
         "type": rt,
         "nodeExec": get(v, "runtime.nodeExec", ""),
+        "controlPlane": get(v, "runtime.controlPlane") or {},
         "kiac": get(v, "runtime.kiac") or {},
         "kind": {**(get(v, "runtime.kind") or {}), "config": get(v, "runtime.kind.config")} if rt == "kind" else {},
         "existing": get(v, "runtime.existing") or {},

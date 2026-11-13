@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stand-in for `container exec -i NODE`: runs the command with every /etc/... path moved under $FAKE_ROOT.
+args=(); for a in "$@"; do case "$a" in /etc/*) args+=("${FAKE_ROOT}${a}") ;; *) args+=("$a") ;; esac; done
+exec "${args[@]}"

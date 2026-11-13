@@ -4,6 +4,15 @@
 runtime:
   type: kind
   nodeExec: docker exec -i      # + <node>; e.g. "podman exec -i" or "ssh <host> podman exec -i" for apron identity
+  controlPlane:
+    # kube-controller-manager and kube-scheduler leader election (defaults 15s/10s/2s): a slow etcd or API server made the
+    # lease call miss 10s and both crash-looped (hangar-dev 2026-11: 362/348 restarts), each restart re-listing everything.
+    # Whole seconds; lease > renew > 1.2 x retry. kind: rendered into hack/kind-config.yaml. kiac has no kubeadm hook:
+    # run hack/control-plane-tuning.sh apply after `apron up` (docs/control-plane-tuning.md).
+    leaderElection:
+      leaseDuration: 60s
+      renewDeadline: 40s
+      retryPeriod: 10s
   kind:
     config: hack/kind-config.yaml
     podSubnet: 10.244.0.0/16     # never a LAN range: 192.168.0.0/16 swallowed a hub at 192.168.1.x
