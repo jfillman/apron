@@ -25,7 +25,8 @@ Nothing to add to Fulcio's `config.yaml`: it already lists the cluster's issuer 
 issuer, and the in-cluster default) as `type: kubernetes` with client-id `sigstore`, and sets no subject rule, so the core
 is admitted. Its certificate's SAN is `https://kubernetes.io/namespaces/<clearance namespace>/serviceaccounts/clearance-core`
 (namespace `clearance-system` on hangar-dev since R-10d; attestations made before the move carry `autopilot-system`, so a verifier of old and new evidence accepts both) and the issuer extension is the issuer that signed its token. Verifiers pin
-exactly those with `clearance attest verify --identity ... --issuer ...`.
+exactly those with `clearance attest verify --identity ... --issuer ...`. clearance-api verifies stored attestations with the same
+pinned pair and `signing-pki/trusted-root.json`, as public material in a ConfigMap (`api.attest.*`; [clearance-map.md](clearance-map.md)).
 
 ## `signing-pki/` (the cluster repo, next to `cluster.yaml`)
 
