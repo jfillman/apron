@@ -1,10 +1,10 @@
 # Only Clearance may hold a token for Tower's catalog (catalog.read, AP-B2). Backstage accepts any token this cluster's
 # issuer signs for audience `backstage-catalog` (its externalAccess jwks entry cannot allowlist a subject), and
 # Kubernetes lets any pod project a token for any audience, and anyone allowed to create serviceaccounts/token mint
-# one. So this policy refuses both, unless the token is one of four service accounts: the Autopilot gateway's and its read API's (autopilot-system/autopilot-gateway, or its old name clearance for one release, and autopilot-api) or the Clearance core's and clearance-api's (55-clearance):
+# one. So this policy refuses both, unless the token is one of four service accounts: the Autopilot gateway's and its read API's (autopilot-system/autopilot-gateway and autopilot-api) or the Clearance core's and clearance-api's (55-clearance):
 #   - a Pod that projects a serviceAccountToken with that audience, in any namespace but autopilot-system or for any
-#     service account but clearance;
-#   - a TokenRequest (serviceaccounts/token) with that audience for any service account but autopilot-system/clearance
+#     service account but autopilot-gateway;
+#   - a TokenRequest (serviceaccounts/token) with that audience for any service account but autopilot-system/autopilot-gateway
 #     (the kubelet's own TokenRequest for Clearance's pod is the allowed case).
 # What the token reaches is narrow anyway: Backstage restricts it to the catalog plugin's catalog.entity.read.
 #
@@ -44,14 +44,14 @@ spec:
     - expression: >-
         (request.namespace == 'autopilot-system'
          && (has(request.subResource) && request.subResource == 'token'
-             ? request.name in ['autopilot-gateway', 'clearance', 'autopilot-api']
-             : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName in ['autopilot-gateway', 'clearance', 'autopilot-api'])))
+             ? request.name in ['autopilot-gateway', 'autopilot-api']
+             : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName in ['autopilot-gateway', 'autopilot-api'])))
         ||
         (request.namespace == '@@CLEARANCE_NAMESPACE@@'
          && (has(request.subResource) && request.subResource == 'token'
              ? request.name in ['clearance-core', 'clearance-api']
              : (has(object.spec.serviceAccountName) && object.spec.serviceAccountName in ['clearance-core', 'clearance-api'])))
-      message: only the Autopilot gateway and its read API (autopilot-system/autopilot-gateway, or its old name clearance for one release, and autopilot-api) and the Clearance core and clearance-api may hold a token for audience backstage-catalog (Tower's catalog)
+      message: only the Autopilot gateway and its read API (autopilot-system/autopilot-gateway and autopilot-api) and the Clearance core and clearance-api may hold a token for audience backstage-catalog (Tower's catalog)
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

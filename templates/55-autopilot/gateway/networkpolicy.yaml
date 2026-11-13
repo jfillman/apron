@@ -5,7 +5,7 @@
 #                  labels each run namespace hangar.io/agent-run=true and its egress policy allows this pod and port; this
 #                  is the other half. kubelet probes and `kubectl port-forward` reach the pod from the node.
 #                  The MCP port also from the cluster Gateway's data plane (people's MCP clients through
-#                  clearance.<domain>/mcp, routes.yaml); each request still needs a person's ID token.
+#                  autopilot.<domain>/mcp, routes.yaml); each request still needs a person's ID token.
 #                  Glidepath's gates and GitHub's webhooks call the Clearance core since R-4 (55-clearance), not this pod.
 #   autopilot-pg   Postgres from the gateway and its read API, and the CloudNativePG operator's ports.
 apiVersion: networking.k8s.io/v1

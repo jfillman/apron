@@ -43,7 +43,7 @@ APRON = HERE.parents[1]
 GRANTS = APRON / "templates" / "55-autopilot" / "agentrun-grants"
 PROVIDER = "system:serviceaccount:crossplane-system:provider-kubernetes"
 CLEARANCE = "system:serviceaccount:autopilot-system:autopilot-gateway"  # the deployed gateway (55-autopilot/gateway)
-CLEARANCE_OLD = "system:serviceaccount:autopilot-system:clearance"  # its name before R-10c, still bound for one release
+CLEARANCE_OLD = "system:serviceaccount:autopilot-system:clearance"  # its name before R-10c, bound to nothing since R-10e
 
 
 def free_port():
@@ -313,7 +313,8 @@ def main():
         setup(["create", "clusterrole", "test-object-writer", "--verb=*",
                "--resource=objects.kubernetes.m.crossplane.io,objects.kubernetes.crossplane.io"])
         setup(["create", "clusterrolebinding", "test-object-writer", "--clusterrole=test-object-writer",
-               "--serviceaccount=crossplane-system:crossplane", "--serviceaccount=autopilot-system:autopilot-gateway", "--serviceaccount=autopilot-system:clearance",
+               "--serviceaccount=crossplane-system:crossplane", "--serviceaccount=autopilot-system:autopilot-gateway", "--serviceaccount=autopilot-system:clearance",  # the old name too: a refusal is the grant's, not the policy's
+              
                "--serviceaccount=crossplane-system:provider-kubernetes"])
         time.sleep(3)  # policy and RBAC informers settle
 
@@ -393,8 +394,8 @@ def main():
               k.kubectl(["get", "ns"], as_user="system:serviceaccount:crossplane-system:provider-kubernetes-f6665ef36536"), "forbidden")
         run = {"apiVersion": "catalog.hangar.io/v1alpha1", "kind": "AgentRun", "metadata": {"name": "r-1a2b3c", "namespace": "autopilot-runs"}, "spec": {}}
         check("Clearance can create an AgentRun in autopilot-runs", True, k.kubectl(["create", "-f", "-"], run, CLEARANCE))
-        check("the old name (clearance) can still create one, for one release", True,
-              k.kubectl(["create", "-f", "-"], {**run, "metadata": {"name": "r-4d5e6f", "namespace": "autopilot-runs"}}, CLEARANCE_OLD))
+        check("the retired name (clearance) can no longer create one (R-10e)", False,
+              k.kubectl(["create", "-f", "-"], {**run, "metadata": {"name": "r-4d5e6f", "namespace": "autopilot-runs"}}, CLEARANCE_OLD), "forbidden")
         check("Clearance can patch it (spec.frozen)", True,
               k.kubectl(["patch", "agentrun", "r-1a2b3c", "-n", "autopilot-runs", "--type=merge", "-p", '{"spec":{"frozen":true}}'], as_user=CLEARANCE))
         check("Clearance cannot create an AgentRun in default", False,
