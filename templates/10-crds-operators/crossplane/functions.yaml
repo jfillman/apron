@@ -128,11 +128,12 @@ metadata:
     hangar.io/component: autopilot
     hangar.io/subcomponent: agentrun
 spec:
-  # Autopilot AP-A3: composes AgentRun XRs (airframe functions/function-agentrun). v0.3.0, pinned by its multi-arch
-  # index digest (linux/arm64 + linux/amd64): run pods get AUTOPILOT_URL and an `autopilot`-audience token, and the
-  # gateway's Service name is the input gateway_service (R-10b); it also reads HANGAR_RUNTIME_CLASSES from the env in
+  # Autopilot AP-A3: composes AgentRun XRs (airframe functions/function-agentrun). v0.4.0 (airframe 4131191), pinned by
+  # its multi-arch index digest (linux/arm64 + linux/amd64): run pods get AUTOPILOT_URL and an `autopilot`-audience token
+  # only (R-10e dropped CLEARANCE_URL and the `clearance` audience, airframe#147); the gateway's Service name is the input
+  # gateway_service (default `autopilot-gateway`); it also reads HANGAR_RUNTIME_CLASSES from the env in
   # function-agentrun-runtime.yaml (airframe#143). airframe-service-catalog ships the AgentRun XRD and Composition.
-  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-agentrun@sha256:fcf43470a97e22c28bb23d2230a381c0289d01afb9b53f0c69b429dc8b198ede
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9
   runtimeConfigRef:
     apiVersion: pkg.crossplane.io/v1beta1
     kind: DeploymentRuntimeConfig

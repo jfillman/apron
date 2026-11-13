@@ -195,8 +195,8 @@ G="${LAB}/dev/55-autopilot/gateway"
 has "${G}/gateway.yaml" '^  name: autopilot-gateway$' "lab: gateway Deployment is autopilot-gateway"
 has "${G}/gateway.yaml" 'serviceAccountName: autopilot-gateway' "lab: gateway runs as SA autopilot-gateway"
 has "${G}/gateway.yaml" 'selector: \{app.kubernetes.io/name: autopilot-gateway\}' "lab: Services select the new label"
-has "${G}/gateway.yaml" 'gateway-v0.8.0@sha256:7a969e5c083ffcb9413fec7336e7306b3d6699f3b5c16844878625cdaf685556' "lab: gateway image pinned"
-has "${G}/autopilot-api.yaml" 'gateway-v0.8.0@sha256:7a969e5c083ffcb9413fec7336e7306b3d6699f3b5c16844878625cdaf685556' "lab: read API on the same image"
+has "${G}/gateway.yaml" 'gateway-v0.9.0@sha256:c5530c09a11ef254b43f3e60680f0e9ba9b9cb887c090b3e566a9eaf5cdb1e08' "lab: gateway image pinned"
+has "${G}/autopilot-api.yaml" 'gateway-v0.9.0@sha256:c5530c09a11ef254b43f3e60680f0e9ba9b9cb887c090b3e566a9eaf5cdb1e08' "lab: read API on the same image"
 has "${G}/autopilot-api.yaml" 'AUTOPILOT_GATEWAY_URL' "lab: read API uses AUTOPILOT_GATEWAY_URL"
 if grep -rn 'app.kubernetes.io/name: clearance[},]' "${G}" >/dev/null; then bad "lab: a gateway object still carries the label clearance"; else ok "lab: no gateway object carries the label clearance"; fi
 if grep -q '^  name: clearance$' "${G}/gateway.yaml"; then bad "lab: the clearance Service alias is still rendered"; else ok "lab: no clearance Service alias (R-10e)"; fi
@@ -207,7 +207,7 @@ if grep -rq 'autopilot-system:clearance\|autopilot-system/clearance\|name: clear
 has "${G}/argo-sync.yaml" "autopilot-system:autopilot-gateway'" "lab: argo-sync admits the new principal"
 has "${LAB}/dev/50-glidepath/glidepath-control-plane/values.yaml" 'system:serviceaccount:autopilot-system:autopilot-gateway' "lab: glidepath-api delegates the new principal"
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'principals": \["autopilot-system/autopilot-gateway"\]' "lab: the provider registers the gateway's principal only"
-has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:fcf43470a97e22c28bb23d2230a381c0289d01afb9b53f0c69b429dc8b198ede' "lab: function-agentrun v0.3.0"
+has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9' "lab: function-agentrun v0.4.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
 has "${K}/dev/10-crds-operators/crossplane/function-agentrun-runtime.yaml" "value: '\\{\\}'" "eks-dev: no runtime classes by default"
