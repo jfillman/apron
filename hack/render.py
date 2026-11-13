@@ -267,19 +267,16 @@ def clearance_tokens(g):
         "CLEARANCE_NAMESPACE": c("namespace", "clearance-system"),
         # The Autopilot gateway's pod label app.kubernetes.io/name, the one place the core's and the api's NetworkPolicies
         # (and the pg_dump job's) learn it. The gateway stays in autopilot-system, a different namespace from the core's,
-        # so each rule is a namespaceSelector plus this podSelector. Both names are listed so the policy admits the
-        # gateway before and after the gateway's own rename from `clearance` to `autopilot-gateway` (R-10).
-        "CLEARANCE_GATEWAY_POD_NAMES": json.dumps(list(c("gatewayPodNames", None) or ["clearance", "autopilot-gateway"])),
+        # so each rule is a namespaceSelector plus this podSelector.
+        "CLEARANCE_GATEWAY_POD_NAMES": json.dumps(list(c("gatewayPodNames", None) or ["autopilot-gateway"])),
         # The nightly pg_dump of clearance-pg (clearance-config backup.yaml, clearance.backup.enabled): cron schedule,
         # how many dumps the PVC keeps, and its size.
         "CLEARANCE_BACKUP_SCHEDULE": str(g("clearance.backup.schedule", "") or "17 2 * * *"),
         "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
         "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
-        # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml). Both the new
-        # (autopilot-gateway) and the old (clearance) principal for one release of R-10c, so a rollback or a straggler pod
-        # still registers; the old one goes with R-10e.
+        # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
-                                            "principals": ["autopilot-system/autopilot-gateway", "autopilot-system/clearance"],
+                                            "principals": ["autopilot-system/autopilot-gateway"],
                                             # it publishes its cluster-pinned definitions (PUT /v1/definitions)
                                             "definitions": True}] + publishers + list(c("extraProviders", []) or [])),
         "CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST": json.dumps(foreign),

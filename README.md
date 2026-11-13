@@ -106,8 +106,7 @@ On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccou
 `clearance.namespace` (default `clearance-system`) is where the core, clearance-api, clearance-pg, the ledger volume, their
 ExternalSecrets and the Clearance routes run; every in-cluster URL to the core and clearance-api follows it. The Autopilot
 gateway stays in `autopilot-system`, so the core's and the api's NetworkPolicies admit it by namespace plus pod label
-(`clearance.gatewayPodNames`, default `[clearance, autopilot-gateway]`: the gateway's `app.kubernetes.io/name` before and
-after its rename). External hostnames do not depend on the namespace.
+(`clearance.gatewayPodNames`, default `[autopilot-gateway]`: the gateway's `app.kubernetes.io/name`). External hostnames do not depend on the namespace.
 
 CloudNativePG has no object store on these clusters, so `clearance.backup.enabled: true` renders
 `55-clearance/clearance-config/backup.yaml`: a PVC and a nightly CronJob that `pg_dump`s clearance-pg (as the read-only
