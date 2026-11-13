@@ -942,7 +942,7 @@ done
 # Clearance Slack off a lab: gateway-existing only; dns01-route53 and idp.hostAlias are the lab path
 EKS_SLACK=(--repo-url https://github.com/acme/gitops-eks-knob --scm-owner acme
   --domain eks-knob.aws.example.dev --set infisical.host=false --set infisical.url="${INF}" --set "issuer=${ISS}/DDD4"
-  --tower-cluster eks-man --set tower.domain=eks-man.aws.example.dev "${SLACK_COMMON[@]}")
+  --tower-cluster eks-man --set tower.domain=eks-man.aws.example.dev --set "tower.issuer=${ISS}/DDD5" "${SLACK_COMMON[@]}")
 rm -rf "${TMP}/eks-slack"
 new "${TMP}/eks-slack" dev eks-knob eks "${EKS_SLACK[@]}"
 python3 hack/check.py --cluster "${TMP}/eks-slack/cluster.yaml" >/dev/null 2>"${TMP}/eks-slack.err" && ok "eks: slack on with gateway-existing passes check" || bad "eks: slack gateway-existing refused: $(head -1 "${TMP}/eks-slack.err")"
