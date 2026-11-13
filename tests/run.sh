@@ -521,7 +521,6 @@ has "${TP}" 'schedule: "\*/15 \* \* \* \*"' "targets (prod): every 15 minutes"
 if grep -qE 'automountServiceAccountToken: true|hostNetwork|privileged: true' "${TP}"; then bad "targets (prod): the publisher is not locked down"; else ok "targets (prod): the Job mounts no default token, no host network, no privilege"; fi
 has "${TMP}/tgt-prod/59-clearance-targets/application.yaml" 'path: 59-clearance-targets' "targets (prod): its own Application"
 # enforce mode flips the Argo CD gate's declared mode; an unprotected environment's Glidepath gate flags
-{ cat "${TMP}/tgt-prod/cluster.yaml"; echo 'clearance: {gate: {enforce: true}, protectedEnvironments: ["hangar-prod/staging"]}'; } >"${TMP}/tgt-prod/cluster2.yaml"
 mkdir -p "${TMP}/tgt-prod-enf"
 python3 - "${TMP}/tgt-prod/cluster.yaml" "${TMP}/tgt-prod-enf/cluster.yaml" <<'PY'
 import sys, yaml
@@ -530,7 +529,6 @@ c["clearance"]["gate"]["enforce"] = True
 c["clearance"]["protectedEnvironments"] = ["hangar-prod/staging"]
 yaml.safe_dump(c, open(sys.argv[2], "w"))
 PY
-rm -f "${TMP}/tgt-prod/cluster2.yaml"
 render_ok "${TMP}/tgt-prod-enf" "targets on, enforce and another protected environment"
 python3 - "$(targets_json "${TMP}/tgt-prod-enf")" <<'PY' && ok "targets: enforce flips the g-argo mode; an unprotected environment's Glidepath gate is flag" || bad "targets: enforce / unprotected modes wrong"
 import json, sys
@@ -560,7 +558,11 @@ if grep -rn '[0-9]\{12\}' "${TMP}/tgt-prod/59-clearance-targets" | grep -q .; th
 new "${TMP}/tgt-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod
 new "${TMP}/tgt-bad2" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev \
   --set clearance.targets.enabled=true --set clearance.gate.url=http://clearance.hangar-dev.local --set 'clearance.targets.extra=[{id: BAD, name: x, kind: other, group: g}]'
+new "${TMP}/tgt-bad3" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev \
+  --set clearance.targets.enabled=true --set clearance.gate.url=http://clearance.hangar-dev.local
 TGT_ERR="$(python3 hack/render.py --cluster "${TMP}/tgt-bad2/cluster.yaml" 2>&1 || true)"
+NOALIAS_ERR="$(python3 hack/render.py --cluster "${TMP}/tgt-bad3/cluster.yaml" 2>&1 || true)"
+grep -q 'needs clearance.gate.hostAlias' <<<"${NOALIAS_ERR}" && ok "targets: a remote core without a host alias is refused (no unpinned egress)" || bad "targets: remote core without hostAlias should be refused: ${NOALIAS_ERR}"
 grep -q "clearance.targets.extra\[0\]: id 'BAD' is a lower-case name" <<<"${TGT_ERR}" && ok "targets: an invalid hand-declared target is refused at render, by name" || bad "targets: invalid extra target should be refused by name: ${TGT_ERR}"
 # api.attest: the keyless trust (public trusted root, the core's identity, the cluster's issuer), only with the trusted root published
 AC="${SG}/55-clearance/clearance/application.yaml"

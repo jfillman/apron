@@ -46,7 +46,7 @@ Gates (only on an application namespace, because the core attributes a gate's re
 
 | Gate | Declared when | `instance` | `mode` |
 |---|---|---|---|
-| `glidepath` | always (the Glidepath `clearance-gate` check) | `app-<app>-cicd/pipeline-runner` | `enforce` where `<cluster>/<env>` matches `clearance.protectedEnvironments`, else `flag` (tier 0: recorded, not refused) |
+| `glidepath` | always (the Glidepath `clearance-gate` check) | `app-<app>-cicd/pipeline-runner` | `enforce` where `<cluster>/<env>` matches `clearance.protectedEnvironments`, else `flag` (tier 0: recorded, not refused); an unset `protectedEnvironments` protects every environment (the core fails closed), so `enforce` |
 | `g-argo` | `clearance.gate.enabled` and the namespace is one the agent protects (or, without an agent, the app is in `clearance.gate.apps`) | `argocd-agent` | `enforce` with `clearance.gate.enforce`, else `flag` |
 
 **Why the instances attribute.** The Map counts a record for a gate instance when the record's `provider.name` is the
@@ -63,7 +63,7 @@ and any GitHub Actions deployment-protection target (`extra`).
 
 `59-clearance-targets/` (rendered with `clearance.targets.enabled`): a ConfigMap holding the rendered `targets.json` and
 `publish.py` (standard library), a CronJob (every 15 minutes, `concurrencyPolicy: Forbid`) running it, a ServiceAccount
-`clearance-targets` and two NetworkPolicies (DNS; the core and nothing else). The Job calls `PUT /v1/targets/<cluster>` with
+`clearance-targets` and two NetworkPolicies (a remote core needs `clearance.gate.hostAlias`: the egress is pinned to that address, and the render refuses without it) (DNS; the core and nothing else). The Job calls `PUT /v1/targets/<cluster>` with
 its projected service-account token (audience `clearance`, minted per run, never stored). The core replaces only that
 source's set and answers `changed: false`, recording nothing, when it already holds it: a timer is safe, and a re-rendered set
 is picked up by the next run. A timer also makes a restarted core or a missed publish self-heal.

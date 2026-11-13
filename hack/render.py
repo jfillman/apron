@@ -250,6 +250,8 @@ def clearance_tokens(g):
                    # No kinds would mean every record kind but the observations (core.md): the narrowest one the core has
                    # is a federated decision (always claimed, never Clearance's), so this is the least a registered
                    # provider can be given. The right that matters is `targets`.
+                   # TODO: replace with the least-privilege targets-only spelling (no record kinds) when the Clearance PR that
+                   # adds it is released.
                    "kinds": ["federated.decision"], "targets": [x["cluster"]]} for x in pubs]
     for ns in sorted({x["namespace"] for x in pubs if x["remote"]}):
         foreign.append(f"{ns}/clearance-targets")
@@ -627,6 +629,7 @@ def clearance_targets_tokens(v, g):
             # core's CLEARANCE_VERIFIERS entry app-*-cicd/pipeline-runner): that principal is what the record's change names
             # (registered_by), so it is the gate's instance. It refuses (enforce) where the environment is protected; elsewhere
             # a change clears at tier 0 and is recorded (flag).
+            # An empty clearance.protectedEnvironments protects EVERY environment (the core fails closed), so unset is enforce.
             prot = any(fnmatch.fnmatchcase(f"{cluster}/{env}", e) for e in protected) if protected else True
             gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/pipeline-runner", "mode": "enforce" if prot else "flag"})
             if gate_on and (ns in agent_ns if agent_ns else (not gate_apps or app in gate_apps)):
@@ -672,9 +675,11 @@ def clearance_targets_tokens(v, g):
         parsed = urllib.parse.urlparse(url)
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         ip, _hosts = _host_alias(g, "clearance.gate.hostAlias")
-        egress = [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}}] if ip else [], "ports": [{"protocol": "TCP", "port": port}]}]
         if not ip:
-            del egress[0]["to"]
+            # An egress rule with no `to` allows every destination on that port: never render one.
+            raise ApronError("clearance.targets.enabled with a core on another cluster needs clearance.gate.hostAlias "
+                             "('ip=host'): the publisher's egress is pinned to that address, and an unpinned rule would allow the port to anywhere")
+        egress = [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}}], "ports": [{"protocol": "TCP", "port": port}]}]
     out.update({"CLEARANCE_TARGETS_SOURCE": cluster, "CLEARANCE_TARGETS_SCHEDULE": schedule, "CLEARANCE_TARGETS_URL": url,
                 "CLEARANCE_TARGETS_EGRESS": json.dumps(egress),
                 "CLEARANCE_TARGETS_JSON": "\n".join("    " + line for line in doc.split("\n"))})
