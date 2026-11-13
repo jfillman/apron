@@ -1,0 +1,13 @@
+# What clearance-api verifies a stored attestation against (clearance docs/clearance-api.md, CLEARANCE_API_ATTEST_*): the
+# cluster's Sigstore trusted root, as published in signing-pki/trusted-root.json (public certificates and the Rekor key;
+# apron render refuses a private key there). The core signs keyless (clearance.attestation.keyless), so the api needs the
+# root, and the identity and issuer the certificate must name (the clearance Application's api.attest values). The api
+# mounts this ConfigMap at /etc/clearance/attest-trust; GET /v1/attestation-config says verifiable: true once it holds.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clearance-attest-trust
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+data:
+  trusted-root.json: @@CLEARANCE_ATTEST_TRUST_ROOT_JSON@@
