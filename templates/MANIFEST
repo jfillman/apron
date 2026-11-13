@@ -94,6 +94,7 @@
 55-clearance/clearance-config/cilium-kube-apiserver.yaml  components.clearance and runtime.kiac.cni == 'cilium'
 55-clearance/clearance-config/ledger-key.yaml  components.clearance and clearance.ledger.enabled
 55-clearance/clearance-config/backup.yaml  components.clearance and clearance.backup.enabled
+55-clearance/clearance-config/attest-trust.yaml  components.clearance and clearance.attestation.keyless and signing.trustedRoot
 
 # 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce
 56-clearance-gate/                      zone == 'upper' and clearance.gate.enabled
@@ -108,6 +109,9 @@
 
 # 58 Clearance's AWS collector (clearance observe-aws): reads CloudTrail/Config events from an SQS queue
 58-clearance-observe-aws/               clearance.observeAWS.enabled
+
+# 59 Clearance's target registry publisher (clearance Map): declares this cluster's protected targets to the core, on a timer
+59-clearance-targets/                    clearance.targets.enabled
 
 # 60 gateway routes: one HTTPRoute per UI this cluster runs
 60-gateway-routes/                      components.gatewayRoutes

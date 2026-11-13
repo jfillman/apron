@@ -1,0 +1,28 @@
+# Clearance's target registry publisher (clearance docs/provider-protocol.md "Publishing declared targets"; apron
+# docs/clearance-map.md): declares this cluster's protected targets to the Clearance core for the Coverage Map. Plain-manifest
+# directory source, its own Application so a change to the declaration never touches another component's sync. Rendered
+# with clearance.targets.enabled.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clearance-targets
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: policy
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 59-clearance-targets
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: "@@CLEARANCE_NAMESPACE@@"
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions: [CreateNamespace=true]

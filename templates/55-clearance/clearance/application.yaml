@@ -191,6 +191,21 @@ spec:
           feedReaders: @@CLEARANCE_FEED_READERS_LIST@@
 #@end
           gatewayURL: "@@GATEWAY_SCHEME@@://autopilot.@@CLUSTER_DOMAIN@@"
+#@if clearance.attestation.keyless and signing.trustedRoot
+          # What the api verifies stored attestations against (GET /v1/clearances/{id}/attestation/verify, /v1/attestation-config):
+          # public material only. The core signs keyless, so the trust is this cluster's trusted root (clearance-config's
+          # attest-trust.yaml, from signing-pki/trusted-root.json) and the identity and issuer the certificate names: the core's
+          # service account (R-10d moved it to clearance-system; attestations made while it ran in autopilot-system name that
+          # one and do not verify here) and the cluster's issuer.
+          attest:
+            configMap: clearance-attest-trust
+            trustRoot: trusted-root.json
+            identity: "@@CLEARANCE_ATTEST_IDENTITY@@"
+            issuer: "@@CLEARANCE_ATTEST_ISSUER@@"
+#@end
+#@if clearance.attestation.keyless and signing.trustedRoot and (clearance.attestation.rekorPublicUrl or (components.glidepath and components.gatewayRoutes))
+            rekorUrl: "@@CLEARANCE_ATTEST_REKOR_PUBLIC_URL@@"
+#@end
 #@if tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]
 #@end
@@ -219,6 +234,11 @@ spec:
               # This cluster's own audit collector; another cluster's comes through the Gateway.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-k8s}}
+#@end
+#@if clearance.targets.enabled
+              # This cluster's own target registry publisher (59-clearance-targets); another cluster's comes through the Gateway.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@CLEARANCE_NAMESPACE@@}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-targets}}
 #@end
 #@if clearance.observeAWS.enabled
               # The AWS collector: records to the core.

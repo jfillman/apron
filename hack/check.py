@@ -140,6 +140,22 @@ def violations(v, fleet=None):
         if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
 
+    # the target registry publisher (clearance Map; docs/clearance-map.md)
+    if get(v, "clearance.targets.enabled") is not None and not isinstance(get(v, "clearance.targets.enabled"), bool):
+        add("clearance.targets.enabled must be true or false")
+    if on("clearance.targets.enabled") and not (on("components.clearance") or get(v, "clearance.gate.url")):
+        add("clearance.targets.enabled needs the core: components.clearance here, or clearance.gate.url (the core on another "
+            "cluster, as the gate reaches it)")
+    pubs = get(v, "clearance.targets.publishers") or []
+    if pubs and not on("components.clearance"):
+        add("clearance.targets.publishers needs components.clearance: it registers other clusters' publishers with the core this cluster runs")
+    for p in pubs:
+        if not isinstance(p, dict) or not p.get("cluster"):
+            add("clearance.targets.publishers: each is {cluster[, namespace]}")
+        elif p["cluster"] != get(v, "tower.cluster"):
+            add(f"clearance.targets.publishers: {p['cluster']}: the core trusts another cluster's service-account tokens only for "
+                "tower.cluster (clearance.foreignCluster), so a remote publisher is Tower's cluster")
+
     # the evidence ledger (clearance C-3): the log on the cluster that runs the core, a witness on a protected cluster
     for key in ("clearance.ledger.enabled", "clearance.witness.enabled"):
         if get(v, key) is not None and not isinstance(get(v, key), bool):

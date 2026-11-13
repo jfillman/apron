@@ -1,0 +1,150 @@
+# The target registry publisher. Every 15 minutes (clearance.targets.schedule) a Job sends the targets this cluster declares
+# (the ConfigMap below, rendered from cluster.yaml: apron hack/render.py clearance_targets_tokens) to the Clearance core with
+# `PUT /v1/targets/@@CLEARANCE_TARGETS_SOURCE@@`. The core replaces only this source's set, and answers `changed: false` (and
+# records nothing) when the set is the one it already holds, so the timer is safe and a changed render is picked up by the next
+# run. The core's CLEARANCE_PROVIDERS entry for this account lists `targets: ["@@CLEARANCE_TARGETS_SOURCE@@"]` and nothing
+# more (render.py clearance_tokens). The Job's whole credential is its projected service-account token, audience clearance,
+# minted per run and never stored; its egress is the core and DNS.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clearance-targets
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: targets}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clearance-targets
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: targets}
+data:
+  targets.json: |
+@@CLEARANCE_TARGETS_JSON@@
+  publish.py: |
+    """Publish this cluster's declared targets to the Clearance core (PUT /v1/targets/<source>).
+
+    Standard library only. The token is the pod's projected service-account token (audience clearance), read fresh. Exits 1
+    when the core refuses or cannot be reached, so a failed Job is visible; a retry is safe (an unchanged set is a no-op).
+    """
+
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.request
+
+    URL = os.environ["CLEARANCE_URL"].rstrip("/")
+    SOURCE = os.environ["TARGETS_SOURCE"]
+
+
+    def main():
+        with open("/targets/targets.json") as f:
+            body = f.read()
+        n = len(json.loads(body)["targets"])
+        with open("/var/run/secrets/tokens/clearance") as f:
+            token = f.read().strip()
+        req = urllib.request.Request(f"{URL}/v1/targets/{SOURCE}", method="PUT", data=body.encode(),
+                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                answer = json.load(r)
+        except urllib.error.HTTPError as e:
+            print(f"FAILED PUT /v1/targets/{SOURCE}: HTTP {e.code} {e.read()[:300]!r}", file=sys.stderr)
+            return 1
+        except OSError as e:
+            print(f"FAILED PUT /v1/targets/{SOURCE}: {e}", file=sys.stderr)
+            return 1
+        print(f"published {n} targets for {SOURCE}: changed={answer.get('changed')} digest={answer.get('digest')} seq={answer.get('seq')}")
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clearance-targets
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: targets}
+spec:
+  schedule: "@@CLEARANCE_TARGETS_SCHEDULE@@"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: clearance-targets
+            hangar.io/component: clearance
+            hangar.io/subcomponent: targets
+        spec:
+          serviceAccountName: clearance-targets
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: publish
+              # Multi-arch index digest (linux/amd64 + linux/arm64 among others), the reaper's (checked 2026-10-29).
+              image: docker.io/library/python:3.13.18-alpine@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+              command: ["python3", "-I", "/targets/publish.py"]
+              env:
+                - {name: CLEARANCE_URL, value: "@@CLEARANCE_TARGETS_URL@@"}
+                - {name: TARGETS_SOURCE, value: "@@CLEARANCE_TARGETS_SOURCE@@"}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 64Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - {name: targets, mountPath: /targets, readOnly: true}
+                - {name: tokens, mountPath: /var/run/secrets/tokens, readOnly: true}
+          volumes:
+            - name: targets
+              configMap: {name: clearance-targets}
+            - name: tokens
+              projected:
+                sources:
+                  - serviceAccountToken: {path: clearance, audience: clearance, expirationSeconds: 600}
+---
+# Egress: DNS and the core, nothing else. Ingress: none (a Job serves nothing).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-targets
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: targets}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance-targets}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to: [{namespaceSelector: {}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+---
+# ... and the core: this cluster's (its pod, port 8080), or the hub's through the address clearance.gate.hostAlias gives.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clearance-targets-core
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: targets}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: clearance-targets}
+  policyTypes: [Egress]
+  egress: @@CLEARANCE_TARGETS_EGRESS@@

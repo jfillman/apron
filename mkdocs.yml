@@ -8,6 +8,7 @@ nav:
   - The fleet file (clusters.yaml): clusters-file.md
   - Cluster identity: cluster-identity.md
   - Signing PKI (C-2a): signing-pki.md
+  - Clearance Map (targets, attestation trust): clearance-map.md
 
 plugins:
   - techdocs-core

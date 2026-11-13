@@ -11,6 +11,7 @@ or a leftover `@@` is an error naming file:line. Deterministic and re-runnable: 
 renders are removed (tracked in DIR/.apron-rendered); DIR/cluster.yaml and DIR/.git are never touched.
 """
 import argparse
+import fnmatch
 import ipaddress
 import json
 import os
@@ -160,6 +161,8 @@ def tokens(v):
         **clearance_witness_tokens(g),
         **clearance_observe_tokens(v, g),
         **clearance_observe_aws_tokens(g),
+        **clearance_targets_tokens(v, g),
+        **clearance_attest_tokens(v, g),
         **clearance_admission_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
@@ -238,6 +241,20 @@ def clearance_tokens(g):
     tower = g("tower.cluster", "")
     tower_sa = f"{tower}/{g('tower.namespace')}/backstage-ingestor" if tower else ""
     foreign = ([f"{g('tower.namespace')}/backstage-ingestor"] if tower else []) + list(c("foreignServiceAccounts", []) or [])
+    # The target registry's publishers (docs/clearance-map.md): one provider per source, with the right to publish that
+    # source's targets and nothing else; the remote ones are Tower's cluster's tokens, so their account is a foreign one.
+    pubs = targets_publishers(g)
+    publishers = [{"name": f"targets-{x['cluster']}", "version": str(g("versions.clearance.chart")),
+                   "principals": [f"{x['namespace']}/clearance-targets" if not x["remote"]
+                                  else f"{x['cluster']}/{x['namespace']}/clearance-targets"],
+                   # No kinds would mean every record kind but the observations (core.md): the narrowest one the core has
+                   # is a federated decision (always claimed, never Clearance's), so this is the least a registered
+                   # provider can be given. The right that matters is `targets`.
+                   # TODO: replace with the least-privilege targets-only spelling (no record kinds) when the Clearance PR that
+                   # adds it is released.
+                   "kinds": ["federated.decision"], "targets": [x["cluster"]]} for x in pubs]
+    for ns in sorted({x["namespace"] for x in pubs if x["remote"]}):
+        foreign.append(f"{ns}/clearance-targets")
     flight = g("registries.flight.namespace", "") or ""
     flight_default = [f"{g('registries.flight.host', '') or 'ghcr.io'}/{flight}/"] if flight else []
     registries = c("trustedRegistries", flight_default) or []
@@ -263,7 +280,7 @@ def clearance_tokens(g):
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
                                             "principals": ["autopilot-system/autopilot-gateway"],
                                             # it publishes its cluster-pinned definitions (PUT /v1/definitions)
-                                            "definitions": True}] + list(c("extraProviders", []) or [])),
+                                            "definitions": True}] + publishers + list(c("extraProviders", []) or [])),
         "CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST": json.dumps(foreign),
         "CLEARANCE_FEED_READERS_LIST": json.dumps(list(c("feedReaders", []) or [])),
         "CLEARANCE_VERIFIERS_LIST": json.dumps(["app-*-cicd/pipeline-runner"] + [f"github:{w}" for w in workflows]
@@ -524,6 +541,164 @@ def clearance_observe_aws_tokens(g):
         "CLEARANCE_OBSERVE_AWS_APPLY_ROLES": json.dumps(apply_roles),
         "CLEARANCE_OBSERVE_AWS_SSO_ADMIN_ROLES": jl("ssoAdminRoles"),
         "CLEARANCE_OBSERVE_AWS_GOVERNED_ACCOUNTS": jl("governedAccounts"),
+    }
+
+
+TARGET_KINDS = ("k8s-namespace", "k8s-cluster", "aws-account", "github-environment", "other")
+TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9._:/-]{0,126}$")
+TARGET_TIER = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+TARGET_SOURCE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
+# An application namespace is app-<app>-<env> (Glidepath, airframe): the environment is the last word.
+APP_NAMESPACE = re.compile(r"^app-(?P<app>[a-z0-9][a-z0-9-]*)-(?P<env>[a-z0-9]+)$")
+
+
+def targets_namespace(g):
+    return str(g("clearance.namespace", None) or "clearance-system")
+
+
+def targets_publishers(g):
+    """Who publishes target sets to the core this cluster runs (docs/clearance-map.md): this cluster's own publisher (when
+    clearance.targets.enabled and the core is here) and the remote clusters listed in clearance.targets.publishers. Each is
+    {cluster, namespace, remote}; the core registers one provider per cluster, with the right to publish that source only."""
+    if not g("components.clearance", False):
+        return []
+    out = []
+    if g("clearance.targets.enabled", False):
+        out.append({"cluster": g("name"), "namespace": targets_namespace(g), "remote": False})
+    for p in g("clearance.targets.publishers", None) or []:
+        out.append({"cluster": str(p.get("cluster", "")), "namespace": str(p.get("namespace") or "clearance-system"), "remote": True})
+    return out
+
+
+def validate_target(t, where):
+    """The core's strict validation (clearance internal/targets), offline: a bad declaration stops the render, not the publish."""
+    if not TARGET_ID.match(t.get("id", "")):
+        raise ApronError(f"{where}: id {t.get('id')!r} is a lower-case name of at most 127 characters")
+    if t.get("kind") not in TARGET_KINDS:
+        raise ApronError(f"{where}: kind is one of {TARGET_KINDS}")
+    for f in ("name", "group"):
+        if not t.get(f):
+            raise ApronError(f"{where}: {f} is required")
+    if t.get("registry") and not TARGET_TIER.match(t["registry"]):
+        raise ApronError(f"{where}: registry is a lower-case tier name")
+    for gt in t["gates"]:
+        if not (gt.get("type") and gt.get("instance")) or gt.get("mode") not in ("enforce", "flag"):
+            raise ApronError(f"{where}: a gate is {{type, instance, mode: enforce|flag}}")
+    for ob in t["observers"]:
+        if not (ob.get("provider") and ob.get("source")):
+            raise ApronError(f"{where}: an observer is {{provider, source}}")
+
+
+def clearance_targets_tokens(v, g):
+    """The target registry's publisher (templates/59-clearance-targets, docs/clearance-map.md): the targets this cluster
+    declares for the Clearance Map, derived from what the renderer already knows. A namespace Clearance protects (the audit
+    collector's, the Argo CD gate agent's) is a k8s-namespace target; an application namespace (app-<app>-<env>) names its
+    app and environment, which attributes the deployment gate's records to it. The AWS account the collector watches is an
+    aws-account target. Gates and observers are the ones this render wires; the scope is the cluster name (the audit
+    collector's) or the account (the AWS collector's). clearance.targets.extra adds hand-declared targets."""
+    out = {"CLEARANCE_TARGETS_SOURCE": "", "CLEARANCE_TARGETS_JSON": "", "CLEARANCE_TARGETS_SCHEDULE": "",
+           "CLEARANCE_TARGETS_EGRESS": "[]", "CLEARANCE_TARGETS_URL": ""}
+    if not g("clearance.targets.enabled", False):
+        return out
+    cluster = g("name")
+    core_here = bool(g("components.clearance", False))
+    gate_on = bool(g("clearance.gate.enabled", False))
+    ns_of_core = targets_namespace(g)
+    url = g("clearance.gate.url", "") or f"http://clearance-core.{ns_of_core}.svc:8080"
+    if not TARGET_SOURCE.match(cluster):
+        raise ApronError(f"clearance.targets: the cluster name {cluster!r} is not a source name")
+    schedule = str(g("clearance.targets.schedule", "") or "*/15 * * * *")
+    if len(schedule.split()) != 5:
+        raise ApronError("clearance.targets.schedule is a five-field cron expression")
+    tier = "flight" if (g("zone", "") == "upper" and g("registries.flight.namespace", "")) else "ground"
+    tier = str(g("clearance.targets.registry", "") or tier)
+    default_owner = str(g("clearance.targets.owner", "") or g("clearance.gateOwnerFallback", "") or "group:default/admins")
+    owners = {str(k): str(x) for k, x in (g("clearance.targets.owners", None) or {}).items()}
+    argo_instance = str(g("clearance.targets.argoInstance", "") or "argocd-agent")
+    protected = [str(e) for e in (g("clearance.protectedEnvironments", None) or [])]
+    observe_ns = [str(n) for n in (g("clearance.observe.protectedNamespaces", None) or [])] if g("clearance.observe.enabled", False) else []
+    agent_ns = [str(n) for n in (g("clearance.gate.agent.protectedNamespaces", None) or [])] if gate_on and g("clearance.gate.agent", None) else []
+    gate_apps = [str(a) for a in (g("clearance.gate.apps", None) or [])]
+    targets = []
+    for ns in sorted(set(observe_ns) | set(agent_ns)):
+        m = APP_NAMESPACE.match(ns)
+        app, env = (m.group("app"), m.group("env")) if m else ("", "")
+        gates = []
+        if app:
+            # The Glidepath clearance-gate check registers the change as the pipeline-runner of the app's -cicd namespace (the
+            # core's CLEARANCE_VERIFIERS entry app-*-cicd/pipeline-runner): that principal is what the record's change names
+            # (registered_by), so it is the gate's instance. It refuses (enforce) where the environment is protected; elsewhere
+            # a change clears at tier 0 and is recorded (flag).
+            # An empty clearance.protectedEnvironments protects EVERY environment (the core fails closed), so unset is enforce.
+            prot = any(fnmatch.fnmatchcase(f"{cluster}/{env}", e) for e in protected) if protected else True
+            gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/pipeline-runner", "mode": "enforce" if prot else "flag"})
+            if gate_on and (ns in agent_ns if agent_ns else (not gate_apps or app in gate_apps)):
+                # The Argo CD gate's agent reports every sync outcome and refused write as provider argocd-agent.
+                gates.append({"type": "g-argo", "instance": argo_instance, "mode": "enforce" if g("clearance.gate.enforce", False) else "flag"})
+        t = {"id": f"{cluster}.{ns}", "name": ns, "kind": "k8s-namespace", "group": cluster, "registry": tier,
+             "scope": cluster, "gates": gates,
+             "observers": [{"provider": "observe-k8s", "source": "observe-k8s"}] if ns in observe_ns else []}
+        if app:
+            t.update({"env": env, "app": app, "owner": owners.get(app, default_owner)})
+        targets.append(t)
+    if g("clearance.observeAWS.enabled", False):
+        account = str(g("clearance.observeAWS.account", "") or "")
+        aenv = str(g("clearance.observeAWS.environment", "") or "")
+        agates = [{"type": str(x.get("type", "")), "instance": str(x.get("instance", "")), "mode": str(x.get("mode", ""))}
+                  for x in (g("clearance.observeAWS.gates", None) or [])]
+        t = {"id": f"aws.{account}", "name": f"aws-{aenv}" if aenv else f"aws-{account}", "kind": "aws-account", "group": account,
+             "scope": account, "owner": default_owner, "gates": agates,
+             "observers": [{"provider": "observe-aws", "source": "observe-aws"}]}
+        if aenv:
+            t["env"] = aenv
+        targets.append(t)
+    for i, x in enumerate(g("clearance.targets.extra", None) or []):
+        t = {"gates": [], "observers": [], **{k: x[k] for k in x}}
+        validate_target(t, f"clearance.targets.extra[{i}]")
+        targets.append(t)
+    seen = set()
+    for t in targets:
+        validate_target(t, f"target {t['id']}")
+        if t["id"] in seen:
+            raise ApronError(f"clearance.targets: target id {t['id']} is declared twice")
+        seen.add(t["id"])
+        for k in [k for k, x in t.items() if x in ("", None)]:
+            del t[k]
+    targets.sort(key=lambda t: t["id"])
+    doc = json.dumps({"targets": targets}, indent=2, sort_keys=True)
+    egress = []
+    if core_here and not g("clearance.gate.url", ""):
+        egress = [{"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": ns_of_core}},
+                           "podSelector": {"matchLabels": {"app.kubernetes.io/name": "clearance-core"}}}],
+                   "ports": [{"protocol": "TCP", "port": 8080}]}]
+    else:
+        parsed = urllib.parse.urlparse(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        ip, _hosts = _host_alias(g, "clearance.gate.hostAlias")
+        if not ip:
+            # An egress rule with no `to` allows every destination on that port: never render one.
+            raise ApronError("clearance.targets.enabled with a core on another cluster needs clearance.gate.hostAlias "
+                             "('ip=host'): the publisher's egress is pinned to that address, and an unpinned rule would allow the port to anywhere")
+        egress = [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}}], "ports": [{"protocol": "TCP", "port": port}]}]
+    out.update({"CLEARANCE_TARGETS_SOURCE": cluster, "CLEARANCE_TARGETS_SCHEDULE": schedule, "CLEARANCE_TARGETS_URL": url,
+                "CLEARANCE_TARGETS_EGRESS": json.dumps(egress),
+                "CLEARANCE_TARGETS_JSON": "\n".join("    " + line for line in doc.split("\n"))})
+    return out
+
+
+def clearance_attest_tokens(v, g):
+    """What clearance-api verifies stored attestations with (api.attest.*, clearance docs/clearance-api.md): public material
+    only. The core signs keyless (clearance.attestation.keyless), so the trust is the cluster's trusted root, signing-pki/
+    trusted-root.json, and the identity and issuer the certificate names: the core's service account and this cluster's
+    issuer. The ConfigMap clearance-attest-trust holds the root (55-clearance/clearance-config/attest-trust.yaml)."""
+    on = bool(g("clearance.attestation.keyless", False)) and bool(g("signing.trustedRoot", False)) and bool(g("components.clearance", False))
+    ns = targets_namespace(g)
+    public_rekor = f"{g('gateway.scheme', '') or 'http'}://rekor.{g('domain')}" if g("components.glidepath", False) and g("components.gatewayRoutes", False) else ""
+    return {
+        "CLEARANCE_ATTEST_TRUST_ROOT_JSON": signing_file(v, "trusted-root.json") if on else '""',
+        "CLEARANCE_ATTEST_IDENTITY": f"https://kubernetes.io/namespaces/{ns}/serviceaccounts/clearance-core",
+        "CLEARANCE_ATTEST_ISSUER": str(g("clearance.attestation.issuer", "") or g("issuer")),
+        "CLEARANCE_ATTEST_REKOR_PUBLIC_URL": str(g("clearance.attestation.rekorPublicUrl", "") or public_rekor),
     }
 
 
