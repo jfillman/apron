@@ -1,4 +1,4 @@
-# The Autopilot gateway on autopilot.<domain> and clearance.<domain>: the MCP surface agents and people's MCP clients
+# The Autopilot gateway on autopilot.<domain>: the MCP surface agents and people's MCP clients
 # connect to, the human inbox's people API, the person controls and Run.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -11,10 +11,9 @@ spec:
     - name: @@GATEWAY_NAME@@
       namespace: @@GATEWAY_NAMESPACE@@
   hostnames:
-    # autopilot.<domain> is the gateway's own host from R-4; clearance.<domain> stays as an alias until people's MCP
-    # client configs and Tower move (spec R-4).
+    # autopilot.<domain> is the gateway's own host (R-4). clearance.<domain> is Clearance's (55-clearance routes.yaml);
+    # it served these paths as an alias until R-10e.
     - autopilot.@@CLUSTER_DOMAIN@@
-    - clearance.@@CLUSTER_DOMAIN@@
   rules:
     - matches:
         - path: {type: PathPrefix, value: /mcp}

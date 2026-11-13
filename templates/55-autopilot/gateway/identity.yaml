@@ -27,10 +27,6 @@ subjects:
   - kind: ServiceAccount
     name: autopilot-gateway
     namespace: autopilot-system
-  # The old name, for one release (R-10c; retired with R-10e).
-  - kind: ServiceAccount
-    name: clearance
-    namespace: autopilot-system
 ---
 # Read-only Kubernetes access for the airframe.* tools (AF-8a): XR conditions, the Argo CD Application that syncs an
 # environment, and its Rollout. No Secrets, ConfigMaps, pods, exec or port-forward: verify works from XR status, and a
@@ -64,8 +60,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: autopilot-gateway
-    namespace: autopilot-system
-  # The old name, for one release (R-10c; retired with R-10e).
-  - kind: ServiceAccount
-    name: clearance
     namespace: autopilot-system

@@ -3,7 +3,7 @@
 
 It installs an Application CRD stand-in (preserve-unknown-fields, like Argo CD's for these fields), the Role, binding,
 policy and binding from argo-sync.yaml, and two Applications in argocd-apps (gate-api-dev in gate-api-lower,
-gate-api-prod in gate-api), then acts as system:serviceaccount:autopilot-system:autopilot-gateway (or its old name, clearance) by impersonation:
+gate-api-prod in gate-api), then acts as system:serviceaccount:autopilot-system:autopilot-gateway by impersonation (its old name, clearance, is bound to nothing since R-10e):
 
   allowed   the adapter's exact merge patch (operation: initiatedBy, info, sync {}) on the lower app
   denied    the same on the upper app; a second sync while one is in flight; a patch that also changes spec, a
@@ -84,9 +84,9 @@ def main():
         print("-- allowed")
         check("the adapter's sync of a lower app", True, patch("gate-api-dev", {"operation": OP}))
         clear("gate-api-dev")
-        check("the same sync as the old name (clearance), for one release", True,
-              patch("gate-api-dev", {"operation": OP}, who=CLEARANCE_OLD))
         print("-- denied")
+        check("the retired name (clearance) cannot sync (R-10e)", False,
+              patch("gate-api-dev", {"operation": OP}, who=CLEARANCE_OLD), "forbidden")
         check("a second sync while one is in flight", False, patch("gate-api-dev", {"operation": OP}), "in flight")
         clear("gate-api-dev")
         check("a sync of an upper app", False, patch("gate-api-prod", {"operation": OP}), "-lower project")
