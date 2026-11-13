@@ -299,6 +299,18 @@ def parse_set(items):
     return d
 
 
+# Lab-only networking: name/IP plumbing that exists because a lab (kiac on Apple `container`, kind on podman, LAN relays and
+# ssh forwards, *.local names that are not in DNS) cannot resolve or route what a real network does. runtimes/kiac.yaml and
+# kind.yaml set runtime.labNetworking: true; every other runtime (eks, existing, ...) is not a lab, and none of these keys
+# may be set on it (hack/check.py refuses) nor rendered (hack/render.py blanks them; templates also test the flag).
+LAB_ONLY_KEYS = ("tower.hostAliasIP", "fleet.hubAddress", "clearance.gate.hostAlias", "clearance.ledger.hostAlias",
+                "clearance.slack.idp.hostAlias")
+
+
+def lab_networking(v):
+    return get(v, "runtime.labNetworking") is True
+
+
 def runtime_name(cluster):
     r = cluster.get("runtime")
     return r.get("type") if isinstance(r, dict) else r
@@ -337,7 +349,10 @@ def derive(v):
         if get(v, key) in (None, ""):
             set_dotted(v, key, value)
 
-    default("domain", f"{name}.local")
+    # `.local` names are lab-only (they are in no DNS): only a lab runtime gets them by default. Any other runtime must be
+    # given real names (domain, fleet.hubDomain, tower.domain: hack/check.py says which are missing).
+    lab = lab_networking(v)
+    default("domain", f"{name}.local" if lab else "")
     default("issuerBase", "hangarplatform.dev")
     default("issuer", f"https://{v['issuerBase']}/oidc/{name}")
     default("scm.host", "github.com")
@@ -361,17 +376,18 @@ def derive(v):
     if v["isControlPlane"]:
         default("fleet.hub", name)
         default("fleet.repoURL", repo)
-    default("fleet.hubDomain", f"{get(v, 'fleet.hub')}.local" if get(v, "fleet.hub") else "")
+    default("fleet.hubDomain", f"{get(v, 'fleet.hub')}.local" if lab and get(v, "fleet.hub") else "")
     default("fleet.hubAddress", "")
     # Infisical: the host runs it; consumers reach the host's NodePort.
-    if get(v, "infisical.host"):
+    if get(v, "infisical.host") and v["domain"]:
         default("infisical.url", f"http://{v['domain']}:{get(v, 'infisical.nodePort')}/api")
     elif get(v, "fleet.hubDomain"):
         default("infisical.url", f"http://{get(v, 'fleet.hubDomain')}:{get(v, 'infisical.nodePort')}/api")
     # Tower (Backstage) runs as an Airframe app on some cluster; the hub trusts that cluster's issuer.
     if get(v, "tower.cluster"):
         default("tower.issuer", f"https://{v['issuerBase']}/oidc/{get(v, 'tower.cluster')}")
-        default("tower.domain", f"{get(v, 'tower.cluster')}.local")
+        if lab:
+            default("tower.domain", f"{get(v, 'tower.cluster')}.local")
     default("tower.namespace", f"app-backstage-{get(v, 'tower.env') or 'prod'}")
     if get(v, "tower.domain"):
         default("tower.baseUrl", f"http://backstage.{get(v, 'tower.domain')}")
@@ -517,6 +533,9 @@ def clearance_slack_problems(v):
             add(f"{k}.tls.mode gateway-existing means TLS already ends in front of the Gateway (gateway.scheme: https, e.g. the "
                 "cloud load balancer's certificate); this cluster's Gateway is plain http: use tls.mode: dns01-route53")
     else:
+        if not lab_networking(v):
+            add(f"{k}.tls.mode dns01-route53 is the lab path (the Gateway serves the certificate, the host resolves to a LAN address); "
+                f"runtime {get(v, 'runtime.type')} is not a lab: use tls.mode: gateway-existing (TLS at the load balancer)")
         if scheme == "https":
             add(f"{k}.tls.mode dns01-route53 serves the certificate from the Gateway itself; gateway.scheme: https means TLS ends at a "
                 "load balancer in front of it (the https listener would be unreachable): use tls.mode: gateway-existing")

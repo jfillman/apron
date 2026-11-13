@@ -20,7 +20,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, get, parse_vkey, resolve  # noqa: E402
+from apronlib import LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, get, lab_networking, parse_vkey, resolve  # noqa: E402
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -64,7 +64,9 @@ def signing_dir_check(out_dir):
 
 def tokens(v):
     """Every @@TOKEN@@ and where its value comes from (templates/TOKENS.md documents the same list)."""
-    g = lambda k, d=None: get(v, k, d)  # noqa: E731
+    lab = lab_networking(v)
+    # Lab-only keys read as unset off a lab runtime (docs/lab-networking.md): no hostAlias or lab address is ever rendered.
+    g = lambda k, d=None: (d if (k in LAB_ONLY_KEYS and not lab) else get(v, k, d))  # noqa: E731
     scm_host = g("scm.host")
     t = {
         "CLUSTER_NAME": v["name"],

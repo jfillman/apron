@@ -48,7 +48,7 @@ spec:
       serviceAccountName: autopilot-api
       automountServiceAccountToken: true
       enableServiceLinks: false
-#@if tower.hostAliasIP
+#@if runtime.labNetworking and tower.hostAliasIP
       hostAliases:
         - ip: "@@TOWER_HOST_ALIAS_IP@@"
           hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]

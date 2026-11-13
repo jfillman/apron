@@ -58,7 +58,7 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-#@if clearance.slack.enabled and clearance.slack.tls.mode == 'dns01-route53'
+#@if runtime.labNetworking and clearance.slack.enabled and clearance.slack.tls.mode == 'dns01-route53'
     # The Slack service's host over https (clearance.slack.tls.mode: dns01-route53): TLS ends here, with the certificate
     # cert-manager issues into clearance-slack-tls (55-clearance/clearance-config/slack-tls.yaml). Only this host; Traefik's
     # websecure entrypoint (443) serves it, and the route (slack-route.yaml) attaches to this listener by name.

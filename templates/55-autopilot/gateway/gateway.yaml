@@ -29,7 +29,7 @@ spec:
       serviceAccountName: autopilot-gateway
       automountServiceAccountToken: true
       enableServiceLinks: false
-#@if tower.hostAliasIP
+#@if runtime.labNetworking and tower.hostAliasIP
       # Tower's hostname has no DNS in the lab (tower.hostAliasIP, as Glidepath's tasks use).
       hostAliases:
         - ip: "@@TOWER_HOST_ALIAS_IP@@"

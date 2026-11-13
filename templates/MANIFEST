@@ -96,7 +96,7 @@
 # Clearance Slack (clearance chart slack.*, 0.47.1+; docs/clearance-slack.md): off by default
 55-clearance/clearance-config/slack-secret.yaml  components.clearance and clearance.slack.enabled
 55-clearance/clearance-config/slack-route.yaml   components.clearance and clearance.slack.enabled and components.gatewayRoutes
-55-clearance/clearance-config/slack-tls.yaml     components.clearance and clearance.slack.enabled and clearance.slack.tls.mode == 'dns01-route53'
+55-clearance/clearance-config/slack-tls.yaml     runtime.labNetworking and components.clearance and clearance.slack.enabled and clearance.slack.tls.mode == 'dns01-route53'
 55-identity/people-dex/clearance-slack-secret.yaml  clearance.slack.enabled
 55-clearance/clearance-config/cilium-kube-apiserver.yaml  components.clearance and runtime.kiac.cni == 'cilium'
 55-clearance/clearance-config/ledger-key.yaml  components.clearance and clearance.ledger.enabled

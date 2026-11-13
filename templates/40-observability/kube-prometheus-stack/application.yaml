@@ -99,7 +99,7 @@ spec:
                 mountPath: /var/run/secrets/hub
                 readOnly: true
 #@end
-#@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane and fleet.hubAddress
+#@if components.observability and observability.remoteWrite and fleet.hubApiServer and fleet.hubCaData and not isControlPlane and runtime.labNetworking and fleet.hubAddress
             hostAliases:
               - ip: "@@HUB_ADDRESS@@"
                 hostnames: ["@@HUB_API_HOST@@"]

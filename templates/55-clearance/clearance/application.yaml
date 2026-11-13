@@ -214,10 +214,10 @@ spec:
             existingSecret: clearance-pg-reader
             key: uri
         core:
-#@if tower.hostAliasIP
+#@if runtime.labNetworking and tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"@@CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE@@]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
 #@end
-#@if clearance.ledger.enabled and clearance.ledger.hostAlias and not tower.hostAliasIP
+#@if runtime.labNetworking and clearance.ledger.enabled and clearance.ledger.hostAlias and not tower.hostAliasIP
           # The ledger's witness is on another cluster (clearance.ledger.hostAlias): its name resolves to that cluster's address.
           hostAliases: @@CLEARANCE_LEDGER_HOST_ALIASES@@
 #@end
@@ -249,7 +249,7 @@ spec:
 #@if clearance.attestation.keyless and signing.trustedRoot and (clearance.attestation.rekorPublicUrl or (components.glidepath and components.gatewayRoutes and gateway.scheme == 'https'))
             rekorUrl: "@@CLEARANCE_ATTEST_REKOR_PUBLIC_URL@@"
 #@end
-#@if tower.hostAliasIP
+#@if runtime.labNetworking and tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]}]
 #@end
         networkPolicy:

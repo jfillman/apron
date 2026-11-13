@@ -69,13 +69,13 @@ clearance:
 | `routes` | none | `groups`, `apps`, `scopes` (name -> channel id), `default`, `security`, `ops` (channel id). No routes: DMs only |
 | `webUrl` | web UI page if `clearance.web.enabled`, else empty | tier 3 cannot be cleared from Slack; the message links here, or names the CLI command when empty. Must contain `{id}` |
 | `transport` | `socket` | `socket`: outbound websocket, nothing inbound from Slack. `events`: Slack POSTs `<publicUrl>/slack/*` (needs the signing secret, not the app token) |
-| `tls.mode` | `gateway-existing` | `gateway-existing`: TLS already ends in front of the Gateway (`gateway.scheme: https`, the EKS NLB with its ACM certificate); Apron renders the route only. `dns01-route53`: the Gateway serves the certificate (`gateway.scheme` stays `http`; needs `components.certManager`). Each mode is refused where the other applies |
+| `tls.mode` | `gateway-existing` | `gateway-existing`: TLS already ends in front of the Gateway (`gateway.scheme: https`, the EKS NLB with its ACM certificate); Apron renders the route only. `dns01-route53`: the lab path (kiac, kind; refused elsewhere): the Gateway serves the certificate (`gateway.scheme` stays `http`; needs `components.certManager`). Each mode is refused where the other applies |
 | `tls.dns01.hostedZoneID`, `email` | required with `dns01-route53` | the zone cert-manager writes the challenge into, and the ACME contact |
 | `tls.dns01.region` | `us-east-1` | the region the solver signs with (Route 53 is global) |
 | `tls.dns01.server` | Let's Encrypt production | the ACME directory (use the staging URL while trying it) |
 | `tls.dns01.auth` | `serviceAccount` | `serviceAccount`: no stored key (see below). `static`: an IAM user's key pair in Infisical |
 | `tls.dns01.roleARN` | required with `serviceAccount` | the IAM role cert-manager assumes |
-| `idp.hostAlias` | none | an IP for `dex.<domain>` in the pod's `hostAliases`, and egress narrowed to that `/32` on the issuer URL's port (80 on a plain-http gateway, 443 on https) |
+| `idp.hostAlias` | none | lab only (`runtime.labNetworking`: kiac, kind; refused elsewhere, docs/lab-networking.md): an IP for `dex.<domain>` in the pod's `hostAliases`, and egress narrowed to that `/32` on the issuer URL's port (80 on a plain-http gateway, 443 on https) |
 | `idp.cidrs` | `["0.0.0.0/0"]` | without a hostAlias: the CIDRs that name resolves to; egress to them on that port |
 
 ## The owner's steps, in order

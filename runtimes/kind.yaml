@@ -3,6 +3,7 @@
 # then installs Calico before anything else: kind's kindnet ignores NetworkPolicy.
 runtime:
   type: kind
+  labNetworking: true          # lab name/IP plumbing (hostAliases, LAN addresses, *.local) may be rendered: docs/lab-networking.md
   nodeExec: docker exec -i      # + <node>; e.g. "podman exec -i" or "ssh <host> podman exec -i" for apron identity
   controlPlane:
     # kube-controller-manager and kube-scheduler leader election (defaults 15s/10s/2s): a slow etcd or API server made the

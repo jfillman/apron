@@ -53,6 +53,13 @@ defaults to it.
   changes are on their `no-hardcoded-cluster-names` branches: cut tags from them and set those tags in `versions.yaml`
   before the rebuild uses them.
 
+## Lab-only networking (`runtime.labNetworking`)
+
+`hostAliases`, LAN addresses and `*.local` names exist only for the lab (`kiac`, `kind`). `runtime.labNetworking` is `true` for
+those two runtimes and `false` for `eks` and `existing`; off a lab, `tower.hostAliasIP`, `fleet.hubAddress`,
+`clearance.gate.hostAlias` and `clearance.ledger.hostAlias` are refused by `apron check` and never rendered, and no `<name>.local`
+default is derived (`domain` and `tower.domain` are required). See `docs/lab-networking.md`.
+
 ## Autopilot (`components.autopilot`, control-plane clusters only)
 
 `55-autopilot/` holds what Autopilot's agent runs need on the cluster. `apron check` refuses it off the control-plane
@@ -162,10 +169,10 @@ IAM policy, the Infisical keys, the Slack app) are in [docs/clearance-slack.md](
 | `clearance.slack.routes` | `groups` (owner group -> channel id), `apps`, `scopes`, and `default`, `security`, `ops`; channel ids `C...`, not names |
 | `clearance.slack.webUrl` | where tier 3 is cleared, `https://host/changes/{id}`; default the web UI's page with `clearance.web.enabled`, else empty (the CLI) |
 | `clearance.slack.transport` | `socket` (default: outbound only) or `events` (Slack POSTs to `<publicUrl>/slack/*`; needs the signing secret) |
-| `clearance.slack.tls.mode` | `gateway-existing` (default; TLS already ends in front of the Gateway: `gateway.scheme: https`, EKS) or `dns01-route53` (the Gateway serves it: the lab) |
+| `clearance.slack.tls.mode` | `gateway-existing` (default; TLS already ends in front of the Gateway: `gateway.scheme: https`, EKS) or `dns01-route53` (the Gateway serves it: the lab path, refused off `runtime.labNetworking`) |
 | `clearance.slack.tls.dns01.hostedZoneID`, `email`, `region`, `server` | with `dns01-route53`: the Route 53 zone of the host's domain and the ACME contact (required); `region` default `us-east-1`; `server` default Let's Encrypt production |
 | `clearance.slack.tls.dns01.auth`, `roleARN` | `serviceAccount` (default: no stored key, cert-manager exchanges a service-account token for `roleARN`) or `static` (an IAM user's key pair in Infisical) |
-| `clearance.slack.idp.hostAlias`, `cidrs` | how the pod reaches people-dex's public issuer URL: a hostAlias IP for `dex.<domain>` (lab, no DNS for it), else CIDRs (default anywhere) |
+| `clearance.slack.idp.hostAlias`, `cidrs` | how the pod reaches people-dex's public issuer URL: a hostAlias IP for `dex.<domain>` (lab only, refused off `runtime.labNetworking`), else CIDRs (default anywhere) |
 | `versions.clearance.slackImageDigest` | the `clearance-slack` image by digest (pinned) |
 
 **The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into

@@ -223,6 +223,7 @@ spec:
       # fetch failed" on every the prod cluster call) - and would keep breaking on every
       # future the prod cluster restart/move. Service DNS doesn't have that problem: it
       # never changes regardless of what IP the underlying host has today.
+#@if runtime.labNetworking
       hostAliases:
         - ip: "@@HUB_ADDRESS@@"
           hostnames:
@@ -236,6 +237,7 @@ spec:
             - "minio.@@HUB_DOMAIN@@"
             # Break-glass recording anchors (Rekor on the dev cluster, through the dev gateway; gaps phase B, 2026-10-11).
             - "rekor.@@HUB_DOMAIN@@"
+#@end
       containers:
         - name: backstage
           image: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/backstage:1.0.2-a969d25
