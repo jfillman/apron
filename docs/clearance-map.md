@@ -71,9 +71,9 @@ is picked up by the next run. A timer also makes a restarted core or a missed pu
 On the core's cluster the render registers each publisher in `CLEARANCE_PROVIDERS` as `targets-<cluster>` with
 `targets: ["<cluster>"]` (the right to publish that source only), principal `clearance-system/clearance-targets` for its own
 and `<cluster>/clearance-system/clearance-targets` for a remote one (whose account is added to
-`foreignCluster.serviceAccounts`), and admits the local Job in the core's NetworkPolicy. A provider with no `kinds` may write
-every record kind but the observations, so the entry narrows `kinds` to `federated.decision`, the one the core always labels as
-claimed and not Clearance's: it is as close to "targets only" as the registration allows today.
+`foreignCluster.serviceAccounts`), and admits the local Job in the core's NetworkPolicy. The entry carries `"kinds": []`,
+which grants no record kinds (Clearance 0.46.0+; an ABSENT `kinds` would mean every record kind but the observations), so a
+publisher can publish its own source's targets and write nothing else.
 
 ## The attestation trust (`api.attest.*`)
 
