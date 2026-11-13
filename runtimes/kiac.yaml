@@ -5,6 +5,15 @@
 runtime:
   type: kiac
   nodeExec: container exec -i   # + <node>, for apron identity
+  controlPlane:
+    # kube-controller-manager and kube-scheduler leader election (defaults 15s/10s/2s): a slow etcd or API server made the
+    # lease call miss 10s and both crash-looped (hangar-dev 2026-11: 362/348 restarts), each restart re-listing everything.
+    # Whole seconds; lease > renew > 1.2 x retry. kind: rendered into hack/kind-config.yaml. kiac has no kubeadm hook:
+    # run hack/control-plane-tuning.sh apply after `apron up` (docs/control-plane-tuning.md).
+    leaderElection:
+      leaseDuration: 60s
+      renewDeadline: 40s
+      retryPeriod: 10s
   kiac:
     workers: 0
     cni: cilium

@@ -17,6 +17,10 @@
 # path). kube-apiserver+strategic.yaml relaxes the API server's liveness probe; see that file. Create time only: a
 # running cluster gets the same edit in /etc/kubernetes/manifests/kube-apiserver.yaml.
 #
+# ClusterConfiguration patch: kube-controller-manager and kube-scheduler leader election at @@CP_LEASE_DURATION@@ lease /
+# @@CP_RENEW_DEADLINE@@ renew / @@CP_RETRY_PERIOD@@ retry (kubeadm defaults 15s/10s/2s), so a slow etcd or API server cannot make them
+# lose the lease and crash-loop (runtime.controlPlane.leaderElection). A running cluster: hack/control-plane-tuning.sh.
+#
 # extraPortMappings: host 80/443 -> Traefik's fixed NodePorts (10-crds-operators/traefik/traefik.yaml). kind has no
 # LoadBalancer, so this is how the host reaches the Gateway. Baked in at create time; changing them means a recreate.
 kind: Cluster
@@ -35,6 +39,24 @@ nodes:
         kind: InitConfiguration
         patches:
           directory: /kind/kubeadm-patches
+      - |
+        kind: ClusterConfiguration
+        controllerManager:
+          extraArgs:
+            - name: leader-elect-lease-duration
+              value: "@@CP_LEASE_DURATION@@"
+            - name: leader-elect-renew-deadline
+              value: "@@CP_RENEW_DEADLINE@@"
+            - name: leader-elect-retry-period
+              value: "@@CP_RETRY_PERIOD@@"
+        scheduler:
+          extraArgs:
+            - name: leader-elect-lease-duration
+              value: "@@CP_LEASE_DURATION@@"
+            - name: leader-elect-renew-deadline
+              value: "@@CP_RENEW_DEADLINE@@"
+            - name: leader-elect-retry-period
+              value: "@@CP_RETRY_PERIOD@@"
     extraPortMappings:
       - containerPort: @@TRAEFIK_HTTP_NODEPORT@@
         hostPort: @@KIND_HOST_HTTP_PORT@@
