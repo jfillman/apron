@@ -21,6 +21,9 @@ versions:
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:8fb5fc3fc271883b1a134ae4a515393c01566c89b72ca674d58f385167680026
     argocdAgentChart: 0.47.0
+    # The Slack service (clearance.slack.enabled; clearance chart slack.*, first in clearance v0.47.1): ghcr.io/jfillman/clearance-slack by
+    # digest (v0.47.1's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
+    slackImageDigest: sha256:1b6ed9c4df435388396c760440e0d95a860a95ba4b1fb46df250b17236b55e93
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
     observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:979e836f3cfa9479dfd0bff0dc40a7df056eecb54a07db70aadf924fac402da5
     observeK8sChart: 0.47.0

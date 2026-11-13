@@ -12,7 +12,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ApronError, get, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import ApronError, clearance_slack_problems, get, load_yaml, parse_vkey, resolve  # noqa: E402
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -162,6 +162,9 @@ def violations(v, fleet=None):
             return False
     if cidrs and not (isinstance(cidrs, list) and all(cidr_ok(x) for x in cidrs)):
         add("clearance.web.idpCidrs is a list of CIDRs, e.g. [203.0.113.10/32]")
+    # the Slack service (clearance chart slack.*; docs/clearance-slack.md)
+    for msg in clearance_slack_problems(v):
+        add(msg)
     # the target registry publisher (clearance Map; docs/clearance-map.md)
     if get(v, "clearance.targets.enabled") is not None and not isinstance(get(v, "clearance.targets.enabled"), bool):
         add("clearance.targets.enabled must be true or false")

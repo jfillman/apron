@@ -33,6 +33,13 @@ spec:
         login: true
         inRoles: [pg_read_all_data]
         passwordSecret: {name: clearance-pg-reader}
+#@if clearance.slack.enabled
+      # clearance-slack's own role (slack-secret.yaml): owns its own database `clearance_slack`, no grant on the evidence tables.
+      - name: clearance_slack
+        ensure: present
+        login: true
+        passwordSecret: {name: clearance-pg-slack}
+#@end
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}

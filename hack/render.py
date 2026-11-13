@@ -20,7 +20,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import ROOT, ApronError, evaluate, get, parse_vkey, resolve  # noqa: E402
+from apronlib import ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, get, parse_vkey, resolve  # noqa: E402
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -156,6 +156,7 @@ def tokens(v):
         **flight_admission_tokens(g),
         **signing_tokens(v, g),
         **clearance_tokens(g),
+        **clearance_slack_tokens(v, g),
         **clearance_gate_tokens(g),
         **clearance_ledger_tokens(g),
         **clearance_witness_tokens(g),
@@ -307,6 +308,59 @@ def clearance_tokens(g):
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }
+
+
+def clearance_slack_tokens(v, g):
+    """Clearance's Slack service (clearance chart slack.*, docs/clearance-slack.md): the values of the `clearance.slack` block
+    for the chart's slack.*, the people-dex client, the route, the link page's egress to the IdP and the DNS-01 issuer. Every
+    token is neutral while clearance.slack.enabled is off (and only used under `#@if clearance.slack.enabled`), so a cluster
+    that does not ask for it renders byte for byte what it did before; the values are checked when on."""
+    k = lambda key, d="": g(f"clearance.slack.{key}", None) if g(f"clearance.slack.{key}", None) is not None else d  # noqa: E731
+    out = {"CLEARANCE_SLACK_PUBLIC_URL": '""', "CLEARANCE_SLACK_HOST": "", "CLEARANCE_SLACK_CLIENT_ID": '""',
+           "CLEARANCE_SLACK_TRANSPORT": "socket", "CLEARANCE_SLACK_WEB_URL": '""', "CLEARANCE_SLACK_ROUTES": "{}",
+           "CLEARANCE_SLACK_IMAGE_DIGEST": "", "CLEARANCE_SLACK_IDP_PEERS": "[]", "CLEARANCE_SLACK_IDP_PORT": "443", "CLEARANCE_SLACK_HOST_ALIASES": "[]",
+           "CLEARANCE_SLACK_ACME_EMAIL": "", "CLEARANCE_SLACK_ACME_SERVER": "", "CLEARANCE_SLACK_DNS01_ZONE_ID": "",
+           "CLEARANCE_SLACK_DNS01_REGION": "", "CLEARANCE_SLACK_DNS01_ROLE_ARN": ""}
+    if g("clearance.slack.enabled", None) is not True:
+        return out
+    problems = clearance_slack_problems(v)
+    if problems:
+        raise ApronError(problems[0])
+    scheme = g("gateway.scheme", "") or "http"
+    _, host = clearance_slack_url(v)
+    domain = g("domain")
+    web = k("webUrl", "") or (f"{scheme}://clearance.{domain}/changes/{{id}}" if g("clearance.web.enabled", False) else "")
+    routes = k("routes", {}) or {}
+    norm = {m: {str(n): str(c) for n, c in (routes.get(m) or {}).items()} for m in ("groups", "apps", "scopes")}
+    norm.update({m: str(routes.get(m) or "") for m in ("default", "security", "ops")})
+    # The link page reaches people-dex at its public issuer URL (discovery and the token endpoint), through the Gateway: the
+    # address dex.<domain> has for the pod (idp.hostAlias, a lab with no DNS for it), else the CIDRs idp.cidrs (default
+    # anywhere), on the Gateway's port for the scheme.
+    alias = k("idp.hostAlias", "")
+    peers = [{"ipBlock": {"cidr": f"{alias}/32"}}] if alias else \
+        [{"ipBlock": {"cidr": str(c)}} for c in (k("idp.cidrs", None) or ["0.0.0.0/0"])]
+    out.update({
+        "CLEARANCE_SLACK_PUBLIC_URL": json.dumps(f"https://{host}"),
+        "CLEARANCE_SLACK_HOST": host,
+        "CLEARANCE_SLACK_CLIENT_ID": json.dumps(str(k("slackClientId"))),
+        "CLEARANCE_SLACK_TRANSPORT": str(k("transport", "") or "socket"),
+        "CLEARANCE_SLACK_WEB_URL": json.dumps(str(web)),
+        "CLEARANCE_SLACK_ROUTES": json.dumps(norm),
+        "CLEARANCE_SLACK_IMAGE_DIGEST": str(g("versions.clearance.slackImageDigest")),
+        "CLEARANCE_SLACK_IDP_PEERS": json.dumps(peers),
+        "CLEARANCE_SLACK_IDP_PORT": "443" if scheme == "https" else "80",
+        "CLEARANCE_SLACK_HOST_ALIASES": json.dumps([{"ip": str(alias), "hostnames": [f"dex.{domain}"]}] if alias else []),
+    })
+    if (k("tls.mode", "") or "gateway-existing") == "dns01-route53":
+        d = lambda key, df="": g(f"clearance.slack.tls.dns01.{key}", None) or df  # noqa: E731
+        out.update({
+            "CLEARANCE_SLACK_ACME_EMAIL": str(d("email")),
+            "CLEARANCE_SLACK_ACME_SERVER": str(d("server", "https://acme-v02.api.letsencrypt.org/directory")),
+            "CLEARANCE_SLACK_DNS01_ZONE_ID": str(d("hostedZoneID")),
+            "CLEARANCE_SLACK_DNS01_REGION": str(d("region", "us-east-1")),
+            "CLEARANCE_SLACK_DNS01_ROLE_ARN": str(d("roleARN")),
+        })
+    return out
 
 
 def _glob_regex(glob):

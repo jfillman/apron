@@ -143,6 +143,31 @@ Apron creates no secret: the owner creates the Infisical secret **`clearance-web
 ExternalSecrets named `clearance-web-oidc` (in `autopilot-system` for Dex's `secretEnv`, in the clearance namespace for the pod's
 file) read it. The web asks people-dex for ID tokens with audience `clearance` (chart `web.upstreamAudience`) by cross-client trust: the `clearance` Dex client gets `trustedPeers: [clearance-web]` (the CLI's device flow is unchanged); a chart without that value (older than the release of clearance#164) would have the core refuse every forwarded call. `clearance.web.idpCidrs` narrows the pod's egress to the IdP (default anywhere on 443).
 
+**Clearance Slack (`clearance.slack.enabled`).** Default off; an off cluster renders what it did before, byte for byte. On, it
+runs the clearance chart's `slack.*` (`clearance-slack`: who is waiting on whom in Slack, clear tier 2 and deny from the
+message; clearance `docs/slack.md`): the Deployment and Service, a route on its own public host
+(`clearance.slack.publicUrl`, Slack's and people-dex's redirects are `<publicUrl>/link/slack` and `/link/idp`), a CloudNativePG
+managed role and database on `clearance-pg` with a generated password (no DSN to make), the Secret the chart reads (an
+ExternalSecret from the owner's Infisical keys plus that DSN), the confidential people-dex client `clearance-slack`, and, with
+`tls.mode: dns01-route53`, a cert-manager Issuer and Certificate (Let's Encrypt, Route 53 DNS-01) and an https listener on the
+Gateway for that host. Same knobs on the lab and on EKS: only the `tls` and `idp` keys differ. Needs `clearance.people`,
+`components.gatewayRoutes` and `versions.clearance.chart` 0.47.1 or later; Apron creates no secret. The owner's steps (DNS, the
+IAM policy, the Infisical keys, the Slack app) are in [docs/clearance-slack.md](docs/clearance-slack.md).
+
+| `cluster.yaml` key | |
+|---|---|
+| `clearance.slack.enabled` | default off |
+| `clearance.slack.publicUrl` | required: `https://<host>`, no path (`https://slack.clearance.hangarplatform.dev`) |
+| `clearance.slack.slackClientId` | required: the Slack app's Client ID (not secret), quoted |
+| `clearance.slack.routes` | `groups` (owner group -> channel id), `apps`, `scopes`, and `default`, `security`, `ops`; channel ids `C...`, not names |
+| `clearance.slack.webUrl` | where tier 3 is cleared, `https://host/changes/{id}`; default the web UI's page with `clearance.web.enabled`, else empty (the CLI) |
+| `clearance.slack.transport` | `socket` (default: outbound only) or `events` (Slack POSTs to `<publicUrl>/slack/*`; needs the signing secret) |
+| `clearance.slack.tls.mode` | `gateway-existing` (default; TLS already ends in front of the Gateway: `gateway.scheme: https`, EKS) or `dns01-route53` (the Gateway serves it: the lab) |
+| `clearance.slack.tls.dns01.hostedZoneID`, `email`, `region`, `server` | with `dns01-route53`: the Route 53 zone of the host's domain and the ACME contact (required); `region` default `us-east-1`; `server` default Let's Encrypt production |
+| `clearance.slack.tls.dns01.auth`, `roleARN` | `serviceAccount` (default: no stored key, cert-manager exchanges a service-account token for `roleARN`) or `static` (an IAM user's key pair in Infisical) |
+| `clearance.slack.idp.hostAlias`, `cidrs` | how the pod reaches people-dex's public issuer URL: a hostAlias IP for `dex.<domain>` (lab, no DNS for it), else CIDRs (default anywhere) |
+| `versions.clearance.slackImageDigest` | the `clearance-slack` image by digest (pinned) |
+
 **The Kubernetes audit collector (`clearance.observe.enabled`).** `57-clearance-observe/` installs the collector into
 `clearance-system`, on any cluster. Set `clearance.observe.protectedNamespaces`, `serviceIP` (the pinned ClusterIP its
 certificate names), `kubeletNodes` (node names whose kubelets' pod-token requests are routine; a node not listed shows as
@@ -331,7 +356,7 @@ choice, not a rule: either profile runs on any runtime. Steps 1-6 above with `--
 | `hack/build-trust-root.sh` | the Sigstore trusted root and Fulcio chain from the cluster repo's public `signing-pki/` files ([docs/signing-pki.md](docs/signing-pki.md)) |
 | `tests/run.sh` | offline tests: renders, re-render, every invariant refused |
 | `apron`, `hack/apron_fleet.py`, `tests/cli/` | the CLI (`init`, `render`, `up`, `fleet`, `identity`, `verify`, `resume`, `down`) and its tests |
-| `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md), [control-plane tuning](docs/control-plane-tuning.md), [the CLI](docs/cli.md), [after `apron up`](docs/after-up.md) |
+| `docs/` | [the fleet file](docs/clusters-file.md), [cluster identity](docs/cluster-identity.md), [control-plane tuning](docs/control-plane-tuning.md), [the CLI](docs/cli.md), [after `apron up`](docs/after-up.md), [Clearance Slack](docs/clearance-slack.md) |
 
 ## License
 
