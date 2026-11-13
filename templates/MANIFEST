@@ -91,6 +91,8 @@
 55-clearance/                           components.clearance
 55-clearance/clearance-config/routes.yaml      components.clearance and components.gatewayRoutes
 55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
+55-clearance/clearance-config/web-secret.yaml  components.clearance and clearance.web.enabled
+55-identity/people-dex/clearance-web-secret.yaml  clearance.web.enabled
 55-clearance/clearance-config/cilium-kube-apiserver.yaml  components.clearance and runtime.kiac.cni == 'cilium'
 55-clearance/clearance-config/ledger-key.yaml  components.clearance and clearance.ledger.enabled
 55-clearance/clearance-config/backup.yaml  components.clearance and clearance.backup.enabled

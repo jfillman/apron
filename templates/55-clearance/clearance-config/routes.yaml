@@ -59,3 +59,26 @@ spec:
         - name: clearance-core
           port: 8080
 #@end
+#@if clearance.web.enabled
+---
+# The standalone web UI (clearance web) on clearance.<domain>: the UI, /auth/* and /api/*. Every path, but the gate route above
+# matches its two POST patterns more specifically and keeps them; /v1/* is not the UI's.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: clearance-web
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-web}
+spec:
+  parentRefs:
+    - name: @@GATEWAY_NAME@@
+      namespace: @@GATEWAY_NAMESPACE@@
+  hostnames:
+    - clearance.@@CLUSTER_DOMAIN@@
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: clearance-web
+          port: 8080
+#@end

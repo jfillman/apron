@@ -53,3 +53,5 @@ tower:
 clearance:
   ledger:                       # clearance C-3 evidence ledger: needs clearance.ledger.witnesses (the witness's cosignature key + url)
     enabled: false              # the core keeps a Tessera log of the chain's hashes on a volume, countersigned by the witnesses
+  web:                          # clearance standalone web UI (clearance web): needs gateway.scheme: https and clearance.people
+    enabled: false              # Deployment + route on clearance.<domain>; the OWNER creates Infisical clearance-web-oidc-client-secret and the matching people-dex client (docs in README)

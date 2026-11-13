@@ -298,6 +298,9 @@ def clearance_tokens(g):
         "CLEARANCE_PROTECTED_ENVIRONMENTS_LIST": json.dumps(list(c("protectedEnvironments", []) or [])),
         "CLEARANCE_GATE_OUTSIDE_GROUPS_LIST": json.dumps(list(c("gateOutsideGroups", ["group:default/admins"]))),
         "CLEARANCE_GATE_RELEASE_STAMPS_LIST": json.dumps(list(c("gateReleaseStamps", ["/metadata/labels/app.kubernetes.io~1version", "/spec/template/metadata/labels/app.kubernetes.io~1version", "/metadata/annotations/hangar.io~1release-id"]))),
+        # The web UI's egress to its IdP (clearance.web.enabled): NetworkPolicy has no host names, so the CIDRs the IdP's
+        # host (dex.<domain>, through the Gateway) resolves to; default anywhere on 443, like the core's own JWKS egress.
+        "CLEARANCE_WEB_IDP_PEERS": json.dumps([{"ipBlock": {"cidr": str(x)}} for x in (c("web", {}) or {}).get("idpCidrs", None) or ["0.0.0.0/0"]]),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }
