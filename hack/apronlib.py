@@ -432,9 +432,13 @@ def clearance_slack_url(v):
     """(scheme, host) of clearance.slack.publicUrl, or ("", "") when it is not an https origin."""
     import urllib.parse
     raw = get(v, "clearance.slack.publicUrl", "") or ""
-    u = urllib.parse.urlparse(str(raw))
-    if u.scheme != "https" or not u.hostname or "." not in u.hostname or u.path not in ("", "/") or u.query or u.fragment \
-            or u.username or u.port:
+    try:
+        u = urllib.parse.urlparse(str(raw))
+        bad = u.scheme != "https" or not u.hostname or "." not in u.hostname or u.path not in ("", "/") or u.query or u.fragment \
+            or u.username or u.port
+    except ValueError:  # a non-numeric or out-of-range port
+        return "", ""
+    if bad:
         return "", ""
     return u.scheme, u.hostname
 

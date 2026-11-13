@@ -337,7 +337,7 @@ def clearance_slack_tokens(v, g):
     # address dex.<domain> has for the pod (idp.hostAlias, a lab with no DNS for it), else the CIDRs idp.cidrs (default
     # anywhere), on the Gateway's port for the scheme.
     alias = k("idp.hostAlias", "")
-    peers = [{"ipBlock": {"cidr": f"{alias}/32"}}] if alias else \
+    peers = [{"ipBlock": {"cidr": str(__import__("ipaddress").ip_network(str(alias)))}}] if alias else \
         [{"ipBlock": {"cidr": str(c)}} for c in (k("idp.cidrs", None) or ["0.0.0.0/0"])]
     out.update({
         "CLEARANCE_SLACK_PUBLIC_URL": json.dumps(f"https://{host}"),

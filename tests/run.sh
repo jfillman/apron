@@ -797,6 +797,7 @@ slack_refuse() { # slack_refuse LABEL WANT-IN-MESSAGE [--set k=v ...]   (SLACK_N
 }
 slack_refuse "slack on without a publicUrl" "clearance.slack.publicUrl is required" --set clearance.slack.publicUrl=
 slack_refuse "slack on with an http publicUrl" "clearance.slack.publicUrl is required" --set clearance.slack.publicUrl=http://slack.clearance.example.com
+slack_refuse "slack on with a publicUrl whose port is not a number" "clearance.slack.publicUrl is required" --set clearance.slack.publicUrl=https://slack.clearance.example.com:abc
 slack_refuse "slack on with a publicUrl that has a path" "clearance.slack.publicUrl is required" --set clearance.slack.publicUrl=https://slack.clearance.example.com/link
 slack_refuse "slack on without slackClientId" "clearance.slack.slackClientId is required" --set clearance.slack.slackClientId=
 slack_refuse "slack on with an unknown transport" "clearance.slack.transport must be" --set clearance.slack.transport=webhook
