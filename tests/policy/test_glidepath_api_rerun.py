@@ -184,6 +184,38 @@ class Shape(unittest.TestCase):
         o["metadata"].pop("annotations")
         self.admitted(o)
 
+    LINEAGE = {"glidepath.io/origin-chain-id": "94e8228a-5cdc-4350-914a-d73802e5b296", "glidepath.io/origin-chain-slug": "ornate-ram",
+               "glidepath.io/origin-trace-id": "98f0963d6bc08cb69e6051852fc528de",
+               "glidepath.io/origin-traceparent": "00-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01",
+               "glidepath.io/origin-flow-start-time": "2026-11-15T20:53:01.775206426Z", "glidepath.io/origin-finished-at": "2026-11-15T20:56:00Z"}
+
+    def test_promotion_lineage_annotations_are_allowed_with_the_shape_glidepath_api_writes(self):
+        o = promote()
+        o["metadata"]["annotations"].update(self.LINEAGE)
+        self.admitted(o)
+        for k in self.LINEAGE:   # each alone
+            o = promote()
+            o["metadata"]["annotations"][k] = self.LINEAGE[k]
+            self.admitted(o)
+
+    def test_promotion_lineage_values_are_shape_checked(self):
+        bad = {"glidepath.io/origin-chain-id": ["not-a-uuid", "94E8228A-5cdc-4350-914a-d73802e5b296", "94e8228a-5cdc-4350-914a-d73802e5b296x"],
+               "glidepath.io/origin-chain-slug": ["ornate", "Ornate-Ram", "ornate-ram-extra", "a-b", "ornate ram"],
+               "glidepath.io/origin-trace-id": ["short", "G" * 32, "a" * 33],
+               "glidepath.io/origin-traceparent": ["00-zz-yy-01", "01-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01", "x"],
+               "glidepath.io/origin-flow-start-time": ["yesterday", "2026-11-15", "2026-11-15T20:56:00+02:00"],
+               "glidepath.io/origin-finished-at": ["", "2026-11-15 20:56:00Z"]}
+        for k, vals in bad.items():
+            for v in vals:
+                with self.subTest(k=k, v=v):
+                    o = promote()
+                    o["metadata"]["annotations"][k] = v
+                    self.refused(o, "promotion-lineage annotations")
+        # another glidepath.io/ key is still refused
+        o = promote()
+        o["metadata"]["annotations"]["glidepath.io/origin-chain-other"] = "v"
+        self.refused(o, "annotation")
+
     def test_workspace_volume_claim_templates_are_bounded(self):
         def spec(o):
             return o["spec"]["workspaces"][0]["volumeClaimTemplate"]["spec"]
