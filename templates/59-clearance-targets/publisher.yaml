@@ -72,6 +72,7 @@ metadata:
 spec:
   schedule: "@@CLEARANCE_TARGETS_SCHEDULE@@"
   concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   jobTemplate:

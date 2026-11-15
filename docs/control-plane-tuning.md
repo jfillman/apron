@@ -101,3 +101,20 @@ Evidence-based suggestions for the API server and etcd, each needing its own rev
   CRDs at once (Crossplane providers' MRD discovery, Argo CD resource caches).
 - **Fewer restarts upstream of the API server.** The apiserver liveness probe is already relaxed (30 s x 12, see
   `templates/hack/kubeadm-patches/`); measure it again after this change before touching more.
+
+## Timers: CronJobs, Kyverno's TTL cleanup, Argo CD refreshes (2026-11-15)
+
+hangar-dev fell over under load that came in waves on :00/:30. What changed, by cause:
+
+- **CronJobs fire in their own minute.** Every platform CronJob has its own minute of the hour, none on :00 or :30, period kept:
+  `agentrun-reaper` `7-59/10` (`autopilot.reaperSchedule`), `clearance-targets` `3-59/15` (`clearance.targets.schedule`), and in
+  Glidepath `stalled-pipeline-detector` minute 1 of every 5, `release-record-sweeper` 2 of every 10, `pr-namespace-ttl-sweep` 8 and 38,
+  `pipelinerun-pruner` 13, and each app's `pr-token-refresher` at a minute derived from the app name (`cronSchedules` in Glidepath's
+  control-plane values). The CronJobs set `concurrencyPolicy: Forbid` and a `startingDeadlineSeconds`.
+- **Kyverno's TTL cleanup** (`cleanup.kyverno.io/ttl`; here the tower-breakglass RoleBindings and copy-mode pods) re-lists every labelled kind
+  each interval. The chart default is 1m: 476 SelfSubjectAccessReviews a minute on hangar-dev. `kyverno.ttlReconciliationInterval` sets
+  `features.ttlController.reconciliationInterval` (chart 3.9.0); `profiles/dev.yaml` sets 5m, other profiles keep the chart's 1m. The cost:
+  a TTL object is deleted up to one interval after its TTL, so a break-glass binding can live up to 5 minutes past its TTL (the trade-off against load).
+- **Argo CD refreshes.** Clearance's k8s observer stamps an annotation on `clearance-observe-heartbeat` (ConfigMap) and
+  `clearance-observe-canary` (Secret) every 30 s: 360 refreshes of `clearance-observe-k8s` in 90 minutes. Argo CD's
+  `resource.customizations.ignoreResourceUpdates` (platform instance) ignores that one annotation. `/status` of every kind was already ignored.

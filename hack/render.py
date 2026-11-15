@@ -157,6 +157,10 @@ def tokens(v):
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
         **flight_admission_tokens(g),
         **glidepath_run_tokens(g),
+        # Kyverno's TTL cleanup interval (chart key features.ttlController.reconciliationInterval, chart default 1m) and the
+        # AgentRun reaper's cron schedule (offset so it does not fire with the other platform CronJobs).
+        "KYVERNO_TTL_INTERVAL": cron_free_duration(g("kyverno.ttlReconciliationInterval", "") or "1m", "kyverno.ttlReconciliationInterval"),
+        "AGENTRUN_REAPER_SCHEDULE": cron_schedule(g("autopilot.reaperSchedule", "") or "7-59/10 * * * *", "autopilot.reaperSchedule"),
         **signing_tokens(v, g),
         **clearance_tokens(g),
         **clearance_slack_tokens(v, g),
@@ -667,7 +671,7 @@ def clearance_targets_tokens(v, g):
     url = g("clearance.gate.url", "") or f"http://clearance-core.{ns_of_core}.svc:8080"
     if not TARGET_SOURCE.match(cluster):
         raise ApronError(f"clearance.targets: the cluster name {cluster!r} is not a source name")
-    schedule = str(g("clearance.targets.schedule", "") or "*/15 * * * *")
+    schedule = str(g("clearance.targets.schedule", "") or "3-59/15 * * * *")
     if len(schedule.split()) != 5:
         raise ApronError("clearance.targets.schedule is a five-field cron expression")
     tier = "flight" if (g("zone", "") == "upper" and g("registries.flight.namespace", "")) else "ground"
@@ -824,6 +828,21 @@ def flight_admission_tokens(g):
         "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
                               else "registry-credentials-dockerconfigjson"),
     }
+
+
+def cron_free_duration(value, key):
+    """A Go duration of whole minutes or hours (15m, 1h), as Kyverno's ttl controller parses it."""
+    value = str(value)
+    if not re.fullmatch(r"[1-9][0-9]*[mh]", value):
+        raise ApronError(f"{key} is {value!r}: a duration in whole minutes or hours, such as 15m or 1h")
+    return value
+
+
+def cron_schedule(value, key):
+    value = str(value)
+    if len(value.split()) != 5:
+        raise ApronError(f"{key} is a five-field cron expression")
+    return value
 
 
 def glidepath_run_tokens(g):

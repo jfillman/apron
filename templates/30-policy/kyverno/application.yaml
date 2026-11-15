@@ -27,9 +27,16 @@ spec:
     repoURL: https://kyverno.github.io/kyverno/
     chart: kyverno
     targetRevision: "3.9.0"
-#@if not isControlPlane
     helm:
       valuesObject:
+        # The TTL cleanup (objects labelled cleanup.kyverno.io/ttl, here the tower-breakglass RoleBindings and copy-mode pods)
+        # lists and checks every labelled kind each interval: chart default 1m, which on hangar-dev (2026-11-15) was 476
+        # SelfSubjectAccessReviews a minute, one per resource kind. An object is deleted up to one interval after its TTL.
+        # kyverno.ttlReconciliationInterval (profiles/dev.yaml: 5m; unset: the chart's 1m).
+        features:
+          ttlController:
+            reconciliationInterval: @@KYVERNO_TTL_INTERVAL@@
+#@if not isControlPlane
         backgroundController:
           enabled: false
         reportsController:
@@ -73,9 +80,6 @@ spec:
               limits: { memory: 512Mi }
             extraArgs:
               leaderElectionRetryPeriod: 10s
-        features:
-          ttlController:
-            reconciliationInterval: 1m
 #@end
   destination:
     server: https://kubernetes.default.svc

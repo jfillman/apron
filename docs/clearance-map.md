@@ -23,7 +23,7 @@ clearance:
       - {cluster: hangar-prod}
     owner: group:default/admins                 # default owner of a target (default clearance.gateOwnerFallback)
     owners: {gate-api: group:default/team-gate}   # by app
-    schedule: "*/15 * * * *"                    # default
+    schedule: "3-59/15 * * * *"                  # default: every 15 minutes at minute 3, so it does not fire with the other platform CronJobs
     registry: flight                            # default flight on an upper cluster that has registries.flight, else ground
     argoInstance: argocd-agent                  # the g-argo gate's instance (default argocd-agent)
     extra: []                                   # hand-declared targets, validated like the core does
