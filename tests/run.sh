@@ -1252,6 +1252,12 @@ refuse "go without the API server's addresses" "${GD}" "$(gocfg "tag: gateway-go
 refuse "go without the namespaces the loader reads" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], ${GOEGR}, ${GOHTTP}")"
 refuse "an airframeOwner outside githubOwners" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, airframeOwner: other, ${GOEGR}, ${GOHTTP}")"
 refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, everything: true}")"
+# a plain-http catalog opens port 80 to Tower's catalog and nothing else new
+mkdir -p "${K}/gocat" && sed 's/plainHttp: {glidepath: true, logs: true, jwks: true}/plainHttp: {glidepath: true, logs: true, jwks: true, catalog: true}/' "${K}/go/cluster.yaml" >"${K}/gocat/cluster.yaml"
+render_ok "${K}/gocat" "go with a plain-http catalog"
+n80="$(grep -c 'port: 80}' "${K}/gocat/55-autopilot/gateway/gateway-go-egress.yaml")"; n80b="$(grep -c 'port: 80}' "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml")"
+[ "${n80}" = 3 ] && ok "go: plainHttp.catalog opens port 80 (gateway, read API; Loki's :80 is the third)" || bad "go: plainHttp.catalog port 80 rules: ${n80}"
+[ "${n80b}" = 1 ] && ok "go: without plainHttp.catalog port 80 is only Loki's" || bad "go: port 80 rules without plainHttp.catalog: ${n80b}"
 # the same values, complete, pass: the refusals above are each about the one thing left out
 mkdir -p "${K}/gook" && cp "${GD}/cluster.yaml" "${K}/gook/cluster.yaml" && printf '%s\n' "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, ${GOHTTP}")" >>"${K}/gook/cluster.yaml"
 python3 hack/check.py --cluster "${K}/gook/cluster.yaml" >/dev/null 2>"${TMP}/gook" && ok "go: the complete values pass check" || bad "go: complete values refused: $(cat "${TMP}/gook")"

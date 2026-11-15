@@ -64,10 +64,14 @@ spec:
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
       ports:
         - {protocol: TCP, port: 443}
+#@if autopilot.gateway.go.plainHttp.catalog
+        - {protocol: TCP, port: 80}
+#@end
 #@if autopilot.gateway.go.egress.extraCIDRs
     - to: @@AUTOPILOT_GO_EXTRA_EGRESS_RULES@@
       ports:
         - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # a private Tower that serves its catalog over plain http (go.plainHttp.catalog)
 #@end
 ---
 # Egress of the read API: DNS, its database, the API server (TokenReview), the OTLP collector, people-dex, and HTTPS (Tower's catalog and keys).
@@ -111,7 +115,16 @@ spec:
 #@end
     # The read API calls only Tower's catalog and key set, so it gets the public-HTTPS rule only when there is a Tower (a Tower on a private
     # network is `go.egress.extraCIDRs`, below); addresses, not names, for the same reason as above.
-#@if tower.cluster
+#@if tower.cluster and autopilot.gateway.go.plainHttp.catalog
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # Tower's catalog is plain http (go.plainHttp.catalog)
+#@end
+#@if tower.cluster and not autopilot.gateway.go.plainHttp.catalog
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -123,4 +136,5 @@ spec:
     - to: @@AUTOPILOT_GO_EXTRA_EGRESS_RULES@@
       ports:
         - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # a private Tower that serves its catalog over plain http (go.plainHttp.catalog)
 #@end
