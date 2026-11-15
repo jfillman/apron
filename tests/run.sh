@@ -393,7 +393,10 @@ has "${LAB}/dev/${KV}" '^            reconciliationInterval: 15m$' "dev: Kyverno
 has "${LAB}/prod/${KV}" '^            reconciliationInterval: 1m$' "prod: Kyverno ttlController.reconciliationInterval stays at the chart's 1m"
 has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  schedule: "7-59/10 \* \* \* \*"$' "dev: agentrun-reaper runs at minute 7"
 has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  startingDeadlineSeconds: 300$' "dev: agentrun-reaper has a startingDeadlineSeconds"
-has "${LAB}/dev/01-argocd-platform/install.yaml" 'ignoreResourceUpdates.Secret' "dev: Argo CD ignores the observer's heartbeat on Secrets"
+has "${LAB}/dev/01-argocd-platform/install.yaml" 'ignoreResourceUpdates.Secret' "dev: Argo CD has an ignoreResourceUpdates rule for Secrets"
+# the annotation is ignored on both kinds the observer stamps (ConfigMap heartbeat, Secret canary): one jq path under each rule
+BEAT="$(grep -c "^      - '.metadata.annotations.\"observe-k8s.clearance.hangar.io/beat\"'$" "${LAB}/dev/01-argocd-platform/install.yaml")"
+[[ "${BEAT}" == 2 ]] && ok "dev: Argo CD ignores the observer's heartbeat annotation on ConfigMaps and Secrets" || bad "heartbeat annotation ignore rules: ${BEAT} (want 2)"
 { cat "${LAB}/dev/cluster.yaml"; echo 'kyverno: {ttlReconciliationInterval: soon}'; } >"${GA}/kv-bad.yaml"
 if python3 hack/render.py --cluster "${GA}/kv-bad.yaml" --out "${GA}/kv-bad-out" >/dev/null 2>&1; then
   bad "kyverno.ttlReconciliationInterval: soon was accepted"
