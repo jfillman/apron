@@ -12,6 +12,7 @@ nav:
   - Clearance Map (targets, attestation trust): clearance-map.md
   - Clearance Slack: clearance-slack.md
   - Lab-only networking: lab-networking.md
+  - glidepath-api PipelineRun policies: glidepath-run-policies.md
 
 plugins:
   - techdocs-core

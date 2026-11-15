@@ -19,6 +19,9 @@ PASS=0
 FAIL=0
 ok()   { PASS=$((PASS + 1)); echo "  ok   $*"; }
 bad()  { FAIL=$((FAIL + 1)); echo "  FAIL $*"; }
+# `apron render` compares versions.glidepathRunTasks with the pinned Glidepath's values (hack/glidepath_tasks.py); the tests use a
+# fixture, not the network.
+export APRON_GLIDEPATH_VALUES="${APRON}/tests/policy/fixtures/glidepath-control-plane-values.yaml"
 OLD='kind-dev|kiac-dev|kind-prod|kiac-prod|kind-man|kiac-man|kiac\.local|jfillman|gitops-cluster-dev\b|gitops-cluster-kind|192\.168\.1\.78|700017004810'
 HAVE_YAML=false
 python3 -c 'import yaml' 2>/dev/null && HAVE_YAML=true
@@ -350,6 +353,68 @@ if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce"
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+
+echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
+GA="${TMP}/gpapi"
+mkdir -p "${GA}/warn"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {sourceIsolation: warn, runStorageClasses: [fast]}'; } >"${GA}/warn/cluster.yaml"
+render_ok "${GA}/warn" "dev glidepath.sourceIsolation warn"
+GW=30-policy/kyverno-policies/tower-identity-writes.yaml
+CPV=50-glidepath/glidepath-control-plane/values.yaml
+has "${LAB}/dev/${GW}" 'name: glidepath-api-pipelinerun-source-isolation' "glidepath-api: the source-isolation policy is rendered"
+has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"test\": \[\"run-integration-script\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidepath-api: the pusher task"
+has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
+has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
+has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
+has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: glidepath.sourceIsolation warn warns"
+has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
+has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
+has "${LAB}/dev/${GW}" "expression: '\[\]'" "glidepath-api: no storage class is allowed by default"
+if out="$(python3 tests/policy/test_glidepath_api_rerun.py "${LAB}/dev" "${GA}/warn" 2>&1)"; then
+  case "${out}" in
+    skipped*) echo "  skip glidepath-api rerun policy CEL tests: ${out} (a skip is not a pass)";;
+    *) ok "glidepath-api rerun policy CEL: $(grep -E '^Ran ' <<<"${out}"), $(tail -1 <<<"${out}")";;
+  esac
+else
+  bad "glidepath-api rerun policy CEL: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+# The lists must match the pinned Glidepath's values: a render with a task added or dropped is refused, naming it.
+gp_drift() { # gp_drift LABEL SED-EXPR WANT-IN-MESSAGE
+  local f="${TMP}/gp-values-$((RANDOM)).yaml" out
+  sed "$2" "${APRON}/tests/policy/fixtures/glidepath-control-plane-values.yaml" >"${f}"
+  if cmp -s "${f}" "${APRON}/tests/policy/fixtures/glidepath-control-plane-values.yaml"; then
+    bad "glidepath lists drift: ${1}: the sed changed nothing"
+    return
+  fi
+  if out="$(APRON_GLIDEPATH_VALUES="${f}" python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml" --out "${TMP}/gp-drift-out" 2>&1)"; then
+    bad "glidepath lists drift: ${1}: render accepted"
+  elif grep -q -- "$3" <<<"${out}"; then
+    ok "glidepath lists drift: ${1}: refused ($(grep -o "$3" <<<"${out}" | head -1))"
+  else
+    bad "glidepath lists drift: ${1}: refused for another reason: ${out}"
+  fi
+}
+if [ "${HAVE_YAML}" = true ]; then
+  gp_drift "a source task Glidepath added" 's/build: \[build-source,/build: [build-source, lint-source,/' 'sourceTasks.build: missing here: lint-source'
+  gp_drift "a source task Glidepath dropped" 's/build-go-binary-artifact\]/build-go-binary-artifactx]/' 'not in Glidepath: build-go-binary-artifact'
+  gp_drift "a new pusher task" 's/build: \[push-image\]/build: [push-image, push-sbom]/' 'pusherTasks.build: missing here: push-sbom'
+  gp_drift "a new cloud deployer Pipeline" 's/    deploy: \[deploy-aws-lambda, deploy-aws-ecs\]/    deploy: [deploy-aws-lambda, deploy-aws-ecs]\n    release: [deploy-aws-ecs]/' 'cloudDeployerTasks.release'
+  if APRON_GLIDEPATH_VALUES=/nonexistent python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml" --out "${TMP}/gp-drift-out" >/dev/null 2>&1; then
+    bad "glidepath lists: an unreadable APRON_GLIDEPATH_VALUES was accepted"
+  else
+    ok "glidepath lists: an unreadable APRON_GLIDEPATH_VALUES is refused, not skipped"
+  fi
+else
+  echo "  skip glidepath lists drift tests: need PyYAML"
+fi
+mkdir -p "${TMP}/gp-bad-mode"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {sourceIsolation: off}'; } >"${TMP}/gp-bad-mode/cluster.yaml"
+if python3 hack/render.py --cluster "${TMP}/gp-bad-mode/cluster.yaml" >/dev/null 2>"${TMP}/gp-bad-mode/err"; then
+  bad "glidepath.sourceIsolation: off was accepted"
+else
+  grep -q 'deny (default) or warn' "${TMP}/gp-bad-mode/err" && ok "glidepath.sourceIsolation off is refused" || bad "glidepath.sourceIsolation off: $(cat "${TMP}/gp-bad-mode/err")"
 fi
 
 echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"

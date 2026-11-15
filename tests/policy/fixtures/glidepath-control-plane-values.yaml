@@ -1,0 +1,11 @@
+# A trimmed copy of the part of Glidepath's charts/glidepath-control-plane/values.yaml that tests/run.sh compares
+# versions.glidepathRunTasks with (APRON_GLIDEPATH_VALUES), so the offline tests never fetch it. The real comparison is against
+# the pinned Glidepath: hack/glidepath_tasks.py, on every `apron render`.
+cicdRunAdmission:
+  cloudDeployerTasks:
+    deploy: [deploy-aws-lambda, deploy-aws-ecs]
+  sourceTasks:
+    build: [build-source, unit-test, build-image, build-python-wheel-artifact, build-go-binary-artifact]
+    test: [run-integration-script]
+  pusherTasks:
+    build: [push-image]

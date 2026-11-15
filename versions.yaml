@@ -37,6 +37,15 @@ versions:
   autopilot:
     gateway: gateway-v0.8.0
   glidepath: main # 50-glidepath: control plane, catalog, Rekor values (a tag once one is cut)
+  # The per-task accounts of Glidepath's run admission (glidepath-control-plane values cicdRunAdmission.sourceTasks, pusherTasks,
+  # cloudDeployerTasks), which glidepath-api's PipelineRun policy (30-policy/kyverno-policies/tower-identity-writes.yaml) must
+  # allow and require exactly. Bump them with the glidepath pin above: `apron render` compares them with the pinned Glidepath's
+  # values.yaml and refuses a render when they differ (hack/glidepath_tasks.py; APRON_GLIDEPATH_VALUES=<values.yaml> to compare
+  # with a local file, APRON_GLIDEPATH_CHECK=off to skip).
+  glidepathRunTasks:
+    sourceTasks: {build: [build-source, unit-test, build-image, build-python-wheel-artifact, build-go-binary-artifact], test: [run-integration-script]}
+    pusherTasks: {build: [push-image]}
+    cloudDeployerTasks: {deploy: [deploy-aws-lambda, deploy-aws-ecs]}
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
 infisical:

@@ -161,3 +161,10 @@ agentToken:
   callers:
     - system:serviceaccount:autopilot-system:autopilot-gateway
 #@end
+
+# cicdRunAdmission.sourceIsolationActions: the action of Glidepath's cicd-run-source-isolation policy (a Pipelines-as-Code run of a
+# Pipeline that runs repository code must give those tasks to source-runner). glidepath.sourceIsolation (deny by default, warn
+# only while upgrading) also sets the action of glidepath-api's matching policy (30-policy/kyverno-policies/
+# tower-identity-writes.yaml), so a rerun is held to the rule at the same time as a Pipelines-as-Code run.
+cicdRunAdmission:
+  sourceIsolationActions: @@GLIDEPATH_SOURCE_ISOLATION_ACTIONS@@
