@@ -184,6 +184,53 @@ class Shape(unittest.TestCase):
         o["metadata"].pop("annotations")
         self.admitted(o)
 
+    LINEAGE = {"glidepath.io/origin-chain-id": "94e8228a-5cdc-4350-914a-d73802e5b296", "glidepath.io/origin-chain-slug": "ornate-ram",
+               "glidepath.io/origin-trace-id": "98f0963d6bc08cb69e6051852fc528de",
+               "glidepath.io/origin-traceparent": "00-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01",
+               "glidepath.io/origin-finished-at": "2026-11-15T20:56:00Z"}
+
+    def test_promotion_lineage_annotations_are_allowed_with_the_shape_glidepath_api_writes(self):
+        o = promote()
+        o["metadata"]["annotations"].update(self.LINEAGE)
+        self.admitted(o)
+        for k in self.LINEAGE:   # each alone
+            o = promote()
+            o["metadata"]["annotations"][k] = self.LINEAGE[k]
+            self.admitted(o)
+
+    # glidepath-api's lineage.Shapes (glidepath/api/internal/lineage/shapes.go), the table its resolver and stamp use: the policy
+    # must hold each key to exactly these patterns, so a value the API writes is never one admission refuses.
+    SHAPES = {"glidepath.io/origin-chain-id": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "glidepath.io/origin-chain-slug": "^[a-z]{2,20}-[a-z]{2,20}$", "glidepath.io/origin-trace-id": "^[0-9a-f]{32}$",
+              "glidepath.io/origin-traceparent": "^00-[0-9a-f]{32}-[0-9a-f]{16}-01$",
+              "glidepath.io/origin-finished-at": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?Z$"}
+
+    def test_the_policy_holds_each_lineage_key_to_glidepath_apis_shapes(self):
+        rule = [v["expression"] for v in DENY[SHAPE]["validations"] if "origin-chain-slug" in v["expression"] and "matches" in v["expression"]]
+        self.assertEqual(len(rule), 1)
+        text = " ".join(rule[0].split())
+        for key, pattern in self.SHAPES.items():
+            self.assertIn(f"variables.anns['{key}'].matches('{pattern}')", text, key)
+        self.assertEqual(text.count(".matches("), len(self.SHAPES))
+        self.assertNotIn("flow-start-time", json.dumps(DENY[SHAPE]))
+
+    def test_promotion_lineage_values_are_shape_checked(self):
+        bad = {"glidepath.io/origin-chain-id": ["not-a-uuid", "94E8228A-5cdc-4350-914a-d73802e5b296", "94e8228a-5cdc-4350-914a-d73802e5b296x"],
+               "glidepath.io/origin-chain-slug": ["ornate", "Ornate-Ram", "ornate-ram-extra", "a-b", "ornate ram"],
+               "glidepath.io/origin-trace-id": ["short", "G" * 32, "a" * 33],
+               "glidepath.io/origin-traceparent": ["00-zz-yy-01", "01-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01", "00-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-00", "x"],
+               "glidepath.io/origin-finished-at": ["", "2026-11-15 20:56:00Z", "yesterday", "2026-11-15", "2026-11-15T20:56:00+02:00"]}
+        for k, vals in bad.items():
+            for v in vals:
+                with self.subTest(k=k, v=v):
+                    o = promote()
+                    o["metadata"]["annotations"][k] = v
+                    self.refused(o, "promotion-lineage annotations")
+        # another glidepath.io/ key is still refused
+        o = promote()
+        o["metadata"]["annotations"]["glidepath.io/origin-chain-other"] = "v"
+        self.refused(o, "annotation")
+
     def test_workspace_volume_claim_templates_are_bounded(self):
         def spec(o):
             return o["spec"]["workspaces"][0]["volumeClaimTemplate"]["spec"]
