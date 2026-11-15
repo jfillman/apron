@@ -190,7 +190,7 @@ class Shape(unittest.TestCase):
         for k, v in [("dataSource", {"kind": "PersistentVolumeClaim", "name": "x"}),
                      ("dataSourceRef", {"kind": "PersistentVolumeClaim", "name": "x"}), ("volumeName", "pv-1"),
                      ("selector", {"matchLabels": {"a": "b"}}), ("storageClassName", "fast"), ("volumeMode", "Block"),
-                     ("accessModes", ["ReadWriteMany"])]:
+                     ("accessModes", ["ReadWriteMany"]), ("accessModes", ["ReadWriteOncePod"]), ("accessModes", ["ReadWriteOnce", "ReadWriteMany"])]:
             with self.subTest(k):
                 o = rerun("build")
                 spec(o)[k] = v

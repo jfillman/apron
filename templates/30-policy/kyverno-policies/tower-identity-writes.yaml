@@ -163,7 +163,7 @@ spec:
           has(w.volumeClaimTemplate.spec) && type(w.volumeClaimTemplate.spec) == map &&
           w.volumeClaimTemplate.spec.all(k, k in ['accessModes', 'resources', 'storageClassName', 'volumeMode']) &&
           (!has(w.volumeClaimTemplate.spec.accessModes) || (type(w.volumeClaimTemplate.spec.accessModes) == list &&
-            w.volumeClaimTemplate.spec.accessModes.all(m, m in ['ReadWriteOnce', 'ReadWriteOncePod']))) &&
+            w.volumeClaimTemplate.spec.accessModes.all(m, m == 'ReadWriteOnce'))) &&
           (!has(w.volumeClaimTemplate.spec.volumeMode) || w.volumeClaimTemplate.spec.volumeMode == 'Filesystem') &&
           (!has(w.volumeClaimTemplate.spec.storageClassName) || w.volumeClaimTemplate.spec.storageClassName in variables.storageClasses) &&
           has(w.volumeClaimTemplate.spec.resources) && type(w.volumeClaimTemplate.spec.resources) == map &&
