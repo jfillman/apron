@@ -28,7 +28,7 @@ STATE = ".apron-rendered"
 KEEP = {"cluster.yaml", ".git", STATE, "clusters.yaml", "signing-pki"}
 NEVER_RENDER = {"MANIFEST", "TOKENS.md"}
 # Tokens that may legitimately render empty (an optional value the chart treats as "not set").
-MAY_BE_EMPTY = {"CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE", "CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE", "CLEARANCE_LEDGER_HOST_ALIASES_MORE"}
+MAY_BE_EMPTY = {"CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE", "CLEARANCE_GITHUB_APP_ID", "CLEARANCE_GATE_HOST_ALIAS", "GLIDEPATH_PROMOTER_REPO", "FLIGHT_PREFIX", "FLIGHT_PROMOTER_SUBJECT_RE", "TOWER_HOST_ALIAS_IP", "TOWER_BASE_URL", "ITSM_PROVIDER", "ITSM_WEBHOOK_URL", "CLEARANCE_GATE_WAIT_IMAGE", "CLEARANCE_LEDGER_HOST_ALIASES_MORE", "AUTOPILOT_GO_IMAGE", "AUTOPILOT_GO_BROKER_URL", "AUTOPILOT_GO_GITHUB_OWNERS", "AUTOPILOT_GO_AIRFRAME_OWNER", "AUTOPILOT_GO_UPPER_CLUSTERS", "AUTOPILOT_GO_XR_NAMESPACES", "AUTOPILOT_GO_XR_NAMES", "AUTOPILOT_GO_DELEGATES", "AUTOPILOT_GO_NOTIFIERS", "AUTOPILOT_GO_AUDITORS"}
 
 
 def signing_file(v, name):
@@ -112,6 +112,7 @@ def tokens(v):
         "TOWER_BASE_URL": g("tower.baseUrl", ""),
         "TOWER_HOST_ALIAS_IP": g("tower.hostAliasIP", ""),
         **tower_user_tokens(g),
+        **autopilot_go_tokens(g),
         **traefik_lb_tokens(g),
         "AWS_ACCOUNT_ID": g("aws.accountId", ""),
         # Who may sign in to Clearance as a person (D19 interim: people-dex's GitHub logins), comma-separated; empty
@@ -191,6 +192,55 @@ def tokens(v):
         "CP_RETRY_PERIOD": g("runtime.controlPlane.leaderElection.retryPeriod", ""),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
+
+
+GO_PLAIN_HTTP = ("glidepath", "broker", "logs", "catalog", "jwks")
+
+
+def autopilot_go_selected(g):
+    """True when cluster.yaml says autopilot.gateway.implementation: go (default and anything else: the Python gateway)."""
+    return (g("autopilot.gateway.implementation", None) or "python") == "go"
+
+
+def autopilot_provider_version(g):
+    """The version the Clearance core registers for the Autopilot gateway: it must be the image's own tag, which the
+    gateway reports (AUTOPILOT_GATEWAY_VERSION) when it publishes its definitions."""
+    if autopilot_go_selected(g):
+        return g("autopilot.gateway.go.tag", "") or g("versions.autopilot.gateway")
+    return g("versions.autopilot.gateway")
+
+
+def autopilot_go_tokens(g):
+    """The Go gateway's settings (autopilot.gateway.go.*; docs/clusters-file.md). Always computed, rendered only by the
+    templates MANIFEST selects when autopilot.gateway.implementation is go (55-autopilot/gateway/*-go.yaml)."""
+    go = "autopilot.gateway.go"
+    lst = lambda k: ",".join(str(x) for x in (g(f"{go}.{k}", None) or []))  # noqa: E731
+    host, owner = g("registry.host", ""), g("registry.owner", "")
+    tag, digest = g(f"{go}.tag", "") or "", g(f"{go}.digest", "") or ""
+    names = g(f"{go}.agentXRs.names", None) or {}
+    tower = g("tower.cluster", "")
+    tower_sa = f"{tower}/{g('tower.namespace', '')}/backstage-ingestor" if tower else ""
+    people = [f"user:{p}" for p in (g("autopilot.people", None) or [])]
+    rules = lambda cidrs: json.dumps([{"ipBlock": {"cidr": c}} for c in cidrs])  # noqa: E731
+    return {
+        "AUTOPILOT_GO_IMAGE": f"{host}/{owner}/autopilot-gateway-go:{tag}@{digest}" if tag and digest else "",
+        # The secret the read API's DSN comes from (key uri): by default the one the Python read API already uses
+        # (templates/55-autopilot/gateway/postgres.yaml, a CNPG-managed read-only role that passes the Go API's role check).
+        "AUTOPILOT_GO_READER_SECRET": g(f"{go}.readerSecret", "") or "autopilot-pg-reader",
+        "AUTOPILOT_GO_BROKER_URL": g(f"{go}.brokerUrl", "") or "",
+        "AUTOPILOT_GO_GITHUB_OWNERS": lst("githubOwners"),
+        "AUTOPILOT_GO_AIRFRAME_OWNER": g(f"{go}.airframeOwner", "") or "",
+        "AUTOPILOT_GO_UPPER_CLUSTERS": lst("airframeUpperClusters"),
+        "AUTOPILOT_GO_XR_NAMESPACES": lst("agentXRs.namespaces"),
+        "AUTOPILOT_GO_XR_NAMES": ",".join(f"{k}={v}" for k, v in sorted(names.items())),
+        # Who may act for a person: Tower's backend (when there is a Tower) and any more the cluster names.
+        "AUTOPILOT_GO_DELEGATES": ",".join(([tower_sa] if tower_sa else []) + list(g(f"{go}.delegates", None) or [])),
+        "AUTOPILOT_GO_NOTIFIERS": ",".join(([tower_sa] if tower_sa else []) + list(g(f"{go}.notifiers", None) or [])),
+        "AUTOPILOT_GO_AUDITORS": ",".join(people + list(g(f"{go}.auditors", None) or [])),
+        # NetworkPolicy egress: the API server's addresses (cluster-specific, so said, never guessed) and any more.
+        "AUTOPILOT_GO_API_SERVER_RULES": rules(g(f"{go}.egress.apiServerCIDRs", None) or []),
+        "AUTOPILOT_GO_EXTRA_EGRESS_RULES": rules(g(f"{go}.egress.extraCIDRs", None) or []),
+    }
 
 
 def tower_user_tokens(g):
@@ -281,7 +331,7 @@ def clearance_tokens(g):
         "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
         "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
         # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
-        "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": g("versions.autopilot.gateway"),
+        "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": autopilot_provider_version(g),
                                             "principals": ["autopilot-system/autopilot-gateway"],
                                             # it publishes its cluster-pinned definitions (PUT /v1/definitions)
                                             "definitions": True}] + publishers + list(c("extraProviders", []) or [])),

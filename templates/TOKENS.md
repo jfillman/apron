@@ -129,6 +129,19 @@ the render with `file:line`.
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
 | `@@AUTOPILOT_CUSTOM_IMAGES@@` | `autopilot.customImages`, globs a definition's `runtime.image` may match beyond the runtime catalog (custom images built for an agent's own repo, e.g. `ghcr.io/jfillman/*@sha256:*`); comma-separated; rendered only when set - `RUNTIME_IMAGES_EXTRA` on the gateway and its read API |
+| `@@AUTOPILOT_GO_IMAGE@@` | `<registry.host>/<registry.owner>/autopilot-gateway-go:<autopilot.gateway.go.tag>@<autopilot.gateway.go.digest>`, the Go gateway image (rendered only with `autopilot.gateway.implementation: go`; empty otherwise) |
+| `@@AUTOPILOT_GO_READER_SECRET@@` | `autopilot.gateway.go.readerSecret`, default `autopilot-pg-reader`: the Secret (key `uri`) holding the read API's read-only DSN (`GATEWAY_API_DSN`); never created here |
+| `@@AUTOPILOT_GO_BROKER_URL@@` | `autopilot.gateway.go.brokerUrl`: the installation-token broker (`BROKER_URL`; the Go gateway has no default) |
+| `@@AUTOPILOT_GO_GITHUB_OWNERS@@` | `autopilot.gateway.go.githubOwners`, comma-separated: `GITHUB_OWNERS` |
+| `@@AUTOPILOT_GO_AIRFRAME_OWNER@@` | `autopilot.gateway.go.airframeOwner`: `AIRFRAME_OWNER` (rendered only when set; one of the GitHub owners) |
+| `@@AUTOPILOT_GO_UPPER_CLUSTERS@@` | `autopilot.gateway.go.airframeUpperClusters`, comma-separated: `AIRFRAME_UPPER_CLUSTERS` |
+| `@@AUTOPILOT_GO_XR_NAMESPACES@@` | `autopilot.gateway.go.agentXRs.namespaces`, comma-separated: `AGENT_XRS_NAMESPACES`, the namespaces whose Agent XRs may define agents |
+| `@@AUTOPILOT_GO_XR_NAMES@@` | `autopilot.gateway.go.agentXRs.names` (`agent: namespace`), as `agent=namespace,...`: `AGENT_XRS_NAMES` (rendered only when set) |
+| `@@AUTOPILOT_GO_DELEGATES@@` | Tower's backend (`<tower.cluster>/<tower.namespace>/backstage-ingestor`, when there is a Tower) and `autopilot.gateway.go.delegates`: `AUTOPILOT_DELEGATES` on the Go gateway and read API |
+| `@@AUTOPILOT_GO_NOTIFIERS@@` | Tower's backend and `autopilot.gateway.go.notifiers`: the Go read API's `GATEWAY_API_NOTIFIERS` |
+| `@@AUTOPILOT_GO_AUDITORS@@` | `autopilot.people` as principals and `autopilot.gateway.go.auditors`: the Go read API's `GATEWAY_API_AUDITORS` |
+| `@@AUTOPILOT_GO_API_SERVER_RULES@@` | `autopilot.gateway.go.egress.apiServerCIDRs` as a YAML flow list of `ipBlock` peers: the API server, in the Go egress policies |
+| `@@AUTOPILOT_GO_EXTRA_EGRESS_RULES@@` | `autopilot.gateway.go.egress.extraCIDRs` as a YAML flow list of `ipBlock` peers (rendered only when set): more HTTPS destinations, such as a Tower on a private network |
 | `@@AUTOPILOT_RUNTIME_CLASSES@@` | `autopilot.hardenedRuntime` (only `gvisor`), as `{"hardened":"gvisor"}`; `{}` when unset - function-agentrun's `HANGAR_RUNTIME_CLASSES`. The same key renders `55-autopilot/sandbox-runtime/` (the RuntimeClass), so the two cannot disagree |
 | `@@AUTOPILOT_PEOPLE_PRINCIPALS@@` | the same people as Clearance principals (`user:<login>`, comma-separated): the gateway read API's auditors (`GATEWAY_API_AUDITORS`) |
 | `@@RELEASE_MERGERS@@` | `releaseSigning.mergers`, GitHub logins whose PR merge counts once an app turns the GitHub-merge path on (`[]` when unset) - Glidepath's `releaseSigning.defaults.githubMerge.allowedMergers` |

@@ -1,0 +1,192 @@
+# The gateway, in Go (autopilot A-9; docs/admin/go-gateway-release.md in the autopilot repo). Rendered INSTEAD of gateway.yaml when
+# cluster.yaml says `autopilot.gateway.implementation: go` (templates/MANIFEST); the default is the Python gateway and this file is not
+# rendered. Same Deployment name, labels, ServiceAccount, Services and ports, so every caller (run pods, Tower, the Gateway route, the
+# Clearance core's policies, the NetworkPolicies in networkpolicy.yaml) is unchanged. Same database (autopilot-pg): the Go gateway uses
+# the Python gateway's tables and writer lock, so a switch back is a render, not a migration.
+#
+# What differs from the Python Deployment, each a setting and none a hostname in code:
+#   - the image is ghcr.io/<owner>/autopilot-gateway-go (tag gateway-go-v*, pinned by digest), and `args: [serve]`;
+#   - it needs what the Python gateway defaulted or assumed, said in cluster.yaml (autopilot.gateway.go.*): the broker URL, the GitHub
+#     owners, the Airframe owner and upper clusters, the namespaces whose Agent XRs may define agents;
+#   - plain-http links are off unless autopilot.gateway.go.plainHttp.<name> turns each on (glidepath, broker, logs, catalog, jwks);
+#   - it creates no index: `autopilot-gateway migrate` does (gateway-go-extras.yaml, the cutover runbook), and `serve` only checks.
+# One replica: the store is single-writer (the Go gateway takes the same advisory lock as the Python one).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autopilot-gateway
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+    spec:
+      serviceAccountName: autopilot-gateway
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+#@if runtime.labNetworking and tower.hostAliasIP
+      # Tower's hostname has no DNS in the lab (tower.hostAliasIP, lab runtimes only).
+      hostAliases:
+        - ip: "@@TOWER_HOST_ALIAS_IP@@"
+          hostnames: ["backstage.@@TOWER_CLUSTER@@.local"]
+#@end
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          # autopilot.gateway.go.tag and .digest: the gateway-go-v* release (autopilot repo, gateway-go-image.yaml). Multi-arch index digest.
+          image: @@AUTOPILOT_GO_IMAGE@@
+          args: [serve]
+          ports:
+            - {name: mcp, containerPort: 8080}
+            - {name: model, containerPort: 8081}
+            - {name: metrics, containerPort: 9090}   # METRICS_PORT: the Prometheus endpoint (monitoring.yaml)
+          env:
+            - name: GATEWAY_DSN
+              valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
+            - {name: CLEARANCE_CORE_URL, value: "http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc:8080"}
+            - {name: AUTOPILOT_AUDIENCE, value: clearance}
+            - {name: METRICS_PORT, value: "9090"}
+            - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
+            - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
+#@if autopilot.gateway.go.plainHttp.glidepath
+            - {name: GLIDEPATH_API_ALLOW_HTTP, value: "1"}
+#@end
+            # repo.pr.open and the Agent XR loader as the agents' GitHub App: a token per call from the broker, asked for with the
+            # projected token below. The Go gateway has no default broker and names the owners it may open pull requests for.
+            - {name: GITHUB_PR_ENABLED, value: "1"}
+            - {name: AGENT_TOKEN_FILE, value: /var/run/clearance/agent-installation-token}
+            - {name: BROKER_URL, value: "@@AUTOPILOT_GO_BROKER_URL@@"}
+#@if autopilot.gateway.go.plainHttp.broker
+            - {name: BROKER_ALLOW_HTTP, value: "1"}
+#@end
+            - {name: GITHUB_OWNERS, value: "@@AUTOPILOT_GO_GITHUB_OWNERS@@"}
+            - {name: AIRFRAME_CLUSTER, value: "@@CLUSTER_NAME@@"}
+            - {name: AIRFRAME_TENANTS_REPO, value: "@@TENANTS_REPO_NAME@@"}
+            - {name: AIRFRAME_UPPER_CLUSTERS, value: "@@AUTOPILOT_GO_UPPER_CLUSTERS@@"}
+#@if autopilot.gateway.go.airframeOwner
+            - {name: AIRFRAME_OWNER, value: "@@AUTOPILOT_GO_AIRFRAME_OWNER@@"}
+#@end
+            # The Agent XR loader reads only the namespaces named here (Python reads every one); AGENT_XRS_NAMES maps the agents whose
+            # names do not start with their app (agent=namespace).
+            - {name: AGENT_XRS_NAMESPACES, value: "@@AUTOPILOT_GO_XR_NAMESPACES@@"}
+#@if autopilot.gateway.go.agentXRs.names
+            - {name: AGENT_XRS_NAMES, value: "@@AUTOPILOT_GO_XR_NAMES@@"}
+#@end
+            - {name: ARGO_APP_NAMESPACES, value: "argocd,argocd-apps"}
+            - {name: ARGO_SYNC_ENABLED, value: "1"}
+            - {name: PROMETHEUS_URL, value: "http://thanos-query.observability.svc:9090"}
+            - {name: LOKI_URL, value: "http://loki-gateway.observability.svc"}
+            - {name: MODEL_KEY_FILE, value: /etc/clearance-model/anthropic-api-key}
+            - {name: MODEL_ROUTES, value: "claude-sonnet-5-5=claude-sonnet-5-5"}
+            - {name: EVENTS_ENABLED, value: "1"}
+            - {name: SCHEDULES_ENABLED, value: "1"}
+#@if components.observability and observability.full
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - {name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, value: "http://otel-collector-opentelemetry-collector.observability.svc:4318/v1/logs"}
+            - {name: OTEL_SERVICE_NAME, value: autopilot-gateway}
+            - {name: OTEL_RESOURCE_ATTRIBUTES, value: "k8s.namespace.name=$(POD_NAMESPACE),k8s.pod.name=$(POD_NAME),k8s.cluster.name=@@CLUSTER_NAME@@"}
+#@end
+#@if components.observability and observability.full and autopilot.gateway.go.plainHttp.logs
+            - {name: OTEL_EXPORTER_OTLP_LOGS_ALLOW_HTTP, value: "1"}
+#@end
+#@if tower.cluster
+            # catalog.read and the people's groups: Tower's catalog, as this identity (the backstage-catalog token below).
+            - {name: BACKSTAGE_URL, value: "@@TOWER_BASE_URL@@"}
+            - {name: BACKSTAGE_TOKEN_FILE, value: /var/run/clearance/backstage-token}
+            - {name: TOWER_ISSUER, value: "@@TOWER_ISSUER@@"}
+            - {name: TOWER_CLUSTER, value: "@@TOWER_CLUSTER@@"}
+            - {name: TOWER_SERVICE_ACCOUNTS, value: "@@TOWER_NAMESPACE@@/backstage-ingestor"}
+#@end
+#@if tower.cluster and autopilot.gateway.go.plainHttp.catalog
+            - {name: BACKSTAGE_ALLOW_HTTP, value: "1"}
+#@end
+            # Who may act for a person (Tower's backend, and any more autopilot.gateway.go.delegates names). A delegate is named by
+            # where it runs; `*` and wildcard namespaces are refused by the gateway.
+            - {name: AUTOPILOT_DELEGATES, value: "@@AUTOPILOT_GO_DELEGATES@@"}
+#@if autopilot.customImages
+            - {name: RUNTIME_IMAGES_EXTRA, value: "@@AUTOPILOT_CUSTOM_IMAGES@@"}
+#@end
+#@if autopilot.people and components.gatewayRoutes
+            - {name: AUTOPILOT_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
+            - {name: AUTOPILOT_OIDC_AUDIENCE, value: clearance}
+            - {name: AUTOPILOT_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+            - {name: AUTOPILOT_OIDC_USER_CLAIM, value: preferred_username}
+            - {name: AUTOPILOT_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
+            - {name: AUTOPILOT_ADMINS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
+            - {name: AUTOPILOT_RESOURCE_URL, value: "@@GATEWAY_SCHEME@@://autopilot.@@CLUSTER_DOMAIN@@/mcp"}
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.gateway.go.plainHttp.jwks
+            - {name: AUTOPILOT_JWKS_ALLOW_HTTP, value: "1"}
+#@end
+          readinessProbe:
+            httpGet: {path: /healthz, port: mcp}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: mcp}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: clearance-tokens, mountPath: /var/run/clearance, readOnly: true}
+            - {name: core-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: model-key, mountPath: /etc/clearance-model, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        - name: clearance-tokens
+          projected:
+            sources:
+              - serviceAccountToken: {audience: agent-installation-token, expirationSeconds: 3600, path: agent-installation-token}
+              - serviceAccountToken: {audience: backstage-catalog, expirationSeconds: 3600, path: backstage-token}
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance-core}
+        - name: model-key
+          secret:
+            secretName: clearance-model-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autopilot-gateway
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+spec:
+  selector: {app.kubernetes.io/name: autopilot-gateway}
+  ports:
+    - {name: mcp, port: 8080, targetPort: mcp}
+---
+# The model proxy is the gateway's own pod (function-agentrun's model_proxy_selector): runs reach it as
+# http://model-proxy.autopilot-system.svc:8081, the same Service as with the Python gateway.
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-proxy
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+spec:
+  selector: {app.kubernetes.io/name: autopilot-gateway}
+  ports:
+    - {name: model, port: 8081, targetPort: model}

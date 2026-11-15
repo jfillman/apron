@@ -1,0 +1,61 @@
+# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true; the default is the manual step in the cutover runbook).
+# `autopilot-gateway migrate` before the gateway changes (PreSync): the schema and the read API's six indexes, CREATE INDEX CONCURRENTLY under a lock
+# and a statement timeout, idempotent. It uses the owner's DSN (autopilot-pg-app) and may run beside the writer. Off by default
+# (autopilot.gateway.go.migrateJob): the cutover runbook runs it by hand first, and a failing hook blocks every sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: autopilot-gateway-migrate
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway-migrate, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1200
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: autopilot-gateway-migrate, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: @@AUTOPILOT_GO_IMAGE@@
+          args: [migrate]
+          env:
+            - name: GATEWAY_DSN
+              valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+# The database admits the migrate pod (networkpolicy.yaml admits the gateway and the read API only).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: autopilot-pg-migrate
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: autopilot-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: autopilot-gateway-migrate}
+      ports:
+        - {protocol: TCP, port: 5432}

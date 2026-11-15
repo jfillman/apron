@@ -87,7 +87,7 @@ def violations(v, fleet=None):
         if get(v, "tower.cluster") and not get(v, "tower.domain"):
             add(f"tower.cluster is set without tower.domain on runtime {rt}: Tower's real DNS domain is required (only a lab "
                 "defaults to <tower cluster>.local)")
-        for key in ("domain", "fleet.hubDomain", "tower.domain", "tower.baseUrl", "fleet.relayUrl", "infisical.url"):
+        for key in ("domain", "fleet.hubDomain", "tower.domain", "tower.baseUrl", "fleet.relayUrl", "infisical.url", "autopilot.gateway.go.brokerUrl"):
             val = str(get(v, key) or "")
             host = (urlparse(val).hostname if "://" in val else val.split("/")[0].split(":")[0]) or ""
             if host == "local" or host.endswith(".local"):
@@ -143,6 +143,53 @@ def violations(v, fleet=None):
     elif hr and get(v, "runtime.type") in ("kind", "kiac"):
         add(f"autopilot.hardenedRuntime: {get(v, 'runtime.type')} nodes have no gVisor; leave it unset so hardened runs are "
             "Rejected, not scheduled onto nodes without runsc")
+    # The Go gateway (autopilot A-9; docs/clusters-file.md "autopilot.gateway"): off unless implementation is go. Its settings may be
+    # prepared while the Python gateway still runs, so they are checked only when the switch is on.
+    impl = get(v, "autopilot.gateway.implementation") or "python"
+    if impl not in ("python", "go"):
+        add(f"autopilot.gateway.implementation must be python or go (got {impl!r}); unset means python")
+    elif impl == "go":
+        go = "autopilot.gateway.go"
+        if not on("components.autopilot"):
+            add("autopilot.gateway.implementation: go needs components.autopilot")
+        if not re.fullmatch(r"gateway-go-v\d+\.\d+\.\d+", str(get(v, f"{go}.tag") or "")):
+            add(f"{go}.tag must be the Go image's release tag, gateway-go-vMAJOR.MINOR.PATCH (it is also the version the Clearance "
+                "core registers for the gateway)")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, f"{go}.digest") or "")):
+            add(f"{go}.digest must be the image's sha256 digest (from the release run's summary): the deployment pins tag and digest")
+        for key, why in (("brokerUrl", "the installation-token broker the repository tools mint a token from (no default: Python's names a lab Service)"),
+                         ("githubOwners", "the GitHub owners the pull requests go to"),
+                         ("airframeUpperClusters", "the clusters an Airframe flight environment may land on (no default)"),
+                         ("agentXRs.namespaces", "the namespaces whose Agent XRs may define agents (the loader reads no other)")):
+            if not get(v, f"{go}.{key}"):
+                add(f"{go}.{key} is required with implementation: go: {why}")
+        owners = get(v, f"{go}.githubOwners") or []
+        ao = get(v, f"{go}.airframeOwner")
+        if ao and ao not in owners:
+            add(f"{go}.airframeOwner {ao!r} must be one of {go}.githubOwners")
+        if not ao and len(owners) != 1:
+            add(f"{go}.airframeOwner is required unless {go}.githubOwners names exactly one owner")
+        if get(v, f"{go}.egress.enabled") is not False and not get(v, f"{go}.egress.apiServerCIDRs"):
+            add(f"{go}.egress.apiServerCIDRs is required: the egress policy admits the API server by address, which is the cluster's "
+                f"to say (or set {go}.egress.enabled: false to render no egress policy)")
+        for k in (get(v, f"{go}.plainHttp") or {}):
+            if k not in ("glidepath", "broker", "logs", "catalog", "jwks"):
+                add(f"{go}.plainHttp.{k} is not a plain-http switch (glidepath, broker, logs, catalog, jwks)")
+        # Every http link the templates render needs its switch (plain-http options are off by default, so a render that would start a
+        # gateway that refuses its own URLs is refused here, naming the switch).
+        ph = lambda k: bool(get(v, f"{go}.plainHttp.{k}"))  # noqa: E731
+        if not ph("glidepath"):
+            add(f"{go}.plainHttp.glidepath must be true: glidepath-api is an in-cluster http Service, and the Go gateway refuses a plain http URL it was not told to allow")
+        if on("components.observability") and on("observability.full") and not ph("logs"):
+            add(f"{go}.plainHttp.logs must be true: the log collector's OTLP endpoint is an in-cluster http Service")
+        if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks"):
+            add(f"{go}.plainHttp.jwks must be true: people-dex's key set is an in-cluster http Service")
+        if get(v, "tower.cluster") and str(get(v, "tower.baseUrl") or "").startswith("http://") and not ph("catalog"):
+            add(f"{go}.plainHttp.catalog must be true: tower.baseUrl is plain http")
+        if str(get(v, f"{go}.brokerUrl") or "").startswith("http://") and not ph("broker"):
+            add(f"{go}.plainHttp.broker must be true: {go}.brokerUrl is plain http")
+        if get(v, f"{go}.plainHttp.broker") and str(get(v, f"{go}.brokerUrl") or "").startswith("https://"):
+            add(f"{go}.plainHttp.broker is on and {go}.brokerUrl is https: turn the switch off")
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

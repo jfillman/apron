@@ -1110,6 +1110,129 @@ for rt in eks existing; do
   has "runtimes/${rt}.yaml" '^  labNetworking: false' "runtime ${rt}: labNetworking is false"
 done
 
+echo "== 3b. the Go gateway (autopilot.gateway.implementation): off by default, the same Services when on"
+GO_SETTINGS='  gateway:
+    implementation: go
+    go:
+      tag: gateway-go-v0.1.0
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      brokerUrl: https://broker.example.dev
+      githubOwners: [acme]
+      airframeUpperClusters: [eks-prod]
+      agentXRs: {namespaces: [app-gate-api-cicd], names: {gate-reader: app-gate-api-cicd}}
+      egress: {apiServerCIDRs: [203.0.113.10/32]}
+      plainHttp: {glidepath: true, logs: true, jwks: true}'
+# unset and `python` render the same bytes (the default is the Python gateway and read API, as before)
+mkdir -p "${K}/gopy" "${K}/go" "${K}/pyx"
+cp "${K}/dev/cluster.yaml" "${K}/pyx/cluster.yaml"
+printf 'autopilot:\n  people: [alice, bob]\n  customImages: ["ghcr.io/acme/*@sha256:*"]\n' >>"${K}/pyx/cluster.yaml"
+cp "${K}/pyx/cluster.yaml" "${K}/gopy/cluster.yaml"
+printf '  gateway: {implementation: python}\n' >>"${K}/gopy/cluster.yaml"
+cp "${K}/pyx/cluster.yaml" "${K}/go/cluster.yaml"
+printf '%s\n' "${GO_SETTINGS}" >>"${K}/go/cluster.yaml"
+render_ok "${K}/pyx" "eks-dev (people), Go switch unset"
+render_ok "${K}/gopy" "eks-dev (people), implementation: python"
+render_ok "${K}/go" "eks-dev (people), implementation: go"
+if diff -r -x cluster.yaml "${K}/pyx" "${K}/gopy" >/dev/null; then ok "implementation: python renders byte-identically to the switch unset"; else bad "implementation: python differs from unset"; fi
+expect "${K}/pyx" "switch unset" 55-autopilot/gateway/gateway.yaml 55-autopilot/gateway/autopilot-api.yaml '!55-autopilot/gateway/gateway-go.yaml' \
+  '!55-autopilot/gateway/autopilot-api-go.yaml' '!55-autopilot/gateway/gateway-go-extras.yaml' '!55-autopilot/gateway/gateway-go-egress.yaml' '!55-autopilot/gateway/gateway-go-migrate.yaml'
+if grep -rq 'autopilot-gateway-go\|gateway-go-v' "${K}/pyx" --exclude=cluster.yaml; then bad "Go image named with the switch unset"; else ok "the Go image is named nowhere with the switch unset"; fi
+G="${K}/go/55-autopilot/gateway"
+expect "${K}/go" "implementation: go" 55-autopilot/gateway/gateway-go.yaml 55-autopilot/gateway/autopilot-api-go.yaml 55-autopilot/gateway/gateway-go-extras.yaml \
+  55-autopilot/gateway/gateway-go-egress.yaml '!55-autopilot/gateway/gateway.yaml' '!55-autopilot/gateway/autopilot-api.yaml' '!55-autopilot/gateway/gateway-go-migrate.yaml'
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  has "${G}/${f}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:a{64}$' "go: ${f} pins the Go image by tag and digest"
+done
+has "${G}/gateway-go.yaml" 'args: \[serve\]' "go: the gateway runs serve"
+has "${G}/autopilot-api-go.yaml" 'args: \[api\]' "go: the read API runs api"
+has "${G}/gateway-go.yaml" 'path: /healthz, port: mcp' "go: gateway probes /healthz"
+has "${G}/autopilot-api-go.yaml" 'path: /readyz, port: http' "go: read API readiness is /readyz"
+has "${G}/autopilot-api-go.yaml" 'name: "autopilot-pg-reader", key: uri' "go: the read API's DSN is the read-only role's secret (by reference)"
+has "${G}/gateway-go.yaml" 'secretKeyRef: \{name: autopilot-pg-app, key: uri\}' "go: serve uses the same database as the Python gateway"
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  has "${G}/${f}" 'readOnlyRootFilesystem: true' "go: ${f} read-only root filesystem"
+  has "${G}/${f}" 'capabilities: \{drop: \["ALL"\]\}' "go: ${f} drops every capability"
+  has "${G}/${f}" 'runAsNonRoot: true' "go: ${f} runs as non-root"
+  has "${G}/${f}" 'seccompProfile: \{type: RuntimeDefault\}' "go: ${f} seccomp RuntimeDefault"
+done
+has "${G}/gateway-go.yaml" 'name: AGENT_XRS_NAMESPACES, value: "app-gate-api-cicd"' "go: AGENT_XRS_NAMESPACES from autopilot.gateway.go.agentXRs"
+has "${G}/gateway-go.yaml" 'name: AGENT_XRS_NAMES, value: "gate-reader=app-gate-api-cicd"' "go: AGENT_XRS_NAMES from autopilot.gateway.go.agentXRs.names"
+has "${G}/gateway-go.yaml" 'name: AIRFRAME_UPPER_CLUSTERS, value: "eks-prod"' "go: AIRFRAME_UPPER_CLUSTERS"
+has "${G}/gateway-go.yaml" 'name: GITHUB_OWNERS, value: "acme"' "go: GITHUB_OWNERS"
+has "${G}/gateway-go.yaml" 'name: AIRFRAME_TENANTS_REPO' "go: AIRFRAME_TENANTS_REPO"
+has "${G}/autopilot-api-go.yaml" 'name: GATEWAY_API_AUDITORS, value: "user:alice,user:bob"' "go: GATEWAY_API_AUDITORS are the people as principals"
+has "${G}/autopilot-api-go.yaml" 'name: GATEWAY_API_NOTIFIERS, value: "eks-man/' "go: GATEWAY_API_NOTIFIERS name Tower's backend"
+has "${G}/gateway-go.yaml" 'name: BACKSTAGE_TOKEN_FILE, value: /var/run/clearance/backstage-token' "go: the catalog token file"
+has "${G}/gateway-go-extras.yaml" 'resources: \["namespaces"\]' "go: the namespace read the Go gateway needs"
+has "${G}/gateway-go-egress.yaml" 'cidr: 203\.0\.113\.10/32|203\.0\.113\.10/32' "go: egress admits the API server at the address cluster.yaml says"
+has "${G}/gateway-go-egress.yaml" 'port: 4318' "go: egress admits the OTLP collector"
+has "${G}/gateway-go-egress.yaml" 'cnpg\.io/cluster: autopilot-pg' "go: egress admits the database"
+has "${G}/gateway-go.yaml" 'name: GLIDEPATH_API_ALLOW_HTTP' "go: a plain-http switch renders only when turned on (glidepath)"
+if grep -q 'BROKER_ALLOW_HTTP\|BACKSTAGE_ALLOW_HTTP' "${G}/gateway-go.yaml" "${G}/autopilot-api-go.yaml"; then bad "go: a plain-http switch rendered that was not turned on"; else ok "go: plain-http switches that were not turned on are not rendered"; fi
+# the Service names and ports are the Python gateway's: callers do not change
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${K}/pyx/55-autopilot/gateway" "${G}" <<'PY3' && ok "go: the same Services, ports, labels and ServiceAccounts as the Python gateway; every Python env name is still set" || bad "go: the Go render differs from the Python render in names, ports or env"
+import glob, sys, yaml
+def load(d, names):
+    out = {}
+    for n in names:
+        for doc in yaml.safe_load_all(open(f"{d}/{n}")):
+            if doc:
+                out[(doc["kind"], doc["metadata"]["name"])] = doc
+    return out
+py = load(sys.argv[1], ["gateway.yaml", "autopilot-api.yaml"])
+go = load(sys.argv[2], ["gateway-go.yaml", "autopilot-api-go.yaml"])
+assert set(py) == set(go), (sorted(set(py) ^ set(go)))
+for k in py:
+    if k[0] == "Service":
+        assert py[k]["spec"] == go[k]["spec"], (k, py[k]["spec"], go[k]["spec"])
+        assert py[k]["metadata"]["labels"] == go[k]["metadata"]["labels"], k
+    if k[0] == "Deployment":
+        a, b = py[k]["spec"], go[k]["spec"]
+        assert a["selector"] == b["selector"] and a["replicas"] == b["replicas"], k
+        assert a["template"]["metadata"]["labels"] == b["template"]["metadata"]["labels"], k
+        assert a["template"]["spec"]["serviceAccountName"] == b["template"]["spec"]["serviceAccountName"], k
+        pe = [e["name"] for e in a["template"]["spec"]["containers"][0]["env"]]
+        ge = [e["name"] for e in b["template"]["spec"]["containers"][0]["env"]]
+        assert not set(pe) - set(ge), (k, "Python env not set by Go", sorted(set(pe) - set(ge)))
+        pp = {p["containerPort"] for p in a["template"]["spec"]["containers"][0]["ports"]}
+        gp = {p["containerPort"] for p in b["template"]["spec"]["containers"][0]["ports"]}
+        assert pp <= gp, (k, pp, gp)
+PY3
+fi
+# nothing lab-only in the Go path off a lab: no hostAliases, no .local host, no LAN address
+if grep -rqE 'hostAliases|\.local\b|192\.168\.|10\.0\.0\.[0-9]+' "${G}/gateway-go.yaml" "${G}/autopilot-api-go.yaml" "${G}/gateway-go-extras.yaml"; then bad "go on eks: a lab-only value was rendered"; else ok "go on eks: no hostAliases, .local host or LAN address"; fi
+# the lab renders hostAliases only where the Python gateway does (a lab runtime with tower.hostAliasIP)
+mkdir -p "${K}/gomig"
+cp "${K}/go/cluster.yaml" "${K}/gomig/cluster.yaml"
+printf '%s\n' '  # migrate as a PreSync hook' >>"${K}/gomig/cluster.yaml"
+sed -i.bak 's/^      plainHttp: /      migrateJob: true\n      plainHttp: /' "${K}/gomig/cluster.yaml" && rm -f "${K}/gomig/cluster.yaml.bak"
+render_ok "${K}/gomig" "go with migrateJob"
+expect "${K}/gomig" "go with migrateJob" 55-autopilot/gateway/gateway-go-migrate.yaml
+has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'argocd\.argoproj\.io/hook: PreSync' "go: the migrate Job is a PreSync hook"
+has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'args: \[migrate\]' "go: the migrate Job runs migrate"
+# the core registers the Go image's tag as the gateway's provider version
+has "${K}/go/55-clearance/clearance/application.yaml" '"version": "gateway-go-v0\.1\.0"' "go: the Clearance core registers the Go image's tag as the provider version"
+has "${K}/pyx/55-clearance/clearance/application.yaml" '"version": "gateway-v' "default: the provider version is still the Python gateway's"
+GD="${K}/dev"
+refuse "go without a tag" "${GD}" 'autopilot: {gateway: {implementation: go}}'
+refuse "an unknown implementation" "${GD}" 'autopilot: {gateway: {implementation: rust}}'
+GODIG='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+GOREST='brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], agentXRs: {namespaces: [app-a-cicd]}'
+GOEGR='egress: {apiServerCIDRs: [203.0.113.10/32]}'
+GOHTTP='plainHttp: {glidepath: true, logs: true}'
+gocfg() { printf 'autopilot: {gateway: {implementation: go, go: {%s}}}' "$*"; }
+refuse "go without a plain-http switch for glidepath-api's in-cluster URL" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}")"
+refuse "go with a mutable digest" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: latest, ${GOREST}, ${GOEGR}, ${GOHTTP}")"
+refuse "go with a tag that is not a Go release" "${GD}" "$(gocfg "tag: gateway-v0.9.1, digest: ${GODIG}, ${GOREST}, ${GOEGR}, ${GOHTTP}")"
+refuse "go without the API server's addresses" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOHTTP}")"
+refuse "go without the namespaces the loader reads" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], ${GOEGR}, ${GOHTTP}")"
+refuse "an airframeOwner outside githubOwners" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, airframeOwner: other, ${GOEGR}, ${GOHTTP}")"
+refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, everything: true}")"
+# the same values, complete, pass: the refusals above are each about the one thing left out
+mkdir -p "${K}/gook" && cp "${GD}/cluster.yaml" "${K}/gook/cluster.yaml" && printf '%s\n' "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, ${GOHTTP}")" >>"${K}/gook/cluster.yaml"
+python3 hack/check.py --cluster "${K}/gook/cluster.yaml" >/dev/null 2>"${TMP}/gook" && ok "go: the complete values pass check" || bad "go: complete values refused: $(cat "${TMP}/gook")"
+
 echo "== 4. tokens"
 missing="$(DEVCFG="${LAB}/dev/cluster.yaml" python3 - <<'PY'
 import os, re, sys

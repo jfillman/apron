@@ -79,6 +79,30 @@ cluster's registry record has `airframe.autopilotReady`, set after autopilot's `
 `tests/policy/test_agentrun_grants.py` proves the policy against a real kube-apiserver (envtest binaries in
 `KUBEBUILDER_ASSETS`; `tests/run.sh` skips it without them).
 
+### The gateway in Go (`autopilot.gateway.implementation`, off by default)
+
+`autopilot.gateway.implementation: python` (the default, and what unset means) renders the Python gateway and read API exactly as before
+(`tests/run.sh` section 3b checks the bytes). `go` renders the Go ones instead (`55-autopilot/gateway/gateway-go.yaml`,
+`autopilot-api-go.yaml`, and `gateway-go-extras.yaml`, `gateway-go-egress.yaml`, `gateway-go-migrate.yaml`): the same Deployment, Service and
+ServiceAccount names, labels and ports, so callers, routes and policies do not change; the same database (`autopilot-pg`), so a switch back is a
+render. It needs the autopilot repo's `gateway-go-v*` image (autopilot `docs/admin/go-gateway-release.md` has the ordered cutover and the rollback)
+and says, in cluster.yaml, what the Python gateway defaulted or assumed:
+
+| Key (under `autopilot.gateway`) | What |
+|---|---|
+| `implementation` | `python` (default) or `go` |
+| `go.tag`, `go.digest` | the Go image's release tag (`gateway-go-vX.Y.Z`; also the version the Clearance core registers) and its sha256 digest |
+| `go.readerSecret` | the Secret (key `uri`) with the read API's read-only DSN; default `autopilot-pg-reader`, the one the Python read API uses (never created or printed here) |
+| `go.brokerUrl`, `go.githubOwners`, `go.airframeOwner`, `go.airframeUpperClusters` | `BROKER_URL`, `GITHUB_OWNERS`, `AIRFRAME_OWNER`, `AIRFRAME_UPPER_CLUSTERS` (no defaults: the Go gateway has none) |
+| `go.agentXRs.namespaces`, `go.agentXRs.names` | `AGENT_XRS_NAMESPACES` (the only namespaces the loader reads) and `AGENT_XRS_NAMES` (`agent: namespace`) |
+| `go.delegates`, `go.notifiers`, `go.auditors` | more principals for `AUTOPILOT_DELEGATES`, `GATEWAY_API_NOTIFIERS`, `GATEWAY_API_AUDITORS` (Tower's backend and `autopilot.people` are already there) |
+| `go.plainHttp.{glidepath,broker,logs,catalog,jwks}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs) |
+| `go.egress.apiServerCIDRs`, `go.egress.extraCIDRs`, `go.egress.enabled` | the egress policies' API server addresses (required), more HTTPS destinations, and `false` for no egress policy |
+| `go.migrateJob` | render `autopilot-gateway migrate` as a PreSync hook; off: the cutover runbook runs it by hand first |
+
+The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
+The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).
+
 ## Clearance's Argo CD gate (`clearance.gate`, Draft)
 
 `clearance.gate.enabled: true` puts Clearance's Config Management Plugin in front of every protected tenant
