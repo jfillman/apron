@@ -194,9 +194,6 @@ def tokens(v):
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
 
 
-GO_PLAIN_HTTP = ("glidepath", "broker", "logs", "catalog", "jwks")
-
-
 def autopilot_go_selected(g):
     """True when cluster.yaml says autopilot.gateway.implementation: go (default and anything else: the Python gateway)."""
     return (g("autopilot.gateway.implementation", None) or "python") == "go"
