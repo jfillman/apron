@@ -389,7 +389,7 @@ else
 fi
 # Load reduction (2026-11-15): Kyverno's TTL interval, the platform CronJobs' own minutes, and Argo CD's ignored heartbeat annotation.
 KV=30-policy/kyverno/application.yaml
-has "${LAB}/dev/${KV}" '^            reconciliationInterval: 15m$' "dev: Kyverno ttlController.reconciliationInterval is 15m"
+has "${LAB}/dev/${KV}" '^            reconciliationInterval: 5m$' "dev: Kyverno ttlController.reconciliationInterval is 5m"
 has "${LAB}/prod/${KV}" '^            reconciliationInterval: 1m$' "prod: Kyverno ttlController.reconciliationInterval stays at the chart's 1m"
 has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  schedule: "7-59/10 \* \* \* \*"$' "dev: agentrun-reaper runs at minute 7"
 has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  startingDeadlineSeconds: 300$' "dev: agentrun-reaper has a startingDeadlineSeconds"

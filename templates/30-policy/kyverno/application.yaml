@@ -32,7 +32,7 @@ spec:
         # The TTL cleanup (objects labelled cleanup.kyverno.io/ttl, here the tower-breakglass RoleBindings and copy-mode pods)
         # lists and checks every labelled kind each interval: chart default 1m, which on hangar-dev (2026-11-15) was 476
         # SelfSubjectAccessReviews a minute, one per resource kind. An object is deleted up to one interval after its TTL.
-        # kyverno.ttlReconciliationInterval (profiles/dev.yaml: 15m; unset: the chart's 1m).
+        # kyverno.ttlReconciliationInterval (profiles/dev.yaml: 5m; unset: the chart's 1m).
         features:
           ttlController:
             reconciliationInterval: @@KYVERNO_TTL_INTERVAL@@

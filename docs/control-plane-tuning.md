@@ -113,8 +113,8 @@ hangar-dev fell over under load that came in waves on :00/:30. What changed, by 
   control-plane values). The CronJobs set `concurrencyPolicy: Forbid` and a `startingDeadlineSeconds`.
 - **Kyverno's TTL cleanup** (`cleanup.kyverno.io/ttl`; here the tower-breakglass RoleBindings and copy-mode pods) re-lists every labelled kind
   each interval. The chart default is 1m: 476 SelfSubjectAccessReviews a minute on hangar-dev. `kyverno.ttlReconciliationInterval` sets
-  `features.ttlController.reconciliationInterval` (chart 3.9.0); `profiles/dev.yaml` sets 15m, other profiles keep the chart's 1m. The cost:
-  a TTL object is deleted up to one interval after its TTL, so a 15-minute break-glass binding can live up to 15 minutes longer.
+  `features.ttlController.reconciliationInterval` (chart 3.9.0); `profiles/dev.yaml` sets 5m, other profiles keep the chart's 1m. The cost:
+  a TTL object is deleted up to one interval after its TTL, so a break-glass binding can live up to 5 minutes past its TTL (the trade-off against load).
 - **Argo CD refreshes.** Clearance's k8s observer stamps an annotation on `clearance-observe-heartbeat` (ConfigMap) and
   `clearance-observe-canary` (Secret) every 30 s: 360 refreshes of `clearance-observe-k8s` in 90 minutes. Argo CD's
   `resource.customizations.ignoreResourceUpdates` (platform instance) ignores that one annotation. `/status` of every kind was already ignored.

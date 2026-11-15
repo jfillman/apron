@@ -37,7 +37,7 @@ components:
   towerAccess: false            # Tower's cluster-scoped grants where Tower runs (the prod profile)
   towerAccessHub: true          # what lets Tower on another cluster read/act on this one (trust file + RBAC)
 kyverno:
-  ttlReconciliationInterval: 15m  # the TTL cleanup listed every labelled kind each minute (476 access reviews/min on hangar-dev); a TTL object lives up to 15m past its TTL
+  ttlReconciliationInterval: 5m   # TTL cleanup pass interval (chart 1m = 476 access reviews per pass on hangar-dev); an object is deleted up to 5 minutes after its TTL: break-glass overrun vs load
 observability:
   full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector, Grafana
   tracing: true                 # OTel collector + Operator (auto-instrumentation) + Tempo; implied by full
