@@ -36,6 +36,9 @@ repo's name plus `-tenants`, same owner.
 
 `apron render --out DIR`: day-2 re-render after editing `cluster.yaml`: check, render, then `git status --short`.
 
+On a cluster that renders glidepath-api's PipelineRun policy it also compares `versions.glidepathRunTasks` with the pinned Glidepath's
+values and refuses a render when they differ (docs/glidepath-run-policies.md; `APRON_GLIDEPATH_VALUES`, `APRON_GLIDEPATH_CHECK=off`).
+
 ## up
 
 `apron up --out DIR [--dry-run] [--yes] [--rename-context FROM]`. Idempotent; re-run it after any stop.

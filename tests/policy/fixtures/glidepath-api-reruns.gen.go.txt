@@ -1,0 +1,96 @@
+package pipelineruns
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+)
+
+type capStore struct {
+	src map[string]any
+	got map[string]any
+}
+
+func (c *capStore) Get(ctx context.Context, ns, name string) (map[string]any, error) {
+	if c.src != nil {
+		return c.src, nil
+	}
+	return nil, apierrors.NewNotFound(schema.GroupResource{}, name)
+}
+func (c *capStore) Create(ctx context.Context, ns string, obj map[string]any, dry bool) error {
+	c.got = obj
+	return nil
+}
+func (c *capStore) Patch(ctx context.Context, ns, name string, p []byte, dry bool) error { return nil }
+
+func ref(name string) map[string]any {
+	return map[string]any{"resolver": "cluster", "params": []any{
+		map[string]any{"name": "kind", "value": "pipeline"}, map[string]any{"name": "name", "value": name},
+		map[string]any{"name": "namespace", "value": "platform-catalog"}}}
+}
+
+func pacMeta(name, event, branch, src string) map[string]any {
+	return map[string]any{"name": name, "namespace": "app-sample-cicd",
+		"labels": map[string]any{"hangar.io/app": "sample", "hangar.io/flow": "ci", "hangar.io/stage": "x",
+			"pipelinesascode.tekton.dev/url-org": "o", "pipelinesascode.tekton.dev/pull-request": "17"},
+		"annotations": map[string]any{"pipelinesascode.tekton.dev/event-type": event, "pipelinesascode.tekton.dev/branch": branch,
+			"pipelinesascode.tekton.dev/source-branch": src, "pipelinesascode.tekton.dev/sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569",
+			"pipelinesascode.tekton.dev/repo-url": "https://github.com/o/sample"}}
+}
+
+func vct(size string) map[string]any {
+	return map[string]any{"name": "source", "volumeClaimTemplate": map[string]any{"spec": map[string]any{
+		"accessModes": []any{"ReadWriteOnce"}, "resources": map[string]any{"requests": map[string]any{"storage": size}}}}}
+}
+
+func tr(task, sa string) any { return map[string]any{"pipelineTaskName": task, "serviceAccountName": sa} }
+
+func TestGenFixtures(t *testing.T) {
+	hosts := map[string]any{"hostAliases": []any{map[string]any{"ip": "192.0.2.10", "hostnames": []any{"tower.example.test"}}}}
+	runs := map[string]map[string]any{
+		"build": {"metadata": pacMeta("ci-0-build-abcde", "push", "main", "refs/heads/main"), "spec": map[string]any{
+			"pipelineRef": ref("build"), "workspaces": []any{vct("2Gi")},
+			"taskRunSpecs": []any{tr("build-source", "source-runner"), tr("unit-test", "source-runner"), tr("build-image", "source-runner"),
+				tr("build-python-wheel-artifact", "source-runner"), tr("build-go-binary-artifact", "source-runner"), tr("push-image", "image-pusher")},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner", "podTemplate": hosts},
+			"timeouts":        map[string]any{"pipeline": "1h"}, "status": "Cancelled",
+			"params": []any{map[string]any{"name": "app-name", "value": "sample"}}}},
+		"build-pre-hardening": {"metadata": pacMeta("ci-0-build-fghij", "push", "main", "refs/heads/main"), "spec": map[string]any{
+			"pipelineRef": ref("build"), "workspaces": []any{vct("2Gi")},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner", "podTemplate": hosts}, "timeouts": map[string]any{"pipeline": "1h"}}},
+		"build-pr": {"metadata": pacMeta("pr-0-build-klmno", "pull_request", "main", "feature-x"), "spec": map[string]any{
+			"pipelineRef": ref("build"), "workspaces": []any{vct("2Gi")},
+			"taskRunSpecs": []any{tr("build-source", "source-runner"), tr("unit-test", "source-runner"), tr("build-image", "source-runner"),
+				tr("build-python-wheel-artifact", "source-runner"), tr("build-go-binary-artifact", "source-runner"), tr("push-image", "image-pusher")},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner"}}},
+		"test": {"metadata": pacMeta("ci-0-test-pqrst", "push", "main", "refs/heads/main"), "spec": map[string]any{
+			"pipelineRef": ref("test"), "workspaces": []any{vct("5Gi")},
+			"taskRunSpecs":    []any{tr("run-integration-script", "source-runner")},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner", "podTemplate": hosts}}},
+		"release": {"metadata": pacMeta("ci-0-release-uvwxy", "push", "refs/tags/v1.2.3", "refs/tags/v1.2.3"), "spec": map[string]any{
+			"pipelineRef": ref("release"), "workspaces": []any{map[string]any{"name": "source", "emptyDir": map[string]any{}}},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner", "podTemplate": hosts}}},
+		"deploy": {"metadata": pacMeta("ci-0-deploy-zabcd", "push", "main", "refs/heads/main"), "spec": map[string]any{
+			"pipelineRef":     ref("deploy"),
+			"taskRunSpecs":    []any{tr("deploy-aws-lambda", "glidepath-cloud-deployer"), tr("deploy-aws-ecs", "glidepath-cloud-deployer")},
+			"taskRunTemplate": map[string]any{"serviceAccountName": "pipeline-runner"}}},
+	}
+	out := map[string]any{}
+	for name, run := range runs {
+		run["apiVersion"], run["kind"] = "tekton.dev/v1", "PipelineRun"
+		st := &capStore{src: run}
+		c := &Client{Store: st}
+		if _, _, err := c.Rerun(context.Background(), "app-sample-cicd", "sample", "x", "key-1", false); err != nil {
+			t.Fatal(err)
+		}
+		out["rerun-"+name] = st.got
+	}
+	b, _ := json.MarshalIndent(out, "", " ")
+	if err := os.WriteFile(os.Getenv("FIXTURE_OUT"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -56,10 +56,38 @@ spec:
   variables:
     - name: isCreate
       expression: request.operation == 'CREATE'
+    # Tekton's PipelineRun CRD keeps spec as unknown fields, so nothing below can assume a field has the type it should:
+    # each variable reads a field only if it has that type, and a rule says so when it does not.
     - name: ref
-      expression: "has(object.spec.pipelineRef) ? object.spec.pipelineRef : {}"
+      expression: "has(object.spec.pipelineRef) && type(object.spec.pipelineRef) == map ? object.spec.pipelineRef : {}"
     - name: refParams
-      expression: "has(variables.ref.params) ? variables.ref.params : []"
+      expression: "has(variables.ref.params) && type(variables.ref.params) == list ? variables.ref.params : []"
+    - name: pipelineName
+      expression: >-
+        variables.refParams.exists(p, type(p) == map && has(p.name) && p.name == 'name' && has(p.value) && type(p.value) == string) ?
+        variables.refParams.filter(p, type(p) == map && has(p.name) && p.name == 'name' && has(p.value) && type(p.value) == string)[0].value : ''
+    - name: trt
+      expression: "has(object.spec.taskRunTemplate) && type(object.spec.taskRunTemplate) == map ? object.spec.taskRunTemplate : {}"
+    - name: rawSpecs
+      expression: "has(object.spec.taskRunSpecs) && type(object.spec.taskRunSpecs) == list ? object.spec.taskRunSpecs : []"
+    - name: specs
+      expression: "variables.rawSpecs.filter(s, type(s) == map)"
+    - name: rawWorkspaces
+      expression: "has(object.spec.workspaces) && type(object.spec.workspaces) == list ? object.spec.workspaces : []"
+    - name: anns
+      expression: "has(object.metadata.annotations) && type(object.metadata.annotations) == map ? object.metadata.annotations : {}"
+    # The per-task accounts the platform defines, by Pipeline: Glidepath's glidepath-control-plane values
+    # cicdRunAdmission.sourceTasks / pusherTasks / cloudDeployerTasks, from versions.yaml glidepathRunTasks (hack/render.py
+    # refuses a render when they differ from the pinned Glidepath's values). source-runner and image-pusher have no Role and no
+    # token; glidepath-cloud-deployer holds a cloud identity, so it is allowed on exactly the cloud deploy tasks.
+    - name: sourceTasks
+      expression: '@@GLIDEPATH_SOURCE_TASKS@@'
+    - name: pusherTasks
+      expression: '@@GLIDEPATH_PUSHER_TASKS@@'
+    - name: cloudTasks
+      expression: '@@GLIDEPATH_CLOUD_DEPLOYER_TASKS@@'
+    - name: storageClasses
+      expression: '@@GLIDEPATH_API_STORAGE_CLASSES@@'
   validations:
     - expression: request.userInfo.username != '@@TOWER_USER_ACTOR@@'
       message: Tower writes PipelineRuns only through glidepath-api (Glidepath API P6).
@@ -71,32 +99,93 @@ spec:
         !variables.isCreate || (
           has(variables.ref.resolver) && variables.ref.resolver == 'cluster' &&
           size(variables.refParams) == 3 &&
-          variables.refParams.exists(p, p.name == 'kind' && p.value == 'pipeline') &&
-          variables.refParams.exists(p, p.name == 'name') &&
-          variables.refParams.exists(p, p.name == 'namespace' && p.value == 'platform-catalog')
+          variables.refParams.all(p, type(p) == map) &&
+          variables.refParams.exists(p, has(p.name) && p.name == 'kind' && has(p.value) && p.value == 'pipeline') &&
+          variables.refParams.exists(p, has(p.name) && p.name == 'name') &&
+          variables.refParams.exists(p, has(p.name) && p.name == 'namespace' && has(p.value) && p.value == 'platform-catalog')
         )
       message: pipelineRef must be the cluster resolver for a Pipeline in platform-catalog.
-    - expression: "!variables.isCreate || !has(object.spec.taskRunSpecs)"
-      message: No per-task overrides (taskRunSpecs).
+    # Per-task accounts (pipeline trust T5). A build run must carry taskRunSpecs that put the tasks running the repository's
+    # code on source-runner and push-image on image-pusher (Glidepath's cicd-run-shape / cicd-run-source-isolation), so a rerun
+    # must be able to carry them: but only those pairs, or a rerun could give a task that runs repo code a credentialed account.
+    - expression: >-
+        !variables.isCreate || !has(object.spec.taskRunSpecs) || (
+          type(object.spec.taskRunSpecs) == list && size(variables.specs) == size(variables.rawSpecs) &&
+          variables.specs.all(s, s.all(k, k in ['pipelineTaskName', 'serviceAccountName']) &&
+            has(s.serviceAccountName) && type(s.serviceAccountName) == string &&
+            has(s.pipelineTaskName) && type(s.pipelineTaskName) == string)
+        )
+      message: taskRunSpecs entries may name only a task and a serviceAccountName (both strings), with no other override (no podTemplate, computeResources, stepSpecs, sidecarSpecs or metadata).
+    - expression: >-
+        !variables.isCreate || variables.specs.all(s, !has(s.pipelineTaskName) || type(s.pipelineTaskName) != string ||
+          variables.specs.filter(t, has(t.pipelineTaskName) && t.pipelineTaskName == s.pipelineTaskName).size() == 1)
+      message: taskRunSpecs may name a task once per task.
+    - expression: >-
+        !variables.isCreate || variables.specs.all(s, !has(s.serviceAccountName) || !has(s.pipelineTaskName) ||
+          type(s.serviceAccountName) != string || type(s.pipelineTaskName) != string ||
+          (s.serviceAccountName == 'source-runner' && variables.pipelineName in variables.sourceTasks &&
+            s.pipelineTaskName in variables.sourceTasks[variables.pipelineName]) ||
+          (s.serviceAccountName == 'image-pusher' && variables.pipelineName in variables.pusherTasks &&
+            s.pipelineTaskName in variables.pusherTasks[variables.pipelineName]) ||
+          (s.serviceAccountName == 'glidepath-cloud-deployer' && variables.pipelineName in variables.cloudTasks &&
+            s.pipelineTaskName in variables.cloudTasks[variables.pipelineName]))
+      message: >-
+        taskRunSpecs entries (pipelineTaskName, serviceAccountName) may be only the platform's own pairs for this Pipeline:
+        a task that runs repository code as source-runner, the push task as image-pusher, a cloud deploy task as
+        glidepath-cloud-deployer (Glidepath cicdRunAdmission.sourceTasks, pusherTasks, cloudDeployerTasks); any other task runs as
+        pipeline-runner and needs no entry.
     - expression: >-
         !variables.isCreate || (
-          has(object.spec.taskRunTemplate) && has(object.spec.taskRunTemplate.serviceAccountName) &&
-          object.spec.taskRunTemplate.serviceAccountName == 'pipeline-runner'
+          has(object.spec.taskRunTemplate) && has(variables.trt.serviceAccountName) &&
+          variables.trt.serviceAccountName == 'pipeline-runner'
         )
       message: taskRunTemplate.serviceAccountName must be pipeline-runner.
     - expression: >-
-        !variables.isCreate || !has(object.spec.taskRunTemplate) ||
-        !has(object.spec.taskRunTemplate.podTemplate) ||
-        object.spec.taskRunTemplate.podTemplate.all(k, k == 'hostAliases')
+        !variables.isCreate || !has(variables.trt.podTemplate) ||
+        (type(variables.trt.podTemplate) == map && variables.trt.podTemplate.all(k, k == 'hostAliases'))
       message: taskRunTemplate.podTemplate may only set hostAliases.
     - expression: >-
-        !variables.isCreate || !has(object.spec.workspaces) ||
-        object.spec.workspaces.all(w, w.all(k, k in ['name', 'subPath', 'emptyDir', 'volumeClaimTemplate']))
+        !variables.isCreate || !has(object.spec.workspaces) || (
+          type(object.spec.workspaces) == list &&
+          variables.rawWorkspaces.all(w, type(w) == map && w.all(k, k in ['name', 'subPath', 'emptyDir', 'volumeClaimTemplate']))
+        )
       message: Workspaces may only be emptyDir or volumeClaimTemplate.
+    # A volumeClaimTemplate is a PVC the run creates: accessModes and a bounded storage request, nothing that names or clones
+    # another volume (dataSource, dataSourceRef, volumeName, selector). storageClassName only if the cluster allowlists it
+    # (glidepath.runStorageClasses). Tekton may store metadata.creationTimestamp: null and status: {}; nothing else.
     - expression: >-
-        !variables.isCreate || !has(object.metadata.annotations) ||
-        object.metadata.annotations.all(k, !k.startsWith('pipelinesascode.tekton.dev/'))
+        !variables.isCreate || variables.rawWorkspaces.all(w, type(w) != map || !has(w.volumeClaimTemplate) || (
+          type(w.volumeClaimTemplate) == map &&
+          w.volumeClaimTemplate.all(k, k in ['metadata', 'spec', 'status']) &&
+          (!has(w.volumeClaimTemplate.metadata) || (type(w.volumeClaimTemplate.metadata) == map &&
+            w.volumeClaimTemplate.metadata.all(k, k == 'creationTimestamp'))) &&
+          (!has(w.volumeClaimTemplate.status) || (type(w.volumeClaimTemplate.status) == map && size(w.volumeClaimTemplate.status) == 0)) &&
+          has(w.volumeClaimTemplate.spec) && type(w.volumeClaimTemplate.spec) == map &&
+          w.volumeClaimTemplate.spec.all(k, k in ['accessModes', 'resources', 'storageClassName', 'volumeMode']) &&
+          (!has(w.volumeClaimTemplate.spec.accessModes) || (type(w.volumeClaimTemplate.spec.accessModes) == list &&
+            w.volumeClaimTemplate.spec.accessModes.all(m, m == 'ReadWriteOnce'))) &&
+          (!has(w.volumeClaimTemplate.spec.volumeMode) || w.volumeClaimTemplate.spec.volumeMode == 'Filesystem') &&
+          (!has(w.volumeClaimTemplate.spec.storageClassName) || w.volumeClaimTemplate.spec.storageClassName in variables.storageClasses) &&
+          has(w.volumeClaimTemplate.spec.resources) && type(w.volumeClaimTemplate.spec.resources) == map &&
+          w.volumeClaimTemplate.spec.resources.all(k, k == 'requests') &&
+          has(w.volumeClaimTemplate.spec.resources.requests) && type(w.volumeClaimTemplate.spec.resources.requests) == map &&
+          w.volumeClaimTemplate.spec.resources.requests.all(k, k == 'storage') &&
+          has(w.volumeClaimTemplate.spec.resources.requests.storage) &&
+          type(w.volumeClaimTemplate.spec.resources.requests.storage) == string &&
+          w.volumeClaimTemplate.spec.resources.requests.storage.matches('^([1-9]|[1-4][0-9]|50)Gi$')
+        ))
+      message: A workspace volumeClaimTemplate may set only accessModes (ReadWriteOnce) and a storage request of 1Gi to 50Gi (no dataSource, dataSourceRef, volumeName, selector, limits, or a storageClassName the cluster does not allow).
+    - expression: >-
+        !variables.isCreate || !variables.anns.exists(k, k.startsWith('pipelinesascode.tekton.dev/'))
       message: A run glidepath-api starts must not carry Pipelines-as-Code annotations (it would report status for a trigger it is not).
+    # An explicit allowlist, so a new prefix cannot slip in: the origin stamps the ref-protection guard (verify-ref-protection)
+    # checks against the git host (Glidepath refuses them on a run a .tekton file creates), the rerun/idempotency markers
+    # glidepath-api sets, and the initiator the promote and rollback TriggerTemplates record.
+    - expression: >-
+        !variables.isCreate || variables.anns.all(k, k in ['glidepath.io/origin-ref', 'glidepath.io/origin-sha',
+          'glidepath.io/origin-event', 'glidepath.hangar.io/rerun-of', 'glidepath.hangar.io/idempotency-key-sha256',
+          'hangar.io/initiator'])
+      message: A run glidepath-api starts may carry only the annotations glidepath.io/origin-ref, origin-sha and origin-event, glidepath.hangar.io/rerun-of and idempotency-key-sha256, and hangar.io/initiator.
     - expression: >-
         variables.isCreate || (
           object.spec.all(k, k == 'status' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
@@ -116,6 +205,66 @@ spec:
           (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
         )
       message: glidepath-api may not change an existing PipelineRun's labels or annotations.
+---
+# The required side of the per-task accounts, held to the same rule as Glidepath's cicd-run-source-isolation (glidepath
+# control plane) holds a Pipelines-as-Code run to: a run of a Pipeline that runs the repository's code (sourceTasks) must give
+# those tasks to source-runner, and its push task (pusherTasks) to image-pusher. Without it a rerun that dropped taskRunSpecs
+# would run repository code as pipeline-runner, with the platform's token. Separate policy so its action can follow Glidepath's
+# sourceIsolationActions: glidepath.sourceIsolation (default deny) sets both. While a cluster upgrades to a Glidepath that
+# generates the entries, set it to warn: runs without them are admitted with a warning, and the first policy still refuses
+# any credentialed account on a task that runs repository code.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: glidepath-api-pipelinerun-source-isolation
+  annotations:
+    policies.kyverno.io/title: glidepath-api source isolation
+    policies.kyverno.io/description: A PipelineRun glidepath-api starts for a Pipeline that runs repository code must run those tasks as source-runner and the push task as image-pusher.
+spec:
+  validationActions: @@GLIDEPATH_SOURCE_ISOLATION_ACTIONS@@
+  failurePolicy: Fail
+  autogen:
+    validatingAdmissionPolicy:
+      enabled: true
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["tekton.dev"]
+        apiVersions: ["*"]
+        operations: ["CREATE"]
+        resources: ["pipelineruns"]
+  matchConditions:
+    - name: a-glidepath-api-run-of-a-pipeline-that-runs-repository-code
+      expression: >-
+        has(request.userInfo.username) && request.userInfo.username == 'system:serviceaccount:platform-system:glidepath-api' &&
+        has(request.namespace) && request.namespace.matches('^(app|infra)-[a-z0-9-]+-cicd$') &&
+        has(object.spec.pipelineRef) && type(object.spec.pipelineRef) == map &&
+        has(object.spec.pipelineRef.params) && type(object.spec.pipelineRef.params) == list &&
+        object.spec.pipelineRef.params.exists(p, type(p) == map && has(p.name) && p.name == 'name' && has(p.value) &&
+          type(p.value) == string && p.value in @@GLIDEPATH_SOURCE_TASK_PIPELINES@@)
+  variables:
+    - name: sourceTasks
+      expression: '@@GLIDEPATH_SOURCE_TASKS@@'
+    - name: pusherTasks
+      expression: '@@GLIDEPATH_PUSHER_TASKS@@'
+    - name: pipelineName
+      expression: "object.spec.pipelineRef.params.filter(p, type(p) == map && has(p.name) && p.name == 'name' && has(p.value) && type(p.value) == string)[0].value"
+    - name: specs
+      expression: "has(object.spec.taskRunSpecs) && type(object.spec.taskRunSpecs) == list ? object.spec.taskRunSpecs.filter(s, type(s) == map) : []"
+  validations:
+    - expression: >-
+        variables.sourceTasks[variables.pipelineName].all(t,
+          variables.specs.exists(s, has(s.pipelineTaskName) && s.pipelineTaskName == t &&
+            has(s.serviceAccountName) && s.serviceAccountName == 'source-runner'))
+      message: This Pipeline runs the repository's own code, so its tasks listed in Glidepath's cicdRunAdmission.sourceTasks must run as source-runner (taskRunSpecs). A rerun of a run that has no such entries is refused (or, with glidepath.sourceIsolation warn, warned about); start a new run from the repository instead.
+    - expression: >-
+        !(variables.pipelineName in variables.pusherTasks) ||
+        variables.pusherTasks[variables.pipelineName].all(t,
+          variables.specs.exists(s, has(s.pipelineTaskName) && s.pipelineTaskName == t &&
+            has(s.serviceAccountName) && s.serviceAccountName == 'image-pusher'))
+      message: This Pipeline pushes the image it built, so its tasks listed in Glidepath's cicdRunAdmission.pusherTasks must run as image-pusher (taskRunSpecs).
 ---
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy

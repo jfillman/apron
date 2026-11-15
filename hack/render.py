@@ -156,6 +156,7 @@ def tokens(v):
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
         **flight_admission_tokens(g),
+        **glidepath_run_tokens(g),
         **signing_tokens(v, g),
         **clearance_tokens(g),
         **clearance_slack_tokens(v, g),
@@ -825,6 +826,40 @@ def flight_admission_tokens(g):
     }
 
 
+def glidepath_run_tokens(g):
+    """glidepath-api's PipelineRun policies (30-policy/kyverno-policies/tower-identity-writes.yaml, pipeline trust T5): the
+    per-task accounts of Glidepath's run admission (versions.glidepathRunTasks, checked against the pinned Glidepath by
+    hack/glidepath_tasks.py), and glidepath.sourceIsolation, which sets the action of the isolation rule here AND of Glidepath's
+    own cicd-run-source-isolation binding (cicdRunAdmission.sourceIsolationActions in the control plane's values), so the two
+    creators of a run are held to the same rule at the same time."""
+    lists = g("versions.glidepathRunTasks", None) or {}
+    mode = str(g("glidepath.sourceIsolation", "") or "deny")
+    if mode not in ("deny", "warn"):
+        raise ApronError(f"glidepath.sourceIsolation is {mode!r}: deny (default) or warn (only while upgrading to a Glidepath that "
+                         "generates the source-runner entries; glidepath docs/admin/security.md, upgrade note)")
+    shape = str(g("glidepath.runShape", "") or "deny")
+    if shape not in ("deny", "warn"):
+        raise ApronError(f"glidepath.runShape is {shape!r}: deny (default) or warn (only while upgrading)")
+    rp = g("glidepath.refProtection", None)
+    rp = "off" if rp is False else str(rp if rp not in (None, "") else "required")  # a bare YAML off reads as false
+    if rp not in ("required", "off"):
+        raise ApronError(f"glidepath.refProtection is {rp!r}: required (default) or off")
+    classes = g("glidepath.runStorageClasses", None) or []
+    if not isinstance(classes, list) or not all(isinstance(c, str) and c for c in classes):
+        raise ApronError("glidepath.runStorageClasses must be a list of StorageClass names")
+    sources = dict(lists.get("sourceTasks") or {})
+    return {
+        "GLIDEPATH_SOURCE_TASKS": json.dumps(sources, sort_keys=True),
+        "GLIDEPATH_SOURCE_TASK_PIPELINES": json.dumps(sorted(sources)),
+        "GLIDEPATH_PUSHER_TASKS": json.dumps(dict(lists.get("pusherTasks") or {}), sort_keys=True),
+        "GLIDEPATH_CLOUD_DEPLOYER_TASKS": json.dumps(dict(lists.get("cloudDeployerTasks") or {}), sort_keys=True),
+        "GLIDEPATH_RUN_SHAPE_ACTIONS": "[Deny]" if shape == "deny" else "[Warn, Audit]",
+        "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
+        "GLIDEPATH_API_STORAGE_CLASSES": json.dumps(classes),
+        "GLIDEPATH_SOURCE_ISOLATION_ACTIONS": "[Deny]" if mode == "deny" else "[Warn, Audit]",
+    }
+
+
 def clearance_admission_tokens(g):
     """The Clearance gate on an upper cluster (clearance G-ARGO-2, templates/56-clearance-gate): Warn until
     clearance.gate.enforce, which flips validationActions and parameterNotFoundAction together (an enforcing binding
@@ -1054,6 +1089,9 @@ def main():
                 for b in bad:
                     print(f"error: {b}", file=sys.stderr)
                 return 1
+        if not a.no_check and get(v, "components.policy") and get(v, "components.towerAccessHub"):
+            from glidepath_tasks import check as check_glidepath_tasks
+            check_glidepath_tasks(v)
         out = a.out or os.path.dirname(os.path.abspath(a.cluster))
         files, added, changed, removed = render(v, out, a.apron_root)
     except (ApronError, OSError) as e:

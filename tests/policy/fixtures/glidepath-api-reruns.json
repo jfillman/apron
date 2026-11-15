@@ -1,0 +1,435 @@
+{
+ "rerun-build": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-ref": "refs/heads/main",
+    "glidepath.io/origin-sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "params": [
+    {
+     "name": "app-name",
+     "value": "sample"
+    }
+   ],
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "build"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunSpecs": [
+    {
+     "pipelineTaskName": "build-source",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "unit-test",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-image",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-python-wheel-artifact",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-go-binary-artifact",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "push-image",
+     "serviceAccountName": "image-pusher"
+    }
+   ],
+   "taskRunTemplate": {
+    "podTemplate": {
+     "hostAliases": [
+      {
+       "hostnames": [
+        "tower.example.test"
+       ],
+       "ip": "192.0.2.10"
+      }
+     ]
+    },
+    "serviceAccountName": "pipeline-runner"
+   },
+   "timeouts": {
+    "pipeline": "1h"
+   },
+   "workspaces": [
+    {
+     "name": "source",
+     "volumeClaimTemplate": {
+      "spec": {
+       "accessModes": [
+        "ReadWriteOnce"
+       ],
+       "resources": {
+        "requests": {
+         "storage": "2Gi"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rerun-build-pr": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-event": "pull_request"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "build"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunSpecs": [
+    {
+     "pipelineTaskName": "build-source",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "unit-test",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-image",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-python-wheel-artifact",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "build-go-binary-artifact",
+     "serviceAccountName": "source-runner"
+    },
+    {
+     "pipelineTaskName": "push-image",
+     "serviceAccountName": "image-pusher"
+    }
+   ],
+   "taskRunTemplate": {
+    "serviceAccountName": "pipeline-runner"
+   },
+   "workspaces": [
+    {
+     "name": "source",
+     "volumeClaimTemplate": {
+      "spec": {
+       "accessModes": [
+        "ReadWriteOnce"
+       ],
+       "resources": {
+        "requests": {
+         "storage": "2Gi"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rerun-build-pre-hardening": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-ref": "refs/heads/main",
+    "glidepath.io/origin-sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "build"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunTemplate": {
+    "podTemplate": {
+     "hostAliases": [
+      {
+       "hostnames": [
+        "tower.example.test"
+       ],
+       "ip": "192.0.2.10"
+      }
+     ]
+    },
+    "serviceAccountName": "pipeline-runner"
+   },
+   "timeouts": {
+    "pipeline": "1h"
+   },
+   "workspaces": [
+    {
+     "name": "source",
+     "volumeClaimTemplate": {
+      "spec": {
+       "accessModes": [
+        "ReadWriteOnce"
+       ],
+       "resources": {
+        "requests": {
+         "storage": "2Gi"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "rerun-deploy": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-ref": "refs/heads/main",
+    "glidepath.io/origin-sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "deploy"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunSpecs": [
+    {
+     "pipelineTaskName": "deploy-aws-lambda",
+     "serviceAccountName": "glidepath-cloud-deployer"
+    },
+    {
+     "pipelineTaskName": "deploy-aws-ecs",
+     "serviceAccountName": "glidepath-cloud-deployer"
+    }
+   ],
+   "taskRunTemplate": {
+    "serviceAccountName": "pipeline-runner"
+   }
+  }
+ },
+ "rerun-release": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-ref": "refs/tags/v1.2.3",
+    "glidepath.io/origin-sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "release"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunTemplate": {
+    "podTemplate": {
+     "hostAliases": [
+      {
+       "hostnames": [
+        "tower.example.test"
+       ],
+       "ip": "192.0.2.10"
+      }
+     ]
+    },
+    "serviceAccountName": "pipeline-runner"
+   },
+   "workspaces": [
+    {
+     "emptyDir": {},
+     "name": "source"
+    }
+   ]
+  }
+ },
+ "rerun-test": {
+  "apiVersion": "tekton.dev/v1",
+  "kind": "PipelineRun",
+  "metadata": {
+   "annotations": {
+    "glidepath.hangar.io/idempotency-key-sha256": "520bbeb396cb00ccc986c7924d0cabcf482618490e95689cf96c8d2a5e88b039",
+    "glidepath.hangar.io/rerun-of": "x",
+    "glidepath.io/origin-ref": "refs/heads/main",
+    "glidepath.io/origin-sha": "b01565a54f78f0f28d13ec2a2fca114b3f9b3569"
+   },
+   "labels": {
+    "hangar.io/app": "sample",
+    "hangar.io/flow": "ci"
+   },
+   "name": "x-rerun-520bb",
+   "namespace": "app-sample-cicd"
+  },
+  "spec": {
+   "pipelineRef": {
+    "params": [
+     {
+      "name": "kind",
+      "value": "pipeline"
+     },
+     {
+      "name": "name",
+      "value": "test"
+     },
+     {
+      "name": "namespace",
+      "value": "platform-catalog"
+     }
+    ],
+    "resolver": "cluster"
+   },
+   "taskRunSpecs": [
+    {
+     "pipelineTaskName": "run-integration-script",
+     "serviceAccountName": "source-runner"
+    }
+   ],
+   "taskRunTemplate": {
+    "podTemplate": {
+     "hostAliases": [
+      {
+       "hostnames": [
+        "tower.example.test"
+       ],
+       "ip": "192.0.2.10"
+      }
+     ]
+    },
+    "serviceAccountName": "pipeline-runner"
+   },
+   "workspaces": [
+    {
+     "name": "source",
+     "volumeClaimTemplate": {
+      "spec": {
+       "accessModes": [
+        "ReadWriteOnce"
+       ],
+       "resources": {
+        "requests": {
+         "storage": "5Gi"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+}
