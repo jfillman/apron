@@ -1,0 +1,140 @@
+# Egress of the Go gateway and its read API (rendered with gateway-go.yaml unless autopilot.gateway.go.egress.enabled is false; the Python path
+# has no egress policy). Namespaces are named by kubernetes.io/metadata.name, never by a pod label a chart could rename.
+#
+# Egress of the gateway: DNS, its database, the API server (the cluster's own addresses, autopilot.gateway.go.egress.apiServerCIDRs), the
+# Clearance core, glidepath-api and its broker, Thanos and Loki and the OTLP collector, people-dex, and HTTPS to the public internet
+# (GitHub, the model provider, Tower's catalog and keys) except the private ranges, which autopilot.gateway.go.egress.extraCIDRs reopens for one
+# address (a Tower on a private network). Ingress is networkpolicy.yaml's and monitoring.yaml's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: autopilot-gateway-egress
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: autopilot-gateway}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {cnpg.io/cluster: autopilot-pg}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to: @@AUTOPILOT_GO_API_SERVER_RULES@@
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 6443}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: @@CLEARANCE_NAMESPACE@@}
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: platform-system}
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+      ports:
+        - {protocol: TCP, port: 9090}
+        - {protocol: TCP, port: 80}
+        - {protocol: TCP, port: 4318}
+#@if autopilot.people and components.gatewayRoutes
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: people-dex}
+      ports:
+        - {protocol: TCP, port: 5556}
+#@end
+    # HTTPS to the public internet: GitHub (api.github.com, the agents' App), the registry (ghcr.io) and the model provider. A NetworkPolicy
+    # matches addresses, not names, and these services publish no stable address list, so this is the narrowest rule plain NetworkPolicy can say:
+    # port 443 to anything that is not a private range. Tighten it with a FQDN-aware policy (Cilium, or an egress proxy) where the cluster has one.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+#@if autopilot.gateway.go.plainHttp.catalog
+        - {protocol: TCP, port: 80}
+#@end
+#@if autopilot.gateway.go.egress.extraCIDRs
+    - to: @@AUTOPILOT_GO_EXTRA_EGRESS_RULES@@
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # a private Tower that serves its catalog over plain http (go.plainHttp.catalog)
+#@end
+---
+# Egress of the read API: DNS, its database, the API server (TokenReview), the OTLP collector, people-dex, and HTTPS (Tower's catalog and keys).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: autopilot-api-egress
+  namespace: autopilot-system
+  labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: autopilot-api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {cnpg.io/cluster: autopilot-pg}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to: @@AUTOPILOT_GO_API_SERVER_RULES@@
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 6443}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: observability}
+      ports:
+        - {protocol: TCP, port: 4318}
+#@if autopilot.people and components.gatewayRoutes
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: people-dex}
+      ports:
+        - {protocol: TCP, port: 5556}
+#@end
+    # The read API calls only Tower's catalog and key set, so it gets the public-HTTPS rule only when there is a Tower (a Tower on a private
+    # network is `go.egress.extraCIDRs`, below); addresses, not names, for the same reason as above.
+#@if tower.cluster and autopilot.gateway.go.plainHttp.catalog
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # Tower's catalog is plain http (go.plainHttp.catalog)
+#@end
+#@if tower.cluster and not autopilot.gateway.go.plainHttp.catalog
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}
+#@end
+#@if autopilot.gateway.go.egress.extraCIDRs
+    - to: @@AUTOPILOT_GO_EXTRA_EGRESS_RULES@@
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}   # a private Tower that serves its catalog over plain http (go.plainHttp.catalog)
+#@end
