@@ -837,6 +837,10 @@ def glidepath_run_tokens(g):
     if mode not in ("deny", "warn"):
         raise ApronError(f"glidepath.sourceIsolation is {mode!r}: deny (default) or warn (only while upgrading to a Glidepath that "
                          "generates the source-runner entries; glidepath docs/admin/security.md, upgrade note)")
+    rp = g("glidepath.refProtection", None)
+    rp = "off" if rp is False else str(rp if rp not in (None, "") else "required")  # a bare YAML off reads as false
+    if rp not in ("required", "off"):
+        raise ApronError(f"glidepath.refProtection is {rp!r}: required (default) or off")
     classes = g("glidepath.runStorageClasses", None) or []
     if not isinstance(classes, list) or not all(isinstance(c, str) and c for c in classes):
         raise ApronError("glidepath.runStorageClasses must be a list of StorageClass names")
@@ -846,6 +850,7 @@ def glidepath_run_tokens(g):
         "GLIDEPATH_SOURCE_TASK_PIPELINES": json.dumps(sorted(sources)),
         "GLIDEPATH_PUSHER_TASKS": json.dumps(dict(lists.get("pusherTasks") or {}), sort_keys=True),
         "GLIDEPATH_CLOUD_DEPLOYER_TASKS": json.dumps(dict(lists.get("cloudDeployerTasks") or {}), sort_keys=True),
+        "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
         "GLIDEPATH_API_STORAGE_CLASSES": json.dumps(classes),
         "GLIDEPATH_SOURCE_ISOLATION_ACTIONS": "[Deny]" if mode == "deny" else "[Warn, Audit]",
     }

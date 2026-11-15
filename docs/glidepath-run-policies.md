@@ -66,3 +66,25 @@ The first policy admits runs from before and after the Glidepath release, so it 
 Cluster order: `hangar-dev` first (it runs the Glidepath control plane and `glidepath-api`; its tree gets the policy); then, with
 the owner's OK, any other cluster that runs the control plane. A cluster without the Glidepath control plane (the lab's
 `hangar-prod`) renders no change from this.
+
+## Glidepath settings in `cluster.yaml`
+
+| Key | Values | Renders |
+|---|---|---|
+| `glidepath.sourceIsolation` | `deny` (default), `warn` | the action of both source-isolation bindings: Glidepath's `cicdRunAdmission.sourceIsolationActions` (control-plane values) and glidepath-api's policy here. Glidepath's `cicd-run-shape` and `cicd-run-no-taskruns` have no switch and stay Deny. |
+| `glidepath.refProtection` | `required` (default), `off` | the catalog's `refProtection.mode` (`glidepath-catalog` Application values) |
+| `glidepath.runStorageClasses` | list, default none | the `storageClassName`s a run glidepath-api starts may name |
+| `versions.glidepath` | a branch, tag or commit | the Glidepath revision every Glidepath Application tracks (`main` in `versions.yaml`) |
+
+**`glidepath.refProtection: off`** is set only when the cluster's own `cluster.yaml` says so; there is no host or plan
+detection. The catalog's `verify-ref-protection` task, first in every privileged Pipeline and in the build, then asks nothing
+and records `ref protection: Off here` in its result and in the release record. What that leaves open: a release, deploy or
+test Pipeline starts from any push to the configured branch name or a `v*` tag even if the git host does not require review
+for that ref (no ruleset, e.g. GitHub Free), so anyone who can push a tag or an unprotected branch can start them. Only the
+admission policies' name check remains. See Glidepath's `docs/admin/security.md`, "Ref protection". `required` is the
+enterprise setting; use `off` only where the host plan cannot offer protection.
+
+**`versions.glidepath`**: `cluster.yaml` overrides `versions.yaml` (resolution order: versions.yaml, runtime, profile,
+`cluster.yaml`), and the render reads the merged value, so a cluster pins its own Glidepath revision with
+`versions: {glidepath: <ref>}`. If you change it, change `versions.glidepathRunTasks` to match; the render check refuses a
+mismatch.

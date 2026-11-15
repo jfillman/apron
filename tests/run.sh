@@ -372,6 +372,25 @@ has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: 
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
 has "${LAB}/dev/${GW}" "expression: '\[\]'" "glidepath-api: no storage class is allowed by default"
+# glidepath.refProtection: the catalog's refProtection.mode (T3's verify-ref-protection task); required unless the cluster says off.
+CATV=50-glidepath/glidepath-catalog/application.yaml
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {refProtection: off}'; } >"${GA}/rp-off.yaml"
+mkdir -p "${GA}/rp-off" "${GA}/rp-bad"
+cp "${GA}/rp-off.yaml" "${GA}/rp-off/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {refProtection: sometimes}'; } >"${GA}/rp-bad/cluster.yaml"
+render_ok "${GA}/rp-off" "dev glidepath.refProtection off"
+has "${LAB}/dev/${CATV}" '^            mode: "required"$' "glidepath catalog: refProtection.mode is required by default"
+has "${GA}/rp-off/${CATV}" '^            mode: "off"$' "glidepath catalog: glidepath.refProtection off renders mode off"
+if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${GA}/rp-bad/err"; then
+  bad "glidepath.refProtection: sometimes was accepted"
+else
+  grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
+fi
+# versions.glidepath: cluster.yaml overrides versions.yaml (the resolution order), so a cluster can pin its own Glidepath revision.
+mkdir -p "${GA}/rev"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'versions: {glidepath: v9.9.9}'; } >"${GA}/rev/cluster.yaml"
+APRON_GLIDEPATH_CHECK=off python3 hack/render.py --cluster "${GA}/rev/cluster.yaml" >/dev/null 2>&1
+has "${GA}/rev/50-glidepath/glidepath-control-plane/application.yaml" 'targetRevision: v9.9.9' "versions.glidepath in cluster.yaml overrides the pin"
 if out="$(python3 tests/policy/test_glidepath_api_rerun.py "${LAB}/dev" "${GA}/warn" 2>&1)"; then
   case "${out}" in
     skipped*) echo "  skip glidepath-api rerun policy CEL tests: ${out} (a skip is not a pass)";;

@@ -51,6 +51,12 @@ spec:
           # ConfigMap (tekton-operator/pipelines-as-code-vendored.yaml): the two must match.
           pipelinesAsCode:
             applicationName: @@PAC_APPLICATION_NAME@@
+          # The catalog's verify-ref-protection task (pipeline trust T3): asks glidepath-api whether the git host protects the
+          # pushed ref. required (default) refuses a run whose ref the host does not protect; off (cluster.yaml
+          # glidepath.refProtection: off, explicit only, no plan detection) asks nothing and records "Off here" in the release
+          # record. Quoted: an unquoted off is a boolean to Helm. glidepath docs/admin/security.md, "Ref protection".
+          refProtection:
+            mode: @@GLIDEPATH_REF_PROTECTION@@
 #@if itsm.provider == 'webhook'
           # Change management (glidepath docs/admin/change-management.md) from cluster.yaml itsm: the webhook provider
           # (the lab points it at the throwaway mock, glidepath hack/lab/itsm-mock.yaml). A real install sets provider
