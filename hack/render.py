@@ -160,7 +160,7 @@ def tokens(v):
         # Kyverno's TTL cleanup interval (chart key features.ttlController.reconciliationInterval, chart default 1m) and the
         # AgentRun reaper's cron schedule (offset so it does not fire with the other platform CronJobs).
         "KYVERNO_TTL_INTERVAL": cron_free_duration(g("kyverno.ttlReconciliationInterval", "") or "1m", "kyverno.ttlReconciliationInterval"),
-        "AGENTRUN_REAPER_SCHEDULE": cron_schedule(g("autopilot.reaperSchedule", "") or "4-59/10 * * * *", "autopilot.reaperSchedule"),
+        "AGENTRUN_REAPER_SCHEDULE": cron_schedule(g("autopilot.reaperSchedule", "") or "7-59/10 * * * *", "autopilot.reaperSchedule"),
         **signing_tokens(v, g),
         **clearance_tokens(g),
         **clearance_slack_tokens(v, g),
@@ -671,7 +671,7 @@ def clearance_targets_tokens(v, g):
     url = g("clearance.gate.url", "") or f"http://clearance-core.{ns_of_core}.svc:8080"
     if not TARGET_SOURCE.match(cluster):
         raise ApronError(f"clearance.targets: the cluster name {cluster!r} is not a source name")
-    schedule = str(g("clearance.targets.schedule", "") or "2-59/15 * * * *")
+    schedule = str(g("clearance.targets.schedule", "") or "3-59/15 * * * *")
     if len(schedule.split()) != 5:
         raise ApronError("clearance.targets.schedule is a five-field cron expression")
     tier = "flight" if (g("zone", "") == "upper" and g("registries.flight.namespace", "")) else "ground"

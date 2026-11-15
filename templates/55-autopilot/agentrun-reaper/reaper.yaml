@@ -1,4 +1,4 @@
-# The AgentRun reaper's backstop (Autopilot decision D20): every 10 minutes (at minute 4, autopilot.reaperSchedule; each platform CronJob has its own minute), delete each AgentRun in autopilot-runs
+# The AgentRun reaper's backstop (Autopilot decision D20): every 10 minutes (at minute 7, autopilot.reaperSchedule; each platform CronJob has its own minute), delete each AgentRun in autopilot-runs
 # whose deadline, min(spec.expiresAt, creation + max TTL), passed more than RETENTION_MINUTES ago. It needs neither
 # Clearance nor function-agentrun. Clearance (AP-A2) deletes a run as soon as it has recorded the run's evidence; this
 # catches every run Clearance never deletes (Clearance down or absent, a run created by hand) and, by deleting the XR,

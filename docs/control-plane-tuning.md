@@ -107,9 +107,9 @@ Evidence-based suggestions for the API server and etcd, each needing its own rev
 hangar-dev fell over under load that came in waves on :00/:30. What changed, by cause:
 
 - **CronJobs fire in their own minute.** Every platform CronJob has its own minute of the hour, none on :00 or :30, period kept:
-  `agentrun-reaper` `4-59/10` (`autopilot.reaperSchedule`), `clearance-targets` `2-59/15` (`clearance.targets.schedule`), and in
-  Glidepath `stalled-pipeline-detector` minute 1 of every 5, `release-record-sweeper` 3 of every 10, `pr-namespace-ttl-sweep` 5 and 35,
-  `pipelinerun-pruner` 7, and each app's `pr-token-refresher` at a minute derived from the app name (`cronSchedules` in Glidepath's
+  `agentrun-reaper` `7-59/10` (`autopilot.reaperSchedule`), `clearance-targets` `3-59/15` (`clearance.targets.schedule`), and in
+  Glidepath `stalled-pipeline-detector` minute 1 of every 5, `release-record-sweeper` 2 of every 10, `pr-namespace-ttl-sweep` 8 and 38,
+  `pipelinerun-pruner` 13, and each app's `pr-token-refresher` at a minute derived from the app name (`cronSchedules` in Glidepath's
   control-plane values). The CronJobs set `concurrencyPolicy: Forbid` and a `startingDeadlineSeconds`.
 - **Kyverno's TTL cleanup** (`cleanup.kyverno.io/ttl`; here the tower-breakglass RoleBindings and copy-mode pods) re-lists every labelled kind
   each interval. The chart default is 1m: 476 SelfSubjectAccessReviews a minute on hangar-dev. `kyverno.ttlReconciliationInterval` sets

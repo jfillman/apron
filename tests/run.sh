@@ -391,7 +391,7 @@ fi
 KV=30-policy/kyverno/application.yaml
 has "${LAB}/dev/${KV}" '^            reconciliationInterval: 15m$' "dev: Kyverno ttlController.reconciliationInterval is 15m"
 has "${LAB}/prod/${KV}" '^            reconciliationInterval: 1m$' "prod: Kyverno ttlController.reconciliationInterval stays at the chart's 1m"
-has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  schedule: "4-59/10 \* \* \* \*"$' "dev: agentrun-reaper runs at minute 4"
+has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  schedule: "7-59/10 \* \* \* \*"$' "dev: agentrun-reaper runs at minute 7"
 has "${LAB}/dev/55-autopilot/agentrun-reaper/reaper.yaml" '^  startingDeadlineSeconds: 300$' "dev: agentrun-reaper has a startingDeadlineSeconds"
 has "${LAB}/dev/01-argocd-platform/install.yaml" 'ignoreResourceUpdates.Secret' "dev: Argo CD ignores the observer's heartbeat on Secrets"
 { cat "${LAB}/dev/cluster.yaml"; echo 'kyverno: {ttlReconciliationInterval: soon}'; } >"${GA}/kv-bad.yaml"
@@ -640,7 +640,7 @@ has "${TP}" 'value: "hangar-prod"' "targets (prod): the source is the cluster"
 has "${TP}" 'path: clearance, audience: clearance' "targets (prod): a projected token for audience clearance, minted per run"
 has "${TP}" 'hostAliases: \[\{"ip": "192.0.2.1"' "targets (prod): the hub's address through the host alias"
 has "${TP}" 'cidr": "192.0.2.1/32"' "targets (prod): egress to the core's address only"
-has "${TP}" 'schedule: "2-59/15 \* \* \* \*"' "targets (prod): every 15 minutes, at minute 2"
+has "${TP}" 'schedule: "3-59/15 \* \* \* \*"' "targets (prod): every 15 minutes, at minute 3"
 if grep -qE 'automountServiceAccountToken: true|hostNetwork|privileged: true' "${TP}"; then bad "targets (prod): the publisher is not locked down"; else ok "targets (prod): the Job mounts no default token, no host network, no privilege"; fi
 has "${TMP}/tgt-prod/59-clearance-targets/application.yaml" 'path: 59-clearance-targets' "targets (prod): its own Application"
 # enforce mode flips the Argo CD gate's declared mode; an unprotected environment's Glidepath gate flags
