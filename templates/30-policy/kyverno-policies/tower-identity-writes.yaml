@@ -185,11 +185,11 @@ spec:
         !variables.isCreate || variables.anns.all(k, k in ['glidepath.io/origin-ref', 'glidepath.io/origin-sha',
           'glidepath.io/origin-event', 'glidepath.hangar.io/rerun-of', 'glidepath.hangar.io/idempotency-key-sha256',
           'hangar.io/initiator', 'glidepath.io/origin-chain-id', 'glidepath.io/origin-chain-slug', 'glidepath.io/origin-trace-id',
-          'glidepath.io/origin-traceparent', 'glidepath.io/origin-flow-start-time', 'glidepath.io/origin-finished-at'])
-      message: A run glidepath-api starts may carry only the annotations glidepath.io/origin-ref, origin-sha and origin-event, the promotion-lineage annotations glidepath.io/origin-chain-id, origin-chain-slug, origin-trace-id, origin-traceparent, origin-flow-start-time and origin-finished-at, glidepath.hangar.io/rerun-of and idempotency-key-sha256, and hangar.io/initiator.
+          'glidepath.io/origin-traceparent', 'glidepath.io/origin-finished-at'])
+      message: A run glidepath-api starts may carry only the annotations glidepath.io/origin-ref, origin-sha and origin-event, the promotion-lineage annotations glidepath.io/origin-chain-id, origin-chain-slug, origin-trace-id, origin-traceparent and origin-finished-at, glidepath.hangar.io/rerun-of and idempotency-key-sha256, and hangar.io/initiator.
     # Promotion lineage (glidepath docs/admin/api.md#promotion-lineage): the flow that built the image a promote or rollback releases.
     # Information, not authority, but the catalog's trace join and release record read them, so each carries only the shape glidepath-api
-    # writes: a chain id (UUID), the chain's two-word slug, a trace id (32 hex), a W3C traceparent, and RFC 3339 times.
+    # writes: a chain id (UUID), the chain's two-word slug, a trace id (32 hex), a W3C traceparent, and an RFC 3339 time. These are glidepath's lineage.Shapes table (glidepath-api/internal/lineage/shapes.go): keep identical.
     - expression: >-
         !variables.isCreate || (
           (!('glidepath.io/origin-chain-id' in variables.anns) ||
@@ -200,12 +200,10 @@ spec:
             variables.anns['glidepath.io/origin-trace-id'].matches('^[0-9a-f]{32}$')) &&
           (!('glidepath.io/origin-traceparent' in variables.anns) ||
             variables.anns['glidepath.io/origin-traceparent'].matches('^00-[0-9a-f]{32}-[0-9a-f]{16}-01$')) &&
-          (!('glidepath.io/origin-flow-start-time' in variables.anns) ||
-            variables.anns['glidepath.io/origin-flow-start-time'].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?Z$')) &&
           (!('glidepath.io/origin-finished-at' in variables.anns) ||
             variables.anns['glidepath.io/origin-finished-at'].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?Z$'))
         )
-      message: The promotion-lineage annotations must have the shape glidepath-api writes - origin-chain-id a UUID, origin-chain-slug two lowercase words joined by a hyphen, origin-trace-id 32 hex characters, origin-traceparent a W3C traceparent (00-<32 hex>-<16 hex>-01), origin-flow-start-time and origin-finished-at an RFC 3339 UTC time.
+      message: The promotion-lineage annotations must have the shape glidepath-api writes - origin-chain-id a UUID, origin-chain-slug two lowercase words joined by a hyphen, origin-trace-id 32 hex characters, origin-traceparent a W3C traceparent (00-<32 hex>-<16 hex>-01) and origin-finished-at an RFC 3339 UTC time.
     - expression: >-
         variables.isCreate || (
           object.spec.all(k, k == 'status' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
