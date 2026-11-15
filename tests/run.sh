@@ -1167,6 +1167,12 @@ has "${G}/gateway-go-extras.yaml" 'resources: \["namespaces"\]' "go: the namespa
 has "${G}/gateway-go-egress.yaml" 'cidr: 203\.0\.113\.10/32|203\.0\.113\.10/32' "go: egress admits the API server at the address cluster.yaml says"
 has "${G}/gateway-go-egress.yaml" 'port: 4318' "go: egress admits the OTLP collector"
 has "${G}/gateway-go-egress.yaml" 'cnpg\.io/cluster: autopilot-pg' "go: egress admits the database"
+has "${G}/gateway-go-egress.yaml" 'app.kubernetes.io/name: people-dex' "go: port 5556 is admitted to the people-dex pods only"
+if grep -q 'podSelector: {}' "${G}/gateway-go-egress.yaml"; then bad "go: an egress rule admits every pod of the namespace"; else ok "go: no egress rule admits every pod of the namespace"; fi
+# the read API's public-HTTPS rule exists only with a Tower (its one public destination); the gateway keeps its own (GitHub, registry, model provider)
+n="$(grep -c 'cidr: 0.0.0.0/0' "${G}/gateway-go-egress.yaml")"
+[ "${n}" = 2 ] && ok "go: both policies have the public-HTTPS rule when there is a Tower" || bad "go: ${n} public-HTTPS rules, want 2 with a Tower"
+has "${G}/gateway-go-egress.yaml" 'narrowest rule plain NetworkPolicy can say' "go: the public-HTTPS rule says why it cannot be narrower"
 has "${G}/gateway-go.yaml" 'name: GLIDEPATH_API_ALLOW_HTTP' "go: a plain-http switch renders only when turned on (glidepath)"
 if grep -q 'BROKER_ALLOW_HTTP\|BACKSTAGE_ALLOW_HTTP' "${G}/gateway-go.yaml" "${G}/autopilot-api-go.yaml"; then bad "go: a plain-http switch rendered that was not turned on"; else ok "go: plain-http switches that were not turned on are not rendered"; fi
 # the Service names and ports are the Python gateway's: callers do not change
@@ -1199,6 +1205,23 @@ for k in py:
         gp = {p["containerPort"] for p in b["template"]["spec"]["containers"][0]["ports"]}
         assert pp <= gp, (k, pp, gp)
 PY3
+fi
+# What the Python Deployments set is a list in autopilot's gateway/envtable.json (`deployed`); this holds that list to the rendered Python
+# Deployments, from a copy vendored at the pinned autopilot commit (tests/fixtures/autopilot-envtable.COMMIT), so clearing or adding an entry on either side fails.
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${K}/pyx/55-autopilot/gateway" "${APRON}/tests/fixtures/autopilot-envtable.json" <<'PY4' && ok "the Python Deployments' env names equal the vendored envtable.json's deployed set (serve and api)" || bad "the Python Deployments' env names differ from the vendored envtable.json (tests/fixtures/autopilot-envtable.COMMIT)"
+import json, sys, yaml
+vars_ = json.load(open(sys.argv[2]))["vars"]
+want = {p: {v["name"] for v in vars_ if v.get("deployed") == "both" or p in v.get("deployed", "").split(",")} for p in ("serve", "api")}
+assert len(want["serve"]) >= 30 and len(want["api"]) >= 20, {k: len(v) for k, v in want.items()}
+got = {}
+for f in ("gateway.yaml", "autopilot-api.yaml"):
+    for d in yaml.safe_load_all(open(f"{sys.argv[1]}/{f}")):
+        if d and d["kind"] == "Deployment":
+            got["serve" if d["metadata"]["name"] == "autopilot-gateway" else "api"] = {e["name"] for e in d["spec"]["template"]["spec"]["containers"][0]["env"]}
+for p in want:
+    assert want[p] == got[p], (p, "only in the table:", sorted(want[p] - got[p]), "only rendered:", sorted(got[p] - want[p]))
+PY4
 fi
 # nothing lab-only in the Go path off a lab: no hostAliases, no .local host, no LAN address
 if grep -rqE 'hostAliases|\.local\b|192\.168\.|10\.0\.0\.[0-9]+' "${G}/gateway-go.yaml" "${G}/autopilot-api-go.yaml" "${G}/gateway-go-extras.yaml"; then bad "go on eks: a lab-only value was rendered"; else ok "go on eks: no hostAliases, .local host or LAN address"; fi

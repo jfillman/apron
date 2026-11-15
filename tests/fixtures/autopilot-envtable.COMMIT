@@ -1,0 +1,4 @@
+142622f1644319bd7a3167a4b3c7d64d25c488fd
+# jfillman/autopilot gateway/envtable.json at this commit (autopilot#113). It lists, as `deployed`, every environment variable the Python gateway and autopilot-api
+# Deployments set; tests/run.sh section 3b renders those Deployments and fails if their env names differ. To bump: copy gateway/envtable.json from the new autopilot
+# commit over autopilot-envtable.json, put its SHA on line 1, and run tests/run.sh.
