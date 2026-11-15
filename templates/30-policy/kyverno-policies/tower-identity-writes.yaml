@@ -199,7 +199,7 @@ spec:
           (!('glidepath.io/origin-trace-id' in variables.anns) ||
             variables.anns['glidepath.io/origin-trace-id'].matches('^[0-9a-f]{32}$')) &&
           (!('glidepath.io/origin-traceparent' in variables.anns) ||
-            variables.anns['glidepath.io/origin-traceparent'].matches('^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$')) &&
+            variables.anns['glidepath.io/origin-traceparent'].matches('^00-[0-9a-f]{32}-[0-9a-f]{16}-01$')) &&
           (!('glidepath.io/origin-flow-start-time' in variables.anns) ||
             variables.anns['glidepath.io/origin-flow-start-time'].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?Z$')) &&
           (!('glidepath.io/origin-finished-at' in variables.anns) ||

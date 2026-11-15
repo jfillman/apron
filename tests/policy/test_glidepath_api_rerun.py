@@ -202,7 +202,7 @@ class Shape(unittest.TestCase):
         bad = {"glidepath.io/origin-chain-id": ["not-a-uuid", "94E8228A-5cdc-4350-914a-d73802e5b296", "94e8228a-5cdc-4350-914a-d73802e5b296x"],
                "glidepath.io/origin-chain-slug": ["ornate", "Ornate-Ram", "ornate-ram-extra", "a-b", "ornate ram"],
                "glidepath.io/origin-trace-id": ["short", "G" * 32, "a" * 33],
-               "glidepath.io/origin-traceparent": ["00-zz-yy-01", "01-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01", "x"],
+               "glidepath.io/origin-traceparent": ["00-zz-yy-01", "01-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-01", "00-98f0963d6bc08cb69e6051852fc528de-a71828a66b3e8c7d-00", "x"],
                "glidepath.io/origin-flow-start-time": ["yesterday", "2026-11-15", "2026-11-15T20:56:00+02:00"],
                "glidepath.io/origin-finished-at": ["", "2026-11-15 20:56:00Z"]}
         for k, vals in bad.items():
