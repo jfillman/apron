@@ -43,7 +43,7 @@ versions:
   # values.yaml and refuses a render when they differ (hack/glidepath_tasks.py; APRON_GLIDEPATH_VALUES=<values.yaml> to compare
   # with a local file, APRON_GLIDEPATH_CHECK=off to skip).
   glidepathRunTasks:
-    sourceTasks: {build: [build-source, unit-test, build-image, build-python-wheel-artifact, build-go-binary-artifact], test: [run-integration-script]}
+    sourceTasks: {build: [build-source, unit-test, build-image, build-python-wheel-artifact, build-go-binary-artifact], test: [run-integration-script], policy-validation-check: [render], clearance-gate-check: [render], values-check: [render]}
     pusherTasks: {build: [push-image]}
     cloudDeployerTasks: {deploy: [deploy-aws-lambda, deploy-aws-ecs]}
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the

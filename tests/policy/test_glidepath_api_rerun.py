@@ -312,6 +312,20 @@ class Isolation(unittest.TestCase):
         o["spec"]["taskRunSpecs"][0]["serviceAccountName"] = "pipeline-runner"
         self.refused(o)
 
+    def test_the_gate_pipelines_render_task_must_be_source_runner(self):
+        for name in ["values-check", "policy-validation-check", "clearance-gate-check"]:
+            def gate(entries):
+                o = rerun("test")
+                o["spec"]["pipelineRef"]["params"][1]["value"] = name
+                o["spec"]["taskRunSpecs"] = entries
+                return o
+            with self.subTest(name):
+                self.assertEqual(evaluate(DENY[ISOLATION], gate([{"pipelineTaskName": "render", "serviceAccountName": "source-runner"}])), [])
+                self.assertEqual(evaluate(DENY[SHAPE], gate([{"pipelineTaskName": "render", "serviceAccountName": "source-runner"}])), [])
+                self.refused(gate([]))
+                self.assertTrue(evaluate(DENY[SHAPE], gate([{"pipelineTaskName": "render", "serviceAccountName": "image-pusher"}])))
+                self.assertTrue(evaluate(DENY[SHAPE], gate([{"pipelineTaskName": "gate", "serviceAccountName": "source-runner"}])))
+
     def test_the_pusher_must_be_image_pusher(self):
         o = rerun("build")
         del o["spec"]["taskRunSpecs"][5]

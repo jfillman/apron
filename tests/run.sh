@@ -363,7 +363,7 @@ render_ok "${GA}/warn" "dev glidepath.sourceIsolation warn"
 GW=30-policy/kyverno-policies/tower-identity-writes.yaml
 CPV=50-glidepath/glidepath-control-plane/values.yaml
 has "${LAB}/dev/${GW}" 'name: glidepath-api-pipelinerun-source-isolation' "glidepath-api: the source-isolation policy is rendered"
-has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"test\": \[\"run-integration-script\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"clearance-gate-check\": \[\"render\"\], \"policy-validation-check\": \[\"render\"\], \"test\": \[\"run-integration-script\"\], \"values-check\": \[\"render\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidepath-api: the pusher task"
 has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
