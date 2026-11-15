@@ -401,6 +401,15 @@ if [ "${HAVE_YAML}" = true ]; then
   gp_drift "a source task Glidepath dropped" 's/build-go-binary-artifact\]/build-go-binary-artifactx]/' 'not in Glidepath: build-go-binary-artifact'
   gp_drift "a new pusher task" 's/build: \[push-image\]/build: [push-image, push-sbom]/' 'pusherTasks.build: missing here: push-sbom'
   gp_drift "a new cloud deployer Pipeline" 's/    deploy: \[deploy-aws-lambda, deploy-aws-ecs\]/    deploy: [deploy-aws-lambda, deploy-aws-ecs]\n    release: [deploy-aws-ecs]/' 'cloudDeployerTasks.release'
+  for bad in 'a: [unclosed' '- a list' 'cicdRunAdmission: [x]'; do
+    printf '%s\n' "${bad}" >"${TMP}/gp-badvalues.yaml"
+    out="$(APRON_GLIDEPATH_VALUES="${TMP}/gp-badvalues.yaml" python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml" --out "${TMP}/gp-drift-out" 2>&1)"
+    if grep -q '^error: ' <<<"${out}" && ! grep -q Traceback <<<"${out}"; then
+      ok "glidepath lists: a bad values file (${bad}) is a clean error"
+    else
+      bad "glidepath lists: a bad values file (${bad}): ${out}"
+    fi
+  done
   if APRON_GLIDEPATH_VALUES=/nonexistent python3 hack/render.py --cluster "${LAB}/dev/cluster.yaml" --out "${TMP}/gp-drift-out" >/dev/null 2>&1; then
     bad "glidepath lists: an unreadable APRON_GLIDEPATH_VALUES was accepted"
   else

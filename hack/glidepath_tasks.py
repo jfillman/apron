@@ -79,13 +79,19 @@ def check(v, warn=lambda m: print(f"warning: {m}", file=sys.stderr)):
             ref = get(v, "versions.glidepath")
             text = fetch(get(v, "scm.host"), get(v, "scm.owner"), ref)
             origin = f"glidepath {ref}"
-    except OSError as e:
+    except (OSError, subprocess.SubprocessError) as e:
         if path:
             raise ApronError(f"APRON_GLIDEPATH_VALUES={path}: {e}")
         warn(f"could not fetch Glidepath's values.yaml ({e}): versions.glidepathRunTasks is not compared with it; "
              "set APRON_GLIDEPATH_VALUES=<a checkout's charts/glidepath-control-plane/values.yaml> to compare")
         return
-    have = (yaml.safe_load(text) or {}).get("cicdRunAdmission") or {}
+    try:
+        doc = yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        raise ApronError(f"{origin}: not valid YAML: {str(e).splitlines()[0] if str(e) else e}")
+    if not isinstance(doc, dict) or not isinstance(doc.get("cicdRunAdmission") or {}, dict):
+        raise ApronError(f"{origin}: not a Helm values file (a mapping with cicdRunAdmission)")
+    have = doc.get("cicdRunAdmission") or {}
     if not any(have.get(k) for k in KEYS):
         raise ApronError(f"{origin}: cicdRunAdmission has no sourceTasks, pusherTasks or cloudDeployerTasks: this Glidepath does not "
                          "define per-task accounts, so glidepath-api's PipelineRun policy for them does not belong with it")
