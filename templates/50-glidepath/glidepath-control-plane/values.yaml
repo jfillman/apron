@@ -168,3 +168,7 @@ agentToken:
 # tower-identity-writes.yaml), so a rerun is held to the rule at the same time as a Pipelines-as-Code run.
 cicdRunAdmission:
   sourceIsolationActions: @@GLIDEPATH_SOURCE_ISOLATION_ACTIONS@@
+  # cicd-run-shape (what a .tekton file may start) and cicd-run-no-taskruns: Deny unless glidepath.runShape is warn, for an upgrade
+  # window. Charts that do not know these values ignore them (Glidepath #254 adds them).
+  shapeActions: @@GLIDEPATH_RUN_SHAPE_ACTIONS@@
+  noTaskRunsActions: @@GLIDEPATH_RUN_SHAPE_ACTIONS@@

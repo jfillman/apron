@@ -71,7 +71,8 @@ the owner's OK, any other cluster that runs the control plane. A cluster without
 
 | Key | Values | Renders |
 |---|---|---|
-| `glidepath.sourceIsolation` | `deny` (default), `warn` | the action of both source-isolation bindings: Glidepath's `cicdRunAdmission.sourceIsolationActions` (control-plane values) and glidepath-api's policy here. Glidepath's `cicd-run-shape` and `cicd-run-no-taskruns` have no switch and stay Deny. |
+| `glidepath.sourceIsolation` | `deny` (default), `warn` | the action of both source-isolation bindings: Glidepath's `cicdRunAdmission.sourceIsolationActions` (control-plane values) and glidepath-api's policy here. Glidepath's `cicd-run-shape` and `cicd-run-no-taskruns` follow `glidepath.runShape`. |
+| `glidepath.runShape` | `deny` (default), `warn` | Glidepath's `cicdRunAdmission.shapeActions` (`cicd-run-shape`: which Pipelines and parameters a `.tekton` file may start) and `noTaskRunsActions` (`cicd-run-no-taskruns`). Separate from `sourceIsolation` so each window can end on its own. A chart that does not know these values ignores them. |
 | `glidepath.refProtection` | `required` (default), `off` | the catalog's `refProtection.mode` (`glidepath-catalog` Application values) |
 | `glidepath.runStorageClasses` | list, default none | the `storageClassName`s a run glidepath-api starts may name |
 | `versions.glidepath` | a branch, tag or commit | the Glidepath revision every Glidepath Application tracks (`main` in `versions.yaml`) |

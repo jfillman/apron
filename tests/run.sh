@@ -372,6 +372,21 @@ has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: 
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
 has "${LAB}/dev/${GW}" "expression: '\[\]'" "glidepath-api: no storage class is allowed by default"
+# glidepath.runShape: Glidepath's cicd-run-shape and cicd-run-no-taskruns bindings (cicdRunAdmission.shapeActions, noTaskRunsActions).
+mkdir -p "${GA}/shape-warn" "${GA}/shape-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {runShape: warn}'; } >"${GA}/shape-warn/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {runShape: maybe}'; } >"${GA}/shape-bad/cluster.yaml"
+render_ok "${GA}/shape-warn" "dev glidepath.runShape warn"
+has "${LAB}/dev/${CPV}" '^  shapeActions: \[Deny\]$' "glidepath control plane: cicd-run-shape Deny by default"
+has "${LAB}/dev/${CPV}" '^  noTaskRunsActions: \[Deny\]$' "glidepath control plane: cicd-run-no-taskruns Deny by default"
+has "${GA}/shape-warn/${CPV}" '^  shapeActions: \[Warn, Audit\]$' "glidepath.runShape warn: cicd-run-shape warns"
+has "${GA}/shape-warn/${CPV}" '^  noTaskRunsActions: \[Warn, Audit\]$' "glidepath.runShape warn: cicd-run-no-taskruns warns"
+has "${GA}/shape-warn/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath.runShape warn leaves source isolation (its own key) at Deny"
+if python3 hack/check.py --cluster "${GA}/shape-bad/cluster.yaml" >/dev/null 2>"${GA}/shape-bad/err"; then
+  bad "glidepath.runShape: maybe was accepted"
+else
+  grep -q 'glidepath.runShape' "${GA}/shape-bad/err" && ok "glidepath.runShape: an unknown value is refused by apron check" || bad "runShape refusal: $(cat "${GA}/shape-bad/err")"
+fi
 # glidepath.refProtection: the catalog's refProtection.mode (T3's verify-ref-protection task); required unless the cluster says off.
 CATV=50-glidepath/glidepath-catalog/application.yaml
 { cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {refProtection: off}'; } >"${GA}/rp-off.yaml"

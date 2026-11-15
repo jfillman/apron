@@ -281,6 +281,9 @@ def violations(v, fleet=None):
     if rp is not None and rp is not False and rp not in ("required", "off"):
         add(f"glidepath.refProtection is {rp!r}: required (default) or off (off only for a git host plan without rulesets; "
             "glidepath docs/admin/security.md, Ref protection)")
+    rs = get(v, "glidepath.runShape", None)
+    if rs is not None and rs not in ("deny", "warn"):
+        add(f"glidepath.runShape is {rs!r}: deny (default) or warn (only while upgrading)")
     si = get(v, "glidepath.sourceIsolation", None)
     if si is not None and si not in ("deny", "warn"):
         add(f"glidepath.sourceIsolation is {si!r}: deny (default) or warn (only while upgrading)")
