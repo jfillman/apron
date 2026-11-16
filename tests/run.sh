@@ -1312,6 +1312,25 @@ has "${M}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:b{64}$'
 has "${M}" 'args: \[migrate\]' "step 1: the Job runs migrate"
 has "${M}" 'argocd\.argoproj\.io/hook: PreSync' "step 1: the Job is a PreSync hook"
 has "${M}" 'name: autopilot-pg-migrate' "step 1: the NetworkPolicy that admits the Job to the database renders"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${M}" <<'PY5' && ok "step 1: the NetworkPolicy is a PreSync hook in an earlier wave than the Job, kept after the sync (BeforeHookCreation only), and the Job fails fast with its log as the termination message" || bad "step 1: hook order, delete policies, deadline or termination message are not as designed"
+import sys, yaml
+docs = {d["kind"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+np, job = docs["NetworkPolicy"], docs["Job"]
+ann = lambda d: d["metadata"]["annotations"]
+assert ann(np)["argocd.argoproj.io/hook"] == "PreSync" and ann(job)["argocd.argoproj.io/hook"] == "PreSync"
+assert int(ann(np)["argocd.argoproj.io/sync-wave"]) < int(ann(job)["argocd.argoproj.io/sync-wave"]), "policy must come before the Job"
+# only BeforeHookCreation: HookSucceeded / HookFailed would delete the policy the hand-run `migrate --check` Job needs
+assert ann(np)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
+assert ann(job)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
+assert job["spec"]["activeDeadlineSeconds"] == 300 and job["spec"]["backoffLimit"] == 2
+c = job["spec"]["template"]["spec"]["containers"][0]
+assert c["terminationMessagePolicy"] == "FallbackToLogsOnError"
+# the policy admits exactly the Job's pod label to 5432
+assert np["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == {"app.kubernetes.io/name": "autopilot-gateway-migrate"}
+assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "autopilot-gateway-migrate"
+PY5
+fi
 if grep -c 'kind: Deployment\|kind: Service$' "${M}" | grep -qv '^0$'; then bad "step 1: the migrate file renders a Deployment or Service"; else ok "step 1: the migrate file renders no Deployment or Service"; fi
 if grep -rl 'autopilot-gateway-go\|gateway-go-v' "${K}/pymig" --exclude=cluster.yaml | grep -qv 'gateway-go-migrate.yaml$'; then bad "step 1: the Go image is named outside the migrate file"; else ok "step 1: the Go image is named only in the migrate file"; fi
 has "${K}/pymig/55-clearance/clearance/application.yaml" '"version": "gateway-v' "step 1: the core still registers the Python gateway's version"
