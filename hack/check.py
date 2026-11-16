@@ -334,6 +334,16 @@ def violations(v, fleet=None):
     si = get(v, "glidepath.sourceIsolation", None)
     if si is not None and si not in ("deny", "warn"):
         add(f"glidepath.sourceIsolation is {si!r}: deny (default) or warn (only while upgrading)")
+    gro = get(v, "releaseGuardrailOverrides", None)
+    if gro not in (None, {}):
+        if not isinstance(gro, dict):
+            add(f"releaseGuardrailOverrides is {gro!r}: a map of <gate>: {{required: true|false}}")
+        else:
+            for gate, o in gro.items():
+                if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", str(gate)):
+                    add(f"releaseGuardrailOverrides.{gate}: not a gate name (lowercase letters, digits and dashes)")
+                if not (isinstance(o, dict) and set(o) == {"required"} and isinstance(o["required"], bool)):
+                    add(f"releaseGuardrailOverrides.{gate} is {o!r}: only {{required: true|false}} is read")
     gc = get(v, "glidepath.gateConcurrency", None)
     if gc not in (None, "") and (isinstance(gc, bool) or not isinstance(gc, int) or gc < 1):
         add(f"glidepath.gateConcurrency is {gc!r}: a whole number of at least 1, or unset for no limit")
