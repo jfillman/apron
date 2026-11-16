@@ -1,4 +1,5 @@
-# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true; the default is the manual step in the cutover runbook).
+# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true, with either gateway implementation; the default is the manual
+# step in the cutover runbook). With implementation: python it prepares the cutover and changes no traffic: only this Job and the NetworkPolicy below render.
 # `autopilot-gateway migrate` before the gateway changes (PreSync): the schema and the read API's six indexes, CREATE INDEX CONCURRENTLY under a lock
 # and a statement timeout, idempotent. It uses the owner's DSN (autopilot-pg-app) and may run beside the writer. Off by default
 # (autopilot.gateway.go.migrateJob): the cutover runbook runs it by hand first, and a failing hook blocks every sync.
@@ -11,9 +12,16 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # After the NetworkPolicy below (wave -1): the policy must exist before this pod connects to the database.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   backoffLimit: 2
-  activeDeadlineSeconds: 1200
+  # Fails fast on a connect problem (the migrate command has no connect timeout of its own), and bounds every attempt together. Sized for the
+  # lab's tables (some thousands of rows: each of the six indexes builds in about a second, lock_timeout 5 s; autopilot go-gateway-release.md,
+  # "The database"): 300 s is about 50 s an index, far above that. The command's own per-index statement_timeout is 15 min and the runbook's
+  # hand-run Job waits 20 min for a table far past that; if a first build really needs longer, this Job fails at the deadline (the log says
+  # which index) and the owner raises it or runs the runbook's Job by hand.
+  activeDeadlineSeconds: 300
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
@@ -31,6 +39,8 @@ spec:
         - name: migrate
           image: @@AUTOPILOT_GO_IMAGE@@
           args: [migrate]
+          # The last log lines become the pod's termination message on failure, so a failed hook shows its cause in `kubectl describe` and Argo CD.
+          terminationMessagePolicy: FallbackToLogsOnError
           env:
             - name: GATEWAY_DSN
               valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
@@ -43,12 +53,21 @@ spec:
             capabilities: {drop: ["ALL"]}
 ---
 # The database admits the migrate pod (networkpolicy.yaml admits the gateway and the read API only).
+# A PreSync hook, in a wave before the Job: a plain resource is applied in the Sync phase, after the PreSync Job has already failed to
+# connect, so the sync would abort before ever applying it. BeforeHookCreation only (never HookSucceeded or HookFailed): the policy is left
+# in place after the sync, which the hand-run `migrate --check` Job of the runbook needs (same pod label), and the next sync deletes and
+# recreates it before the Job. A hook is not tracked or pruned: turning migrateJob off leaves this policy behind; delete it by hand
+# (kubectl -n autopilot-system delete networkpolicy autopilot-pg-migrate) when the flag goes off for good.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: autopilot-pg-migrate
   namespace: autopilot-system
   labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   podSelector:
     matchLabels: {cnpg.io/cluster: autopilot-pg}

@@ -1295,6 +1295,54 @@ has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'args: \[migrate\]
 # the core registers the Go image's tag as the gateway's provider version
 has "${K}/go/55-clearance/clearance/application.yaml" '"version": "gateway-go-v0\.1\.0"' "go: the Clearance core registers the Go image's tag as the provider version"
 has "${K}/pyx/55-clearance/clearance/application.yaml" '"version": "gateway-v' "default: the provider version is still the Python gateway's"
+# A-9 S9 step 1 ("prepare"): migrateJob with the Python gateway still serving renders the Job and its NetworkPolicy and nothing else
+mkdir -p "${K}/pymig"
+cp "${K}/pyx/cluster.yaml" "${K}/pymig/cluster.yaml"
+printf '%s\n' '  gateway:' '    implementation: python' '    go:' '      tag: gateway-go-v0.1.0' \
+  '      digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' '      migrateJob: true' >>"${K}/pymig/cluster.yaml"
+render_ok "${K}/pymig" "implementation: python + migrateJob (step 1)"
+expect "${K}/pymig" "step 1" 55-autopilot/gateway/gateway.yaml 55-autopilot/gateway/autopilot-api.yaml 55-autopilot/gateway/gateway-go-migrate.yaml \
+  '!55-autopilot/gateway/gateway-go.yaml' '!55-autopilot/gateway/autopilot-api-go.yaml' '!55-autopilot/gateway/gateway-go-extras.yaml' '!55-autopilot/gateway/gateway-go-egress.yaml'
+d="$(diff -rq -x cluster.yaml -x .apron-rendered "${K}/pyx" "${K}/pymig" || true)"
+if [ "$(wc -l <<<"${d}" | tr -d ' ')" = 1 ] && [[ "${d}" == "Only in ${K}/pymig/55-autopilot/gateway: gateway-go-migrate.yaml" ]]; then
+  ok "step 1: the only difference from the switch unset is the migrate file (the Python gateway, read API and everything else are byte-identical)"
+else bad "step 1: differences from the switch unset, want only gateway-go-migrate.yaml: ${d}"; fi
+M="${K}/pymig/55-autopilot/gateway/gateway-go-migrate.yaml"
+has "${M}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:b{64}$' "step 1: the migrate Job pins the Go image by tag and digest"
+has "${M}" 'args: \[migrate\]' "step 1: the Job runs migrate"
+has "${M}" 'argocd\.argoproj\.io/hook: PreSync' "step 1: the Job is a PreSync hook"
+has "${M}" 'name: autopilot-pg-migrate' "step 1: the NetworkPolicy that admits the Job to the database renders"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${M}" <<'PY5' && ok "step 1: the NetworkPolicy is a PreSync hook in an earlier wave than the Job, kept after the sync (BeforeHookCreation only), and the Job fails fast with its log as the termination message" || bad "step 1: hook order, delete policies, deadline or termination message are not as designed"
+import sys, yaml
+docs = {d["kind"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+np, job = docs["NetworkPolicy"], docs["Job"]
+ann = lambda d: d["metadata"]["annotations"]
+assert ann(np)["argocd.argoproj.io/hook"] == "PreSync" and ann(job)["argocd.argoproj.io/hook"] == "PreSync"
+assert int(ann(np)["argocd.argoproj.io/sync-wave"]) < int(ann(job)["argocd.argoproj.io/sync-wave"]), "policy must come before the Job"
+# only BeforeHookCreation: HookSucceeded / HookFailed would delete the policy the hand-run `migrate --check` Job needs
+assert ann(np)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
+assert ann(job)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
+assert job["spec"]["activeDeadlineSeconds"] == 300 and job["spec"]["backoffLimit"] == 2
+c = job["spec"]["template"]["spec"]["containers"][0]
+assert c["terminationMessagePolicy"] == "FallbackToLogsOnError"
+# the policy admits exactly the Job's pod label to 5432
+assert np["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == {"app.kubernetes.io/name": "autopilot-gateway-migrate"}
+assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "autopilot-gateway-migrate"
+PY5
+fi
+if grep -c 'kind: Deployment\|kind: Service$' "${M}" | grep -qv '^0$'; then bad "step 1: the migrate file renders a Deployment or Service"; else ok "step 1: the migrate file renders no Deployment or Service"; fi
+if grep -rl 'autopilot-gateway-go\|gateway-go-v' "${K}/pymig" --exclude=cluster.yaml | grep -qv 'gateway-go-migrate.yaml$'; then bad "step 1: the Go image is named outside the migrate file"; else ok "step 1: the Go image is named only in the migrate file"; fi
+has "${K}/pymig/55-clearance/clearance/application.yaml" '"version": "gateway-v' "step 1: the core still registers the Python gateway's version"
+refuse "migrateJob (python) without go.digest" "${K}/pyx" '  gateway: {go: {tag: gateway-go-v0.1.0, migrateJob: true}}'
+refuse "migrateJob (python) without go.tag" "${K}/pyx" '  gateway: {go: {digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, migrateJob: true}}'
+# the production profile renders none of it (the lab-only Go files are named only by a cluster that sets the keys)
+PX="${TMP}/prodx"; mkdir -p "${PX}"
+cp "${LAB}/prod/cluster.yaml" "${PX}/cluster.yaml"
+render_ok "${PX}" "prod profile, no gateway keys"
+[ -n "$(find "${PX}/55-autopilot" -type f 2>/dev/null | head -1)" ] && ok "prod profile: the Autopilot files render (the check below is not vacuous)" || ok "prod profile: no Autopilot files (nothing to switch)"
+if grep -rq 'autopilot-gateway-go\|gateway-go-v\|autopilot-gateway-migrate' "${PX}" --exclude=cluster.yaml; then bad "prod profile: renders something of the Go gateway or the migrate Job"; else ok "prod profile: nothing of the Go gateway or migrate Job renders"; fi
+
 GD="${K}/dev"
 refuse "go without a tag" "${GD}" 'autopilot: {gateway: {implementation: go}}'
 refuse "an unknown implementation" "${GD}" 'autopilot: {gateway: {implementation: rust}}'
