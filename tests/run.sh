@@ -345,6 +345,11 @@ GP=56-clearance-gate/admission.yaml
 expect "${G}/dev" "dev clearance gate key" "!${GP}"
 has "${G}/warn/56-clearance-gate/application.yaml" 'path: 56-clearance-gate' "clearance gate: its own Application"
 has "${G}/warn/56-clearance-gate/clearancegrant-crd.yaml" 'name: clearancegrants.clearance.hangar.io' "clearance gate: the ClearanceGrant CRD"
+CRDF="${G}/warn/56-clearance-gate/clearancegrant-crd.yaml"
+[ "$(grep -c '^  annotations:' "${CRDF}")" = 1 ] && ok "clearance gate: the CRD has one annotations key (a duplicate drops the sync wave)" \
+  || bad "clearance gate: the CRD has a duplicate metadata.annotations key"
+has "${CRDF}" '^    argocd.argoproj.io/sync-wave: "0"$' "clearance gate: the CRD keeps sync-wave 0"
+has "${CRDF}" '^    clearance.hangar.io/schema-revision: "2"$' "clearance gate: the CRD carries schema-revision 2"
 has "${G}/warn/${GP}" "== 'registry.invalid/clearance-wait@sha256:1{64}'" "clearance gate: the exemption pins the wait image from versions.clearance.waitImage"
 has "${G}/warn/${GP}" 'validationActions: \[Warn, Audit\]' "clearance gate: Warn by default"
 has "${G}/warn/${GP}" 'parameterNotFoundAction: Allow' "clearance gate: Warn allows a missing grant"

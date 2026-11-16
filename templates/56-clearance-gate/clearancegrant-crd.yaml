@@ -10,12 +10,11 @@ metadata:
   name: clearancegrants.clearance.hangar.io
   annotations:
     argocd.argoproj.io/sync-wave: "0"
-  labels:
-    app.kubernetes.io/part-of: clearance
-  annotations:
     # The schema's revision, for the opt-in agent (G-ARGO-10c): 2 adds objects[].app and objects[].expiresAt. The agent reads the
     # schema itself and does not run the opt-in against a CRD that lacks them; the number is for people and for `kubectl get crd`.
     clearance.hangar.io/schema-revision: "2"
+  labels:
+    app.kubernetes.io/part-of: clearance
 spec:
   group: clearance.hangar.io
   names: {kind: ClearanceGrant, listKind: ClearanceGrantList, plural: clearancegrants, singular: clearancegrant, shortNames: [cgrant]}
