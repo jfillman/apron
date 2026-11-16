@@ -334,6 +334,9 @@ def violations(v, fleet=None):
     si = get(v, "glidepath.sourceIsolation", None)
     if si is not None and si not in ("deny", "warn"):
         add(f"glidepath.sourceIsolation is {si!r}: deny (default) or warn (only while upgrading)")
+    gc = get(v, "glidepath.gateConcurrency", None)
+    if gc not in (None, "") and (isinstance(gc, bool) or not isinstance(gc, int) or gc < 1):
+        add(f"glidepath.gateConcurrency is {gc!r}: a whole number of at least 1, or unset for no limit")
     if get(v, "traefik.serviceType") not in ("NodePort", "LoadBalancer", "ClusterIP"):
         add("traefik.serviceType must be NodePort, LoadBalancer or ClusterIP")
     if get(v, "runtime.type") == "kind" and get(v, "traefik.serviceType") != "NodePort":

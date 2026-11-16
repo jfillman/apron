@@ -162,6 +162,15 @@ agentToken:
     - system:serviceaccount:autopilot-system:autopilot-gateway
 #@end
 
+#@if glidepath.gateConcurrency
+# Pipelines-as-Code's per-repository queue (glidepath docs/admin/pipeline-performance.md, "Queueing gate runs"), from cluster.yaml
+# glidepath.gateConcurrency: the concurrency_limit of every app's two Repository CRs (app repo and gitops repo). Pipelines-as-Code
+# creates the runs beyond it pending and starts them as others finish, so a release PR's ten gates do not start in one second.
+# Unset leaves this out and every run starts at once. Charts that do not know the value ignore it (glidepath#262 adds it).
+pipelinesAsCode:
+  concurrencyLimit: @@GLIDEPATH_GATE_CONCURRENCY@@
+#@end
+
 # cicdRunAdmission.sourceIsolationActions: the action of Glidepath's cicd-run-source-isolation policy (a Pipelines-as-Code run of a
 # Pipeline that runs repository code must give those tasks to source-runner). glidepath.sourceIsolation (deny by default, warn
 # only while upgrading) also sets the action of glidepath-api's matching policy (30-policy/kyverno-policies/
