@@ -365,6 +365,9 @@ def clearance_tokens(g):
         # The web UI's egress to its IdP (clearance.web.enabled): NetworkPolicy has no host names, so the CIDRs the IdP's
         # host (dex.<domain>, through the Gateway) resolves to; default anywhere on 443, like the core's own JWKS egress.
         "CLEARANCE_WEB_IDP_PEERS": json.dumps([{"ipBlock": {"cidr": str(x)}} for x in (c("web", {}) or {}).get("idpCidrs", None) or ["0.0.0.0/0"]]),
+        # clearance-api's coverage result cache (clearance chart api.coverageCacheSeconds, 0.51.0+; 0 to 300): off unless
+        # clearance.api.coverageCacheSeconds is set above 0; the template renders the key only then (see TOKENS.md).
+        "CLEARANCE_API_COVERAGE_CACHE_SECONDS": str(int((c("api", {}) or {}).get("coverageCacheSeconds", 0) or 0)),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }

@@ -145,6 +145,11 @@ CloudNativePG has no object store on these clusters, so `clearance.backup.enable
 role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
 `clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
 
+`clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
+coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
+coverage statement shown to a person can be up to that many seconds old (the response carries `Age`). Setting or changing it
+restarts clearance-api once. Only the cluster whose `cluster.yaml` sets it gets the cache; nothing is decided by cluster name.
+
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 
 Clearance C-3 (clearance `docs/core.md`, "The evidence ledger (C-3)") keeps a transparency log of the evidence chain's

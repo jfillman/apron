@@ -218,6 +218,9 @@ def violations(v, fleet=None):
         if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
 
+    ttl = get(v, "clearance.api.coverageCacheSeconds")
+    if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= 300):
+        add("clearance.api.coverageCacheSeconds is whole seconds, 0 to 300 (0 is off): clearance-api refuses anything else at start")
     # the standalone web UI (clearance web, clearance chart web.enabled): signs people in at people-dex, so it needs the same
     if get(v, "clearance.web.enabled") is not None and not isinstance(get(v, "clearance.web.enabled"), bool):
         add("clearance.web.enabled must be true or false")
