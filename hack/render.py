@@ -232,6 +232,9 @@ def autopilot_go_tokens(g):
         "AUTOPILOT_GO_IMAGE": f"{host}/{owner}/autopilot-gateway-go:{tag}@{digest}" if tag and digest else "",
         # The secret the read API's DSN comes from (key uri): by default the one the Python read API already uses
         # (templates/55-autopilot/gateway/postgres.yaml, a CNPG-managed read-only role that passes the Go API's role check).
+        # The migrate Job's name carries the image (a Job's pod template is immutable): a new image is a new Job.
+        "AUTOPILOT_GO_MIGRATE_JOB": ("autopilot-gateway-migrate-" + re.sub(r"[^a-z0-9]+", "-", tag.removeprefix("gateway-go-").lower()).strip("-")
+                                     + "-" + digest.removeprefix("sha256:")[:8]) if tag and digest else "",
         "AUTOPILOT_GO_READER_SECRET": g(f"{go}.readerSecret", "") or "autopilot-pg-reader",
         "AUTOPILOT_GO_BROKER_URL": g(f"{go}.brokerUrl", "") or "",
         "AUTOPILOT_GO_GITHUB_OWNERS": lst("githubOwners"),

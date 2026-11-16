@@ -134,6 +134,7 @@ the render with `file:line`.
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
 | `@@AUTOPILOT_CUSTOM_IMAGES@@` | `autopilot.customImages`, globs a definition's `runtime.image` may match beyond the runtime catalog (custom images built for an agent's own repo, e.g. `ghcr.io/jfillman/*@sha256:*`); comma-separated; rendered only when set - `RUNTIME_IMAGES_EXTRA` on the gateway and its read API |
 | `@@AUTOPILOT_GO_IMAGE@@` | `<registry.host>/<registry.owner>/autopilot-gateway-go:<autopilot.gateway.go.tag>@<autopilot.gateway.go.digest>`, the Go gateway image (rendered only with `autopilot.gateway.implementation: go`; empty otherwise) |
+| `@@AUTOPILOT_GO_MIGRATE_JOB@@` | `autopilot-gateway-migrate-<tag without gateway-go->-<first 8 hex of the digest>` (dots to dashes), the migrate Job's name: a Job's pod template is immutable, so a new Go image is a new Job (rendered only with `autopilot.gateway.go.migrateJob`) |
 | `@@AUTOPILOT_GO_READER_SECRET@@` | `autopilot.gateway.go.readerSecret`, default `autopilot-pg-reader`: the Secret (key `uri`) holding the read API's read-only DSN (`GATEWAY_API_DSN`); never created here |
 | `@@AUTOPILOT_GO_BROKER_URL@@` | `autopilot.gateway.go.brokerUrl`: the installation-token broker (`BROKER_URL`; the Go gateway has no default) |
 | `@@AUTOPILOT_GO_GITHUB_OWNERS@@` | `autopilot.gateway.go.githubOwners`, comma-separated: `GITHUB_OWNERS` |

@@ -1201,6 +1201,8 @@ expect "${K}/go" "implementation: go" 55-autopilot/gateway/gateway-go.yaml 55-au
 for f in gateway-go.yaml autopilot-api-go.yaml; do
   has "${G}/${f}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:a{64}$' "go: ${f} pins the Go image by tag and digest"
 done
+has "${G}/gateway-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the gateway is in wave 2, after the migrate Job (wave 1)"
+has "${G}/autopilot-api-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the read API is in wave 2, after the migrate Job (wave 1)"
 has "${G}/gateway-go.yaml" 'args: \[serve\]' "go: the gateway runs serve"
 has "${G}/autopilot-api-go.yaml" 'args: \[api\]' "go: the read API runs api"
 has "${G}/gateway-go.yaml" 'path: /healthz, port: mcp' "go: gateway probes /healthz"
@@ -1290,7 +1292,7 @@ printf '%s\n' '  # migrate as a PreSync hook' >>"${K}/gomig/cluster.yaml"
 sed -i.bak 's/^      plainHttp: /      migrateJob: true\n      plainHttp: /' "${K}/gomig/cluster.yaml" && rm -f "${K}/gomig/cluster.yaml.bak"
 render_ok "${K}/gomig" "go with migrateJob"
 expect "${K}/gomig" "go with migrateJob" 55-autopilot/gateway/gateway-go-migrate.yaml
-has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'argocd\.argoproj\.io/hook: PreSync' "go: the migrate Job is a PreSync hook"
+if grep -q 'argocd\.argoproj\.io/hook' "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml"; then bad "go: the migrate file has an Argo CD hook annotation (hooks are dropped from partial syncs, argo-cd#28701)"; else ok "go: the migrate Job and policy are ordinary resources, not hooks"; fi
 has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'args: \[migrate\]' "go: the migrate Job runs migrate"
 # the core registers the Go image's tag as the gateway's provider version
 has "${K}/go/55-clearance/clearance/application.yaml" '"version": "gateway-go-v0\.1\.0"' "go: the Clearance core registers the Go image's tag as the provider version"
@@ -1310,23 +1312,21 @@ else bad "step 1: differences from the switch unset, want only gateway-go-migrat
 M="${K}/pymig/55-autopilot/gateway/gateway-go-migrate.yaml"
 has "${M}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:b{64}$' "step 1: the migrate Job pins the Go image by tag and digest"
 has "${M}" 'args: \[migrate\]' "step 1: the Job runs migrate"
-has "${M}" 'argocd\.argoproj\.io/hook: PreSync' "step 1: the Job is a PreSync hook"
 has "${M}" 'name: autopilot-pg-migrate' "step 1: the NetworkPolicy that admits the Job to the database renders"
 if [ "${HAVE_YAML}" = true ]; then
-  python3 - "${M}" <<'PY5' && ok "step 1: the NetworkPolicy is a PreSync hook in an earlier wave than the Job, kept after the sync (BeforeHookCreation only), and the Job fails fast with its log as the termination message" || bad "step 1: hook order, delete policies, deadline or termination message are not as designed"
+  python3 - "${M}" <<'PY5' && ok "step 1: ordinary tracked resources (no hook), policy wave 0 < Job wave 1 < the Go Deployments' wave 2, Job named for the image, no TTL, fails fast, cause in the termination message" || bad "step 1: the migrate shape is not as designed"
 import sys, yaml
 docs = {d["kind"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
 np, job = docs["NetworkPolicy"], docs["Job"]
-ann = lambda d: d["metadata"]["annotations"]
-assert ann(np)["argocd.argoproj.io/hook"] == "PreSync" and ann(job)["argocd.argoproj.io/hook"] == "PreSync"
-assert int(ann(np)["argocd.argoproj.io/sync-wave"]) < int(ann(job)["argocd.argoproj.io/sync-wave"]), "policy must come before the Job"
-# only BeforeHookCreation: HookSucceeded / HookFailed would delete the policy the hand-run `migrate --check` Job needs
-assert ann(np)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
-assert ann(job)["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation"
+ann = lambda d: d["metadata"].get("annotations", {})
+for d in (np, job):
+    assert not any(k.startswith("argocd.argoproj.io/hook") for k in ann(d)), "a hook is dropped from a partial sync (argo-cd#28701)"
+assert int(ann(np)["argocd.argoproj.io/sync-wave"]) < int(ann(job)["argocd.argoproj.io/sync-wave"]) < 2, "policy, then Job, then the Deployments (wave 2)"
+assert job["metadata"]["name"] == "autopilot-gateway-migrate-v0-1-0-bbbbbbbb", job["metadata"]["name"]
+assert "ttlSecondsAfterFinished" not in job["spec"], "a deleted finished Job would be re-created and migrate re-run"
 assert job["spec"]["activeDeadlineSeconds"] == 300 and job["spec"]["backoffLimit"] == 2
 c = job["spec"]["template"]["spec"]["containers"][0]
 assert c["terminationMessagePolicy"] == "FallbackToLogsOnError"
-# the policy admits exactly the Job's pod label to 5432
 assert np["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == {"app.kubernetes.io/name": "autopilot-gateway-migrate"}
 assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "autopilot-gateway-migrate"
 PY5

@@ -32,7 +32,8 @@ metadata:
   namespace: autopilot-system
   labels: {app.kubernetes.io/name: autopilot-api, hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    # Wave 2: after the migrate Job (wave 1, gateway-go-migrate.yaml) when autopilot.gateway.go.migrateJob is on; the Python Deployments are wave 1.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 2
   selector:
