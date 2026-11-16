@@ -1,19 +1,35 @@
-# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true, with either gateway implementation; the default is the manual
-# step in the cutover runbook). With implementation: python it prepares the cutover and changes no traffic: only this Job and the NetworkPolicy below render.
-# `autopilot-gateway migrate` before the gateway changes (PreSync): the schema and the read API's six indexes, CREATE INDEX CONCURRENTLY under a lock
-# and a statement timeout, idempotent. It uses the owner's DSN (autopilot-pg-app) and may run beside the writer. Off by default
-# (autopilot.gateway.go.migrateJob): the cutover runbook runs it by hand first, and a failing hook blocks every sync.
+# The migrate Job of the Go gateway and the NetworkPolicy that admits it to the database (rendered only with autopilot.gateway.go.migrateJob: true, with
+# either gateway implementation; off: the cutover runbook runs the Job by hand). With implementation: python it prepares the cutover and changes no
+# traffic: only these two resources render.
+#
+# `autopilot-gateway migrate` (autopilot docs/admin/go-gateway-release.md): the schema and the read API's six indexes, CREATE INDEX CONCURRENTLY under a
+# lock and a statement timeout, idempotent, with the owner's DSN (autopilot-pg-app); it may run beside the writer.
+#
+# Both are ORDINARY, tracked resources ordered by sync waves in the Sync phase, NOT Argo CD hooks: a hook is dropped from a sync whose operation is a
+# partial one (gitops-engine pkg/sync/sync_context.go getSyncTasks `!sc.skipHooks`, skipHooks set at argo-cd controller/sync.go:311 when the operation names
+# resources), and a full sync after a partial one is silently made partial by argo-cd#28701 (setOperationState's merge patch keeps the previous operation's
+# `resources`), so on this lab a PreSync hook never ran (A-9 S9, 2026-11-16). Order: the policy (wave 0, with the database) < this Job (wave 1) < the Go
+# gateway and read API Deployments and the Go egress policies (wave 2).
+#   - implementation: go: Argo CD finishes wave 1 before wave 2, and a Failed Job (Degraded, gitops-engine pkg/health/health_job.go) in a wave that is
+#     not the last FAILS the sync (sync_context.go:559-568, 'one or more objects failed to apply'), so the Go pods never change before migrate has
+#     succeeded and the Python pods are untouched.
+#   - implementation: python (step 1, the Python Deployments are wave 1 too): this Job is in the LAST wave, and the last wave's non-hook resources
+#     count as a success whatever they do afterwards (sync_context.go:700-709), so a failed migrate shows as a Degraded Application, not a failed
+#     sync. Read the Job's own status (kubectl get job <name> -o jsonpath='{.status.succeeded}' is 1) and its log, never "the sync succeeded".
+#
+# The Job's name carries the image (tag and digest prefix): a new Go image is a NEW Job, so migrate runs once per image, before that image's Deployments
+# (a Job's pod template is immutable, so one fixed name could not follow an image bump). No ttlSecondsAfterFinished: a finished Job stays and stays in
+# sync (a deleted one would be re-created, and migrate would re-run, on the next sync). Older Jobs stay too (automated sync does not prune): delete
+# them by hand when unwanted. A failed Job is kept for its log; delete it to run again.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: autopilot-gateway-migrate
+  name: @@AUTOPILOT_GO_MIGRATE_JOB@@
   namespace: autopilot-system
   labels: {app.kubernetes.io/name: autopilot-gateway-migrate, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
   annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    # After the NetworkPolicy below (wave -1): the policy must exist before this pod connects to the database.
-    argocd.argoproj.io/sync-wave: "0"
+    # After the NetworkPolicy below (wave 0) and the database (postgres.yaml, wave 0), before the Deployments (wave 2).
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   backoffLimit: 2
   # Fails fast on a connect problem (the migrate command has no connect timeout of its own), and bounds every attempt together. Sized for the
@@ -22,7 +38,6 @@ spec:
   # hand-run Job waits 20 min for a table far past that; if a first build really needs longer, this Job fails at the deadline (the log says
   # which index) and the owner raises it or runs the runbook's Job by hand.
   activeDeadlineSeconds: 300
-  ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels: {app.kubernetes.io/name: autopilot-gateway-migrate, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
@@ -52,12 +67,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
 ---
-# The database admits the migrate pod (networkpolicy.yaml admits the gateway and the read API only).
-# A PreSync hook, in a wave before the Job: a plain resource is applied in the Sync phase, after the PreSync Job has already failed to
-# connect, so the sync would abort before ever applying it. BeforeHookCreation only (never HookSucceeded or HookFailed): the policy is left
-# in place after the sync, which the hand-run `migrate --check` Job of the runbook needs (same pod label), and the next sync deletes and
-# recreates it before the Job. A hook is not tracked or pruned: turning migrateJob off leaves this policy behind; delete it by hand
-# (kubectl -n autopilot-system delete networkpolicy autopilot-pg-migrate) when the flag goes off for good.
+# The database admits the migrate pod (networkpolicy.yaml admits the gateway and the read API only); an ordinary resource, applied before the Job (wave 0 < 1).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -65,9 +75,7 @@ metadata:
   namespace: autopilot-system
   labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
   annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   podSelector:
     matchLabels: {cnpg.io/cluster: autopilot-pg}
