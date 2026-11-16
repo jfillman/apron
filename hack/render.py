@@ -966,9 +966,11 @@ def clearance_admission_tokens(g):
         # The pinned wait image the policy exempts as G-ARGO-4's injected PreSync Job: the same digest reference the
         # plugin injects (versions.clearance.waitImage, required with clearance.gate.enabled); empty = no exemption.
         "CLEARANCE_GATE_WAIT_IMAGE": g("versions.clearance.waitImage", "") or "",
-        # The CEL test of the Job's container image. With versions.clearance.previousWaitImage set (one release only: the
-        # previous digest, so the order in which the policy and the plugin sidecar roll does not matter, and a manifest
-        # cached with the old digest still runs) it is a list of both; unset it is the single-image test, as before.
+        # The CEL test of the Job's container image. With versions.clearance.previousWaitImage set (one release only) it is a
+        # list of the new and the previous digest, so a wait Job or cached manifest naming the old digest keeps working once
+        # this policy is deployed. It does not order the roll-out: the policy must update before the sidecar generates the
+        # new image (nothing orders them; the policy syncs in seconds, the repo-server takes minutes). Unset: the
+        # single-image test, as before.
         "CLEARANCE_GATE_WAIT_IMAGE_MATCH": (
             "variables.waitctr.image in ['%s', '%s']" % (g("versions.clearance.waitImage", ""), g("versions.clearance.previousWaitImage"))
             if g("versions.clearance.waitImage", "") and g("versions.clearance.previousWaitImage", "")
