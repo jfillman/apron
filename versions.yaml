@@ -12,7 +12,7 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.50.0
+    chart: 0.51.0
     imageDigest: sha256:3e903575bfe51f414a4c195f0ad705044660a640ec12592eabc007bf50dd41a3
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
@@ -20,16 +20,16 @@ versions:
     waitImage: ghcr.io/jfillman/clearance-wait@sha256:bc581b5e6543f3ee5dd54ad1a0039ec5eb5e001c7ddb0c60b17a13f770687d42
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:fe3177f77424b9f61f2ee7736ff08ff2cb7895f335264723a59450e56748dbb7
-    argocdAgentChart: 0.50.0
+    argocdAgentChart: 0.51.0
     # The Slack service (clearance.slack.enabled; clearance chart slack.*, first in clearance v0.47.1): ghcr.io/jfillman/clearance-slack by
     # digest (v0.50.0's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
     slackImageDigest: sha256:7d7c65d43f8c901a0d80eb123735b5cea4fea67a93458f48685b91ef1925c157
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
     observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:b6cd08a3c171592aeecb4774c43c3b83740b1c8583a2f0fd1ef69042e7b53e11
-    observeK8sChart: 0.50.0
+    observeK8sChart: 0.51.0
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
     observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:3f8f3727d34aaa2039d43b2c4e9c03e228bae7f88d0fe0846d5bf162d901accb
-    observeAWSChart: 0.50.0
+    observeAWSChart: 0.51.0
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
     witnessImage: ghcr.io/jfillman/clearance-witness@sha256:ce008fd0cd1b92e403b46176590646805f037adc2f3a1a40ff4d25a369e24299
