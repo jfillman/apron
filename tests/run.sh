@@ -1201,6 +1201,19 @@ expect "${K}/go" "implementation: go" 55-autopilot/gateway/gateway-go.yaml 55-au
 for f in gateway-go.yaml autopilot-api-go.yaml; do
   has "${G}/${f}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:a{64}$' "go: ${f} pins the Go image by tag and digest"
 done
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${G}/gateway-go-egress.yaml" <<'PY6' && ok "go: both egress policies are wave 2 (with the Go Deployments, after migrate) and the read API's allow DNS, the database, the API server and the OTLP collector" || bad "go: egress policies not in wave 2 or missing a destination the read API needs"
+import sys, yaml
+docs = {d["metadata"]["name"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+for n in ("autopilot-gateway-egress", "autopilot-api-egress"):
+    assert docs[n]["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "2", n
+ports = lambda d: {(p["protocol"], p["port"]) for r in d["spec"]["egress"] for p in r.get("ports", [])}
+api = ports(docs["autopilot-api-egress"])
+assert {("UDP", 53), ("TCP", 5432), ("TCP", 443), ("TCP", 4318)} <= api, api
+gw = ports(docs["autopilot-gateway-egress"])
+assert {("TCP", 5432), ("TCP", 8080), ("TCP", 4318), ("TCP", 443)} <= gw, gw
+PY6
+fi
 has "${G}/gateway-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the gateway is in wave 2, after the migrate Job (wave 1)"
 has "${G}/autopilot-api-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the read API is in wave 2, after the migrate Job (wave 1)"
 has "${G}/gateway-go.yaml" 'args: \[serve\]' "go: the gateway runs serve"

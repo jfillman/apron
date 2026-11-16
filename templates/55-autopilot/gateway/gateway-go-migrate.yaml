@@ -9,9 +9,13 @@
 # partial one (gitops-engine pkg/sync/sync_context.go getSyncTasks `!sc.skipHooks`, skipHooks set at argo-cd controller/sync.go:311 when the operation names
 # resources), and a full sync after a partial one is silently made partial by argo-cd#28701 (setOperationState's merge patch keeps the previous operation's
 # `resources`), so on this lab a PreSync hook never ran (A-9 S9, 2026-11-16). Order: the policy (wave 0, with the database) < this Job (wave 1) < the Go
-# gateway and read API Deployments (wave 2): Argo CD waits for each wave's resources to be healthy (a Job is healthy when Complete, Degraded when
-# Failed: gitops-engine pkg/health/health_job.go), so the Go pods never change before migrate has succeeded, and a failed Job fails the sync with the
-# Python pods untouched.
+# gateway and read API Deployments and the Go egress policies (wave 2).
+#   - implementation: go: Argo CD finishes wave 1 before wave 2, and a Failed Job (Degraded, gitops-engine pkg/health/health_job.go) in a wave that is
+#     not the last FAILS the sync (sync_context.go:559-568, 'one or more objects failed to apply'), so the Go pods never change before migrate has
+#     succeeded and the Python pods are untouched.
+#   - implementation: python (step 1, the Python Deployments are wave 1 too): this Job is in the LAST wave, and the last wave's non-hook resources
+#     count as a success whatever they do afterwards (sync_context.go:700-709), so a failed migrate shows as a Degraded Application, not a failed
+#     sync. Read the Job's own status (kubectl get job <name> -o jsonpath='{.status.succeeded}' is 1) and its log, never "the sync succeeded".
 #
 # The Job's name carries the image (tag and digest prefix): a new Go image is a NEW Job, so migrate runs once per image, before that image's Deployments
 # (a Job's pod template is immutable, so one fixed name could not follow an image bump). No ttlSecondsAfterFinished: a finished Job stays and stays in

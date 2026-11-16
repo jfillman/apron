@@ -5,12 +5,18 @@
 # Clearance core, glidepath-api and its broker, Thanos and Loki and the OTLP collector, people-dex, and HTTPS to the public internet
 # (GitHub, the model provider, Tower's catalog and keys) except the private ranges, which autopilot.gateway.go.egress.extraCIDRs reopens for one
 # address (a Tower on a private network). Ingress is networkpolicy.yaml's and monitoring.yaml's.
+# Both policies are sync wave 2, with the Go Deployments: at wave 0 their selectors would restrict the still-running Python pods before migrate has run.
+# The read API gets no rule to Clearance: it only names CLEARANCE_API_URL in its /v1/contract document and never calls it (autopilot read_api.py:474,
+# gateway/internal/readapi/handler.go:227-229).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: autopilot-gateway-egress
   namespace: autopilot-system
   labels: {app.kubernetes.io/name: autopilot-gateway, hangar.io/component: autopilot, hangar.io/subcomponent: gateway}
+  annotations:
+    # Wave 2, with the Go Deployments, never before the migrate Job (wave 1): these selectors also match the still-running Python pods.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   podSelector:
     matchLabels: {app.kubernetes.io/name: autopilot-gateway}
@@ -81,6 +87,8 @@ metadata:
   name: autopilot-api-egress
   namespace: autopilot-system
   labels: {hangar.io/component: autopilot, hangar.io/subcomponent: gateway-api}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"   # with the Go Deployments, after the migrate Job (see above)
 spec:
   podSelector:
     matchLabels: {app.kubernetes.io/name: autopilot-api}
