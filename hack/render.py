@@ -452,6 +452,12 @@ def clearance_gate_tokens(g):
     if on and not (cmp_image and wait_image):
         raise ApronError("clearance.gate.enabled needs versions.clearance.cmpImage and waitImage (the plugin sidecar and "
                          "the PreSync wait images, by digest, from the clearance release that publishes them)")
+    prev_wait = g("versions.clearance.previousWaitImage", "") or ""
+    if on and prev_wait:
+        if prev_wait == wait_image:
+            raise ApronError("versions.clearance.previousWaitImage equals waitImage: remove it (it is for the one release after a wait-image change)")
+        if not re.fullmatch(r"[^\s'\"]+@sha256:[0-9a-f]{64}", prev_wait):
+            raise ApronError("versions.clearance.previousWaitImage is a digest reference (<repo>@sha256:<64 hex>)")
     ns = g("clearance.namespace", None) or "clearance-system"
     alias = g("clearance.gate.hostAlias", "") or ""
     if alias and "=" not in alias:
@@ -877,6 +883,7 @@ def flight_admission_tokens(g):
         # which is not a Flight image: exactly that digest is allowed, nothing else from its repository.
         "FLIGHT_ALLOWED_PREFIXES": json.dumps(list(g("admission.flight.allowedPrefixes", None) or [])
                                               + ([g("versions.clearance.waitImage")] if g("clearance.gate.enabled", False) and g("versions.clearance.waitImage", "") else [])
+                                              + ([g("versions.clearance.previousWaitImage")] if g("clearance.gate.enabled", False) and g("versions.clearance.waitImage", "") and g("versions.clearance.previousWaitImage", "") else [])
                                               + ([g("versions.clearance.witnessImage")] if g("clearance.witness.enabled", False) and g("versions.clearance.witnessImage", "") else [])),
         "REGISTRY_PULL_KEY": ("flight-registry-read-dockerconfigjson" if g("admission.flight.pullFromFlight", False)
                               else "registry-credentials-dockerconfigjson"),
@@ -959,6 +966,15 @@ def clearance_admission_tokens(g):
         # The pinned wait image the policy exempts as G-ARGO-4's injected PreSync Job: the same digest reference the
         # plugin injects (versions.clearance.waitImage, required with clearance.gate.enabled); empty = no exemption.
         "CLEARANCE_GATE_WAIT_IMAGE": g("versions.clearance.waitImage", "") or "",
+        # The CEL test of the Job's container image. With versions.clearance.previousWaitImage set (one release only) it is a
+        # list of the new and the previous digest, so a wait Job or cached manifest naming the old digest keeps working once
+        # this policy is deployed. It does not order the roll-out: the policy must update before the sidecar generates the
+        # new image (nothing orders them; the policy syncs in seconds, the repo-server takes minutes). Unset: the
+        # single-image test, as before.
+        "CLEARANCE_GATE_WAIT_IMAGE_MATCH": (
+            "variables.waitctr.image in ['%s', '%s']" % (g("versions.clearance.waitImage", ""), g("versions.clearance.previousWaitImage"))
+            if g("versions.clearance.waitImage", "") and g("versions.clearance.previousWaitImage", "")
+            else "variables.waitctr.image == '%s'" % (g("versions.clearance.waitImage", "") or "")),
         "CLEARANCE_GATE_AGENT_USER": sa("agentServiceAccount", "clearance-system:clearance-argocd-agent"),
     }
 

@@ -541,6 +541,28 @@ new "${TMP}/gate-agent" prod hangar-prod kind --repo-url https://github.com/acme
 render_ok "${TMP}/gate-agent" "gate on with the agent, one app"
 has "${TMP}/gate-agent/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\(gate-api\)\$" .appName' "gate.apps: only that app gets the plugin"
 has "${TMP}/gate-agent/30-policy/kyverno-policies/flight-images.yaml" 'ghcr.io/acme/clearance-wait@sha256:bbbb' "gate on: Flight admission allows exactly the wait image"
+has "${TMP}/gate-agent/56-clearance-gate/admission.yaml" "variables.waitctr.image == 'ghcr.io/acme/clearance-wait@sha256:bbbb' &&" "gate on, no previousWaitImage: the exemption is the single-image test as before"
+if grep -q "waitctr.image in" "${TMP}/gate-agent/56-clearance-gate/admission.yaml"; then bad "no previousWaitImage: the exemption renders a list"; else ok "no previousWaitImage: no list in the exemption"; fi
+PREV=ghcr.io/acme/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111
+new "${TMP}/gate-prev" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=${PREV}"
+render_ok "${TMP}/gate-prev" "gate on with versions.clearance.previousWaitImage"
+has "${TMP}/gate-prev/56-clearance-gate/admission.yaml" "variables.waitctr.image in \\['ghcr.io/acme/clearance-wait@sha256:bbbb', '${PREV}'\\] &&" "previousWaitImage: the gate exemption admits the new and the previous wait image"
+has "${TMP}/gate-prev/30-policy/kyverno-policies/flight-images.yaml" "clearance-wait@sha256:bbbb\", \"${PREV}\"" "previousWaitImage: Flight admission's allow-list has both digests"
+has "${TMP}/gate-prev/56-clearance-gate/agent/application.yaml" 'image: "ghcr.io/acme/clearance-wait@sha256:bbbb"' "previousWaitImage: the agent's waitJob.image stays the new digest"
+new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
+if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
