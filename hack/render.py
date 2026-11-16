@@ -153,6 +153,9 @@ def tokens(v):
         # Glidepath's per-app guardrail overrides ({app: {gate: {required: false}}}), a YAML flow map ("{}" when unset);
         # the catalog chart validates it (sast/provenance/image-promotion never advisory).
         "GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP": json.dumps(g("releaseGuardrailOverridesByApp", None) or {}),
+        # Glidepath's per-cluster guardrail overrides ({gate: {required: bool}}), a YAML flow map ("{}" when unset, and the
+        # catalog's key is then not rendered at all: a cluster that sets none renders byte-for-byte what it did before).
+        "GLIDEPATH_GUARDRAIL_OVERRIDES": json.dumps(g("releaseGuardrailOverrides", None) or {}),
         # Pipelines-as-Code's application-name (the check runs' name prefix), quoted: PaC's ConfigMap and the
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),

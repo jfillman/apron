@@ -246,6 +246,16 @@ glidepath-catalog's `pipelinesAsCode.applicationName`, which the gate tasks find
 any name; Backstage's `GLIDEPATH_GATE_COMMENT_APPS` must list its slug. See Glidepath's
 [github-app.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/github-app.md), including how to rename it.
 
+## Release-gate overrides (`releaseGuardrailOverrides`)
+
+`cluster.yaml` `releaseGuardrailOverrides: {<gate>: {required: true|false}}` becomes the glidepath-catalog Application's
+`releaseGuardrailOverrides` (glidepath [release-guardrails.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/release-guardrails.md),
+"Who sets it"): the cluster's own `required` for one gate, beside the per-app `releaseGuardrailOverridesByApp`. Unset renders no key, so a
+cluster that sets none renders what it did before (a prod-profile cluster runs no catalog Application at all). `apron check` refuses anything
+but a map of gate names to `{required: <bool>}`. hangar-dev sets `clearance-gate: {required: true}`: the deployment gate holds a release PR
+until it is cleared in Tower (glidepath [clearance-gate.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/clearance-gate.md),
+G-ARGO-8). Turn it back to advisory by deleting the entry (or `required: false`) and re-rendering.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),

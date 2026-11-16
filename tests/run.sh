@@ -427,6 +427,31 @@ if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${G
 else
   grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
 fi
+# releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
+# clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
+mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: true}}'; } >"${GA}/gro-on/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: "yes"}}'; } >"${GA}/gro-bad/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: [clearance-gate]'; } >"${GA}/gro-bad2/cluster.yaml"
+render_ok "${GA}/gro-on" "dev releaseGuardrailOverrides clearance-gate required"
+has "${GA}/gro-on/${CATV}" '^          releaseGuardrailOverrides: \{"clearance-gate": \{"required": true\}\}$' "glidepath catalog: releaseGuardrailOverrides carries clearance-gate required: true"
+has "${GA}/gro-on/${CATV}" '^          releaseGuardrailOverridesByApp: ' "glidepath catalog: the by-app map is still rendered beside it"
+[ -f "${LAB}/dev/${CATV}" ] || bad "releaseGuardrailOverrides: the dev render has no ${CATV} to check"
+if grep -q '^          releaseGuardrailOverrides:' "${LAB}/dev/${CATV}"; then bad "releaseGuardrailOverrides unset: dev still renders the key"; else ok "releaseGuardrailOverrides unset: dev renders no key (unchanged)"; fi
+# hangar-prod: the key set in its cluster.yaml (a mistake, or a copy of the dev file) reaches nothing, because a prod-profile cluster runs no
+# glidepath-catalog Application (components.glidepath is off in profiles/prod.yaml); its unset render is proven byte-identical in the PR's diff.
+mkdir -p "${GA}/gro-prod"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: true}}'; } >"${GA}/gro-prod/cluster.yaml"
+render_ok "${GA}/gro-prod" "prod releaseGuardrailOverrides set"
+[ ! -f "${LAB}/prod/${CATV}" ] || bad "releaseGuardrailOverrides: prod renders a glidepath-catalog Application (this assertion needs updating)"
+if grep -rq 'releaseGuardrailOverrides' "${GA}/gro-prod"/[0-9][0-9]-*; then bad "releaseGuardrailOverrides: the prod render carries the key"; else ok "releaseGuardrailOverrides: the prod render carries no override (no catalog Application there)"; fi
+for b in gro-bad gro-bad2; do
+  if python3 hack/check.py --cluster "${GA}/${b}/cluster.yaml" >/dev/null 2>"${GA}/${b}/err"; then
+    bad "releaseGuardrailOverrides: ${b} was accepted"
+  else
+    grep -q 'releaseGuardrailOverrides' "${GA}/${b}/err" && ok "releaseGuardrailOverrides: ${b} is refused by apron check" || bad "releaseGuardrailOverrides ${b} refusal: $(cat "${GA}/${b}/err")"
+  fi
+done
 # versions.glidepath: cluster.yaml overrides versions.yaml (the resolution order), so a cluster can pin its own Glidepath revision.
 mkdir -p "${GA}/rev"
 { cat "${LAB}/dev/cluster.yaml"; echo 'versions: {glidepath: v9.9.9}'; } >"${GA}/rev/cluster.yaml"
