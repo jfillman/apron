@@ -902,6 +902,16 @@ def gate_concurrency(g):
     return v
 
 
+def gitops_pipeline_provenance(g):
+    """glidepath.gitopsPipelineProvenance: default_branch or source (unset or empty = the chart's default, the values are left out)."""
+    v = g("glidepath.gitopsPipelineProvenance", None)
+    if v in (None, ""):
+        return ""
+    if v not in ("default_branch", "source"):
+        raise ApronError(f"glidepath.gitopsPipelineProvenance is {v!r}: default_branch, source, or unset (Pipelines-as-Code's pipelinerun_provenance)")
+    return v
+
+
 def glidepath_run_tokens(g):
     """glidepath-api's PipelineRun policies (30-policy/kyverno-policies/tower-identity-writes.yaml, pipeline trust T5): the
     per-task accounts of Glidepath's run admission (versions.glidepathRunTasks, checked against the pinned Glidepath by
@@ -933,6 +943,8 @@ def glidepath_run_tokens(g):
         "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
         # Pipelines-as-Code's per-repository concurrency limit for every app's Repository CRs (omitted from the values when unset).
         "GLIDEPATH_GATE_CONCURRENCY": str(gate_concurrency(g)),
+        # Where Pipelines-as-Code reads every gitops repository's .tekton files from (omitted from the values when unset).
+        "GLIDEPATH_GITOPS_PROVENANCE": gitops_pipeline_provenance(g),
         "GLIDEPATH_API_STORAGE_CLASSES": json.dumps(classes),
         "GLIDEPATH_SOURCE_ISOLATION_ACTIONS": "[Deny]" if mode == "deny" else "[Warn, Audit]",
     }

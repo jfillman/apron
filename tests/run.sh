@@ -370,10 +370,18 @@ has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
 mkdir -p "${GA}/nogate"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null}'; } >"${GA}/nogate/cluster.yaml"
-render_ok "${GA}/nogate" "dev glidepath.gateConcurrency unset"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsPipelineProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
+render_ok "${GA}/nogate" "dev glidepath.gateConcurrency and gitopsPipelineProvenance unset"
 [ -f "${GA}/nogate/${CPV}" ] || bad "glidepath control plane: the unset render has no ${CPV} to check"
-if grep -q 'pipelinesAsCode:' "${GA}/nogate/${CPV}"; then bad "glidepath control plane: glidepath.gateConcurrency unset still renders a pipelinesAsCode limit"; else ok "glidepath control plane: unset glidepath.gateConcurrency leaves the limit out"; fi
+if grep -q 'pipelinesAsCode:' "${GA}/nogate/${CPV}"; then bad "glidepath control plane: glidepath.gateConcurrency and gitopsPipelineProvenance unset still render a pipelinesAsCode block"; else ok "glidepath control plane: unset gateConcurrency and gitopsPipelineProvenance leave pipelinesAsCode out"; fi
+has "${LAB}/dev/${CPV}" '^  gitopsRepoProvenance: default_branch$' "glidepath control plane: the dev profile reads gitops repositories' .tekton from the default branch"
+has "${LAB}/dev/${CPV}" '^pipelinesAsCode:$' "glidepath control plane: limit and provenance share one pipelinesAsCode block"
+mkdir -p "${GA}/noprov"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: null}'; } >"${GA}/noprov/cluster.yaml"
+render_ok "${GA}/noprov" "dev glidepath.gitopsPipelineProvenance unset"
+[ -f "${GA}/noprov/${CPV}" ] || bad "glidepath control plane: the unset-provenance render has no ${CPV} to check"
+has "${GA}/noprov/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: unset gitopsPipelineProvenance keeps the concurrency limit"
+if grep -q 'gitopsRepoProvenance' "${GA}/noprov/${CPV}"; then bad "glidepath control plane: glidepath.gitopsPipelineProvenance unset still renders gitopsRepoProvenance"; else ok "glidepath control plane: unset glidepath.gitopsPipelineProvenance leaves it out"; fi
 has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: glidepath.sourceIsolation warn warns"
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
@@ -487,6 +495,14 @@ if python3 hack/render.py --cluster "${TMP}/gp-bad-gate/cluster.yaml" >/dev/null
   bad "glidepath.gateConcurrency: 0 was accepted"
 else
   grep -q 'whole number of at least 1' "${TMP}/gp-bad-gate/err" && ok "glidepath.gateConcurrency 0 is refused" || bad "glidepath.gateConcurrency 0: $(cat "${TMP}/gp-bad-gate/err")"
+fi
+
+mkdir -p "${TMP}/gp-bad-prov"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: main}'; } >"${TMP}/gp-bad-prov/cluster.yaml"
+if python3 hack/render.py --cluster "${TMP}/gp-bad-prov/cluster.yaml" >/dev/null 2>"${TMP}/gp-bad-prov/err"; then
+  bad "glidepath.gitopsPipelineProvenance: main was accepted"
+else
+  grep -q 'default_branch, source, or unset' "${TMP}/gp-bad-prov/err" && ok "glidepath.gitopsPipelineProvenance main is refused" || bad "glidepath.gitopsPipelineProvenance main: $(cat "${TMP}/gp-bad-prov/err")"
 fi
 
 echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
