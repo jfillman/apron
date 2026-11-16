@@ -233,6 +233,11 @@ spec:
             limits: {memory: 512Mi}
           extraEnv:
             - {name: GOMEMLIMIT, value: 400MiB}
+#@if clearance.api.coverageCacheSeconds
+          # Coverage result cache (clearance 0.51.0+, CLEARANCE_API_COVERAGE_CACHE_SECONDS): off in the chart; on only where
+          # cluster.yaml sets clearance.api.coverageCacheSeconds. A statement shown can be up to this many seconds old.
+          coverageCacheSeconds: @@CLEARANCE_API_COVERAGE_CACHE_SECONDS@@
+#@end
           auditors: @@CLEARANCE_AUDITORS_LIST@@
           notifiers: @@CLEARANCE_NOTIFIERS_LIST@@
           observationReaders: @@CLEARANCE_OBSERVATION_READERS_LIST@@

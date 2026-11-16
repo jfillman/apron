@@ -541,6 +541,28 @@ new "${TMP}/gate-agent" prod hangar-prod kind --repo-url https://github.com/acme
 render_ok "${TMP}/gate-agent" "gate on with the agent, one app"
 has "${TMP}/gate-agent/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\(gate-api\)\$" .appName' "gate.apps: only that app gets the plugin"
 has "${TMP}/gate-agent/30-policy/kyverno-policies/flight-images.yaml" 'ghcr.io/acme/clearance-wait@sha256:bbbb' "gate on: Flight admission allows exactly the wait image"
+has "${TMP}/gate-agent/56-clearance-gate/admission.yaml" "variables.waitctr.image == 'ghcr.io/acme/clearance-wait@sha256:bbbb' &&" "gate on, no previousWaitImage: the exemption is the single-image test as before"
+if grep -q "waitctr.image in" "${TMP}/gate-agent/56-clearance-gate/admission.yaml"; then bad "no previousWaitImage: the exemption renders a list"; else ok "no previousWaitImage: no list in the exemption"; fi
+PREV=ghcr.io/acme/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111
+new "${TMP}/gate-prev" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=${PREV}"
+render_ok "${TMP}/gate-prev" "gate on with versions.clearance.previousWaitImage"
+has "${TMP}/gate-prev/56-clearance-gate/admission.yaml" "variables.waitctr.image in \\['ghcr.io/acme/clearance-wait@sha256:bbbb', '${PREV}'\\] &&" "previousWaitImage: the gate exemption admits the new and the previous wait image"
+has "${TMP}/gate-prev/30-policy/kyverno-policies/flight-images.yaml" "clearance-wait@sha256:bbbb\", \"${PREV}\"" "previousWaitImage: Flight admission's allow-list has both digests"
+has "${TMP}/gate-prev/56-clearance-gate/agent/application.yaml" 'image: "ghcr.io/acme/clearance-wait@sha256:bbbb"' "previousWaitImage: the agent's waitJob.image stays the new digest"
+new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
+if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
@@ -847,6 +869,19 @@ printf 'clearance:\n  web: {enabled: false}\n' >>"${TMP}/web-offdev/cluster.yaml
 render_ok "${TMP}/web-offdev" "web explicitly off"
 if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/web-offdev" >/dev/null; then ok "web key off == absent, byte for byte"; else bad "web off differs from absent"; fi
 
+echo "== 1c-4b. clearance-api's coverage cache (clearance.api.coverageCacheSeconds, off by default)"
+new "${TMP}/cov-on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set clearance.api.coverageCacheSeconds=30
+render_ok "${TMP}/cov-on" "coverage cache on"
+python3 hack/check.py --cluster "${TMP}/cov-on/cluster.yaml" >/dev/null && ok "coverage cache on passes check" || bad "coverage cache on fails check"
+has "${TMP}/cov-on/${CA}" '^          coverageCacheSeconds: 30$' "coverage cache on: the chart's api.coverageCacheSeconds is 30"
+if grep -rq 'coverageCacheSeconds' "${LAB}/dev" "${LAB}/prod"; then bad "coverage cache default: coverageCacheSeconds rendered"; else ok "coverage cache default: not rendered (chart default, off)"; fi
+mkdir -p "${TMP}/cov-offdev"
+cp "${LAB}/dev/cluster.yaml" "${TMP}/cov-offdev/cluster.yaml"
+printf 'clearance:\n  api: {coverageCacheSeconds: 0}\n' >>"${TMP}/cov-offdev/cluster.yaml"
+render_ok "${TMP}/cov-offdev" "coverage cache explicitly 0"
+if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/cov-offdev" >/dev/null; then ok "coverage cache 0 == absent, byte for byte"; else bad "coverage cache 0 differs from absent"; fi
+
 echo "== 1c-5. Clearance Slack (clearance.slack.enabled)"
 SLACK_COMMON=(--set versions.clearance.chart=0.47.1 --set 'clearance.people=[alice]' --set clearance.slack.enabled=true
   --set clearance.slack.publicUrl=https://slack.clearance.example.com --set clearance.slack.slackClientId=1234.5678
@@ -971,6 +1006,8 @@ python3 hack/check.py --cluster "${LAB}/prod/cluster.yaml" >/dev/null && ok "lab
 P="${LAB}/prod"
 D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
+refuse "a coverage cache over 300 seconds" "${D}" 'clearance: {api: {coverageCacheSeconds: 301}}'
+refuse "a coverage cache that is not a whole number" "${D}" 'clearance: {api: {coverageCacheSeconds: "30s"}}'
 # Slack refusals: each case is built from the working Slack cluster with one --set changed (the keys sit in a block cluster.yaml
 # already has, so refuse() above, which appends a second top-level key, cannot reach them), and must be refused for the stated reason.
 slack_refuse() { # slack_refuse LABEL WANT-IN-MESSAGE [--set k=v ...]   (SLACK_NODNS=1: without the dns01 block)

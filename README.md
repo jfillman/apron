@@ -121,6 +121,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 |---|---|
 | `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
 | `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
+| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. Nothing in the rendered output orders that (the policy Applications and `argocd-apps-install` carry no sync wave and sync independently); it holds in practice because the policies sync in seconds and the repo-server takes minutes. Before merging a roll-out, check that both policies show the new allow-list before the repo-server has rolled. Remove the key at the next release. The agent's `waitJob.image` stays the new digest |
 | `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
 | `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
 | `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
@@ -144,6 +145,11 @@ CloudNativePG has no object store on these clusters, so `clearance.backup.enable
 `55-clearance/clearance-config/backup.yaml`: a PVC and a nightly CronJob that `pg_dump`s clearance-pg (as the read-only
 role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
 `clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
+
+`clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
+coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
+coverage statement shown to a person can be up to that many seconds old (the response carries `Age`). Setting or changing it
+restarts clearance-api once. Only the cluster whose `cluster.yaml` sets it gets the cache; nothing is decided by cluster name.
 
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 

@@ -129,6 +129,7 @@ the render with `file:line`.
 | `@@CLEARANCE_GATE_ARGOCD_USER@@` | `system:serviceaccount:` + `clearance.gate.argocdServiceAccount` (default `argocd-apps:argocd-application-controller`), the only writer `clearance-protected-writes` checks |
 | `@@CLEARANCE_GATE_AGENT_USER@@` | `system:serviceaccount:` + `clearance.gate.agentServiceAccount` (default `clearance-system:clearance-argocd-agent`), the only writer of a ClearanceGrant |
 | `@@CLEARANCE_GATE_WAIT_IMAGE@@` | `versions.clearance.waitImage` (the same digest the CMP injects), the one image `clearance-protected-writes` exempts as the injected PreSync Job, and the agent's `waitJob.image` so its exception scan recognises the same Job; required with `clearance.gate.enabled` |
+| `@@CLEARANCE_GATE_WAIT_IMAGE_MATCH@@` | the CEL test of the wait Job's image in `clearance-protected-writes`: `== '<waitImage>'`, or `in ['<waitImage>', '<previousWaitImage>']` while `versions.clearance.previousWaitImage` is set (one release only: keeps an old-image wait Job or cached manifest working once this policy is deployed; the policy must still update before the sidecar generates the new image) |
 | `@@REGISTRY_PULL_KEY@@` | `admission.flight.pullFromFlight`: the Infisical key tenant `registry-credentials` reads, `flight-registry-read-dockerconfigjson` when true, else `registry-credentials-dockerconfigjson` |
 | `@@ITSM_WEBHOOK_URL@@` | `itsm.webhookUrl`, the change tool's webhook (optional; the lab's mock is `http://itsm-mock.platform-system.svc.cluster.local:8080/webhook`) |
 | `@@AUTOPILOT_PEOPLE@@` | `autopilot.people`, the GitHub logins that may sign in to Clearance as a person through people-dex (comma-separated; empty lets nobody in) - the gateway's `CLEARANCE_OIDC_ALLOWED_USERS` |
@@ -223,6 +224,7 @@ the render with `file:line`.
 | `@@CLEARANCE_SLACK_HOST_ALIASES@@` | `clearance.slack.idp.hostAlias` as the chart's `slack.hostAliases` for `dex.<domain>` (`[]` when unset: the name resolves by DNS) |
 | `@@CLEARANCE_SLACK_ACME_EMAIL@@`, `@@CLEARANCE_SLACK_ACME_SERVER@@` | `clearance.slack.tls.dns01.email` (required) and `.server` (default Let's Encrypt production) - only under `tls.mode: dns01-route53` |
 | `@@CLEARANCE_SLACK_DNS01_ZONE_ID@@`, `@@CLEARANCE_SLACK_DNS01_REGION@@` (default `us-east-1`), `@@CLEARANCE_SLACK_DNS01_ROLE_ARN@@` | `clearance.slack.tls.dns01.hostedZoneID`, `region`, `roleARN` (the role is only used with `auth: serviceAccount`, the default) |
+| `@@CLEARANCE_API_COVERAGE_CACHE_SECONDS@@` | `clearance.api.coverageCacheSeconds` (default 0, 0 to 300): how long clearance-api reuses a coverage answer (chart `api.coverageCacheSeconds`, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`, Clearance 0.51.0+). Rendered only under `#@if clearance.api.coverageCacheSeconds`, so a cluster that does not set it renders byte for byte as before |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)

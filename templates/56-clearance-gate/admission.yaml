@@ -100,7 +100,7 @@ spec:
                                        'terminationMessagePolicy', 'terminationMessagePath', 'volumeMounts']) &&
         (!has(variables.waitctr.terminationMessagePath) || variables.waitctr.terminationMessagePath == '/dev/termination-log') &&
         has(variables.waitctr.image) &&
-        variables.waitctr.image == '@@CLEARANCE_GATE_WAIT_IMAGE@@' &&
+        @@CLEARANCE_GATE_WAIT_IMAGE_MATCH@@ &&
         has(variables.waitctr.args) && variables.waitctr.args.size() == 4 &&
         variables.waitctr.args[0] == '--change' && variables.waitctr.args[2] == '--timeout' &&
         variables.waitctr.args[1].matches('^[A-Za-z0-9_.-]{1,80}$') && variables.waitctr.args[3].matches('^[0-9hms.]{1,20}$') &&
