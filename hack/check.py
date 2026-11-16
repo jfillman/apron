@@ -174,6 +174,9 @@ def violations(v, fleet=None):
                          ("agentXRs.namespaces", "the namespaces whose Agent XRs may define agents (the loader reads no other)")):
             if not get(v, f"{go}.{key}"):
                 add(f"{go}.{key} is required with implementation: go: {why}")
+        rv = get(v, f"{go}.registeredVersion")
+        if rv is not None and not (isinstance(rv, str) and 1 <= len(rv) <= 64):
+            add(f"{go}.registeredVersion must be a string of 1 to 64 characters (the provider version the Clearance core registers; unset: go.tag)")
         owners = get(v, f"{go}.githubOwners") or []
         ao = get(v, f"{go}.airframeOwner")
         if ao and ao not in owners:
