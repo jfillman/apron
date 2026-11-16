@@ -224,6 +224,7 @@ the render with `file:line`.
 | `@@CLEARANCE_SLACK_HOST_ALIASES@@` | `clearance.slack.idp.hostAlias` as the chart's `slack.hostAliases` for `dex.<domain>` (`[]` when unset: the name resolves by DNS) |
 | `@@CLEARANCE_SLACK_ACME_EMAIL@@`, `@@CLEARANCE_SLACK_ACME_SERVER@@` | `clearance.slack.tls.dns01.email` (required) and `.server` (default Let's Encrypt production) - only under `tls.mode: dns01-route53` |
 | `@@CLEARANCE_SLACK_DNS01_ZONE_ID@@`, `@@CLEARANCE_SLACK_DNS01_REGION@@` (default `us-east-1`), `@@CLEARANCE_SLACK_DNS01_ROLE_ARN@@` | `clearance.slack.tls.dns01.hostedZoneID`, `region`, `roleARN` (the role is only used with `auth: serviceAccount`, the default) |
+| `@@CLEARANCE_API_COVERAGE_CACHE_SECONDS@@` | `clearance.api.coverageCacheSeconds` (default 0, 0 to 300): how long clearance-api reuses a coverage answer (chart `api.coverageCacheSeconds`, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`, Clearance 0.51.0+). Rendered only under `#@if clearance.api.coverageCacheSeconds`, so a cluster that does not set it renders byte for byte as before |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
 ## Generated per cluster (cluster.yaml `generated:`)

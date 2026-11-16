@@ -869,6 +869,19 @@ printf 'clearance:\n  web: {enabled: false}\n' >>"${TMP}/web-offdev/cluster.yaml
 render_ok "${TMP}/web-offdev" "web explicitly off"
 if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/web-offdev" >/dev/null; then ok "web key off == absent, byte for byte"; else bad "web off differs from absent"; fi
 
+echo "== 1c-4b. clearance-api's coverage cache (clearance.api.coverageCacheSeconds, off by default)"
+new "${TMP}/cov-on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set clearance.api.coverageCacheSeconds=30
+render_ok "${TMP}/cov-on" "coverage cache on"
+python3 hack/check.py --cluster "${TMP}/cov-on/cluster.yaml" >/dev/null && ok "coverage cache on passes check" || bad "coverage cache on fails check"
+has "${TMP}/cov-on/${CA}" '^          coverageCacheSeconds: 30$' "coverage cache on: the chart's api.coverageCacheSeconds is 30"
+if grep -rq 'coverageCacheSeconds' "${LAB}/dev" "${LAB}/prod"; then bad "coverage cache default: coverageCacheSeconds rendered"; else ok "coverage cache default: not rendered (chart default, off)"; fi
+mkdir -p "${TMP}/cov-offdev"
+cp "${LAB}/dev/cluster.yaml" "${TMP}/cov-offdev/cluster.yaml"
+printf 'clearance:\n  api: {coverageCacheSeconds: 0}\n' >>"${TMP}/cov-offdev/cluster.yaml"
+render_ok "${TMP}/cov-offdev" "coverage cache explicitly 0"
+if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/cov-offdev" >/dev/null; then ok "coverage cache 0 == absent, byte for byte"; else bad "coverage cache 0 differs from absent"; fi
+
 echo "== 1c-5. Clearance Slack (clearance.slack.enabled)"
 SLACK_COMMON=(--set versions.clearance.chart=0.47.1 --set 'clearance.people=[alice]' --set clearance.slack.enabled=true
   --set clearance.slack.publicUrl=https://slack.clearance.example.com --set clearance.slack.slackClientId=1234.5678
@@ -993,6 +1006,8 @@ python3 hack/check.py --cluster "${LAB}/prod/cluster.yaml" >/dev/null && ok "lab
 P="${LAB}/prod"
 D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
+refuse "a coverage cache over 300 seconds" "${D}" 'clearance: {api: {coverageCacheSeconds: 301}}'
+refuse "a coverage cache that is not a whole number" "${D}" 'clearance: {api: {coverageCacheSeconds: "30s"}}'
 # Slack refusals: each case is built from the working Slack cluster with one --set changed (the keys sit in a block cluster.yaml
 # already has, so refuse() above, which appends a second top-level key, cannot reach them), and must be refused for the stated reason.
 slack_refuse() { # slack_refuse LABEL WANT-IN-MESSAGE [--set k=v ...]   (SLACK_NODNS=1: without the dns01 block)
