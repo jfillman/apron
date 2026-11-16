@@ -1,4 +1,5 @@
-# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true; the default is the manual step in the cutover runbook).
+# The migrate Job of the Go gateway (rendered only with autopilot.gateway.go.migrateJob: true, with either gateway implementation; the default is the manual
+# step in the cutover runbook). With implementation: python it prepares the cutover and changes no traffic: only this Job and the NetworkPolicy below render.
 # `autopilot-gateway migrate` before the gateway changes (PreSync): the schema and the read API's six indexes, CREATE INDEX CONCURRENTLY under a lock
 # and a statement timeout, idempotent. It uses the owner's DSN (autopilot-pg-app) and may run beside the writer. Off by default
 # (autopilot.gateway.go.migrateJob): the cutover runbook runs it by hand first, and a failing hook blocks every sync.

@@ -98,7 +98,7 @@ and says, in cluster.yaml, what the Python gateway defaulted or assumed:
 | `go.delegates`, `go.notifiers`, `go.auditors` | more principals for `AUTOPILOT_DELEGATES`, `GATEWAY_API_NOTIFIERS`, `GATEWAY_API_AUDITORS` (Tower's backend and `autopilot.people` are already there) |
 | `go.plainHttp.{glidepath,broker,logs,catalog,jwks}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs) |
 | `go.egress.apiServerCIDRs`, `go.egress.extraCIDRs`, `go.egress.enabled` | the egress policies' API server addresses (required), more HTTPS destinations, and `false` for no egress policy |
-| `go.migrateJob` | render `autopilot-gateway migrate` as a PreSync hook; off: the cutover runbook runs it by hand first |
+| `go.migrateJob` | render `autopilot-gateway migrate` as a PreSync hook, with either implementation (with `python` only this Job and the NetworkPolicy that admits it to the database render, and it needs `go.tag` and `go.digest`; no traffic changes); off: the cutover runbook runs it by hand first |
 
 The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
 The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).

@@ -146,6 +146,17 @@ def violations(v, fleet=None):
     # The Go gateway (autopilot A-9; docs/clusters-file.md "autopilot.gateway"): off unless implementation is go. Its settings may be
     # prepared while the Python gateway still runs, so they are checked only when the switch is on.
     impl = get(v, "autopilot.gateway.implementation") or "python"
+    # The migrate Job (go.migrateJob) is the cutover's step 4 and runs beside the Python gateway: it needs the image, not the switch.
+    if get(v, "autopilot.gateway.go.migrateJob") is not None and not isinstance(get(v, "autopilot.gateway.go.migrateJob"), bool):
+        add("autopilot.gateway.go.migrateJob must be true or false")
+    elif get(v, "autopilot.gateway.go.migrateJob") and impl == "python":
+        mg = "autopilot.gateway.go"
+        if not on("components.autopilot"):
+            add("autopilot.gateway.go.migrateJob needs components.autopilot")
+        if not re.fullmatch(r"gateway-go-v\d+\.\d+\.\d+", str(get(v, f"{mg}.tag") or "")):
+            add(f"{mg}.tag must be the Go image's release tag, gateway-go-vMAJOR.MINOR.PATCH: migrateJob runs that image")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, f"{mg}.digest") or "")):
+            add(f"{mg}.digest must be the image's sha256 digest: migrateJob pins tag and digest")
     if impl not in ("python", "go"):
         add(f"autopilot.gateway.implementation must be python or go (got {impl!r}); unset means python")
     elif impl == "go":
