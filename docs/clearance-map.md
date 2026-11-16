@@ -36,7 +36,7 @@ source and the scope of its namespaces. One target per:
 
 | Target | From | Fields |
 |---|---|---|
-| a protected namespace (`k8s-namespace`) | the union of `clearance.observe.protectedNamespaces` and `clearance.gate.agent.protectedNamespaces` | `id` `<cluster>.<namespace>`, `name` the namespace, `group` and `scope` the cluster, `registry` ground/flight, observers `observe-k8s` when the audit collector watches it |
+| a protected namespace (`k8s-namespace`) | the union of `clearance.observe.protectedNamespaces` and `clearance.gate.agent.protectedNamespaces` | `id` `<cluster>.<namespace>`, `name` the namespace, `group` and `scope` the cluster, `registry` ground/flight, observers `observe-k8s` with source `k8s-audit-webhook` (the `source.name` the collector's health records carry; the Map matches on it) when the audit collector watches it |
 | an application namespace `app-<app>-<env>` (the above, by name) | the namespace name | adds `app`, `env`, `owner` and the gates below |
 | the AWS account the collector watches (`aws-account`) | `clearance.observeAWS.*` | `id` `aws.<account>`, `group` and `scope` the account (from `cluster.yaml`, never a template), `env` the collector's environment, observer `observe-aws`, gates from `clearance.observeAWS.gates` |
 | anything else | `clearance.targets.extra` | as written |

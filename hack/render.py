@@ -748,7 +748,7 @@ def clearance_targets_tokens(v, g):
                 gates.append({"type": "g-argo", "instance": argo_instance, "mode": "enforce" if g("clearance.gate.enforce", False) else "flag"})
         t = {"id": f"{cluster}.{ns}", "name": ns, "kind": "k8s-namespace", "group": cluster, "registry": tier,
              "scope": cluster, "gates": gates,
-             "observers": [{"provider": "observe-k8s", "source": "observe-k8s"}] if ns in observe_ns else []}
+             "observers": [{"provider": "observe-k8s", "source": "k8s-audit-webhook"}] if ns in observe_ns else []}
         if app:
             t.update({"env": env, "app": app, "owner": owners.get(app, default_owner)})
         targets.append(t)
