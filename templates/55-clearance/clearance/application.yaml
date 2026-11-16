@@ -226,6 +226,13 @@ spec:
             limits: {memory: 256Mi}
         api:
           replicas: 2
+          # Headroom (2026-11-15): the chart default (64Mi/256Mi) was OOMKilled in a loop. GOMEMLIMIT is about 80% of the limit
+          # so the Go runtime collects before the kernel kills.
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          extraEnv:
+            - {name: GOMEMLIMIT, value: 400MiB}
           auditors: @@CLEARANCE_AUDITORS_LIST@@
           notifiers: @@CLEARANCE_NOTIFIERS_LIST@@
           observationReaders: @@CLEARANCE_OBSERVATION_READERS_LIST@@
