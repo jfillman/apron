@@ -1316,6 +1316,38 @@ for k in py:
         assert pp <= gp, (k, pp, gp)
 PY3
 fi
+# Every file the Go gateway is told to read must exist in the pod: each *_FILE env value, and the Clearance core token (the Go default,
+# /var/run/secrets/tokens/clearance, is not the name the manifest projects, clearance-core: serve must set CLEARANCE_CORE_TOKEN_FILE), sits
+# under a volumeMount and, where the volume is projected, is the path of one of its service account tokens. Secret volumes: the mount only.
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${G}" <<'PY7' && ok "go: every *_FILE env and the core token path point at a mounted volume (projected token paths exist)" || bad "go: a *_FILE env or the core token path does not point at a file the pod mounts"
+import sys, yaml
+for f in ("gateway-go.yaml", "autopilot-api-go.yaml"):
+    for d in yaml.safe_load_all(open(f"{sys.argv[1]}/{f}")):
+        if not d or d["kind"] != "Deployment":
+            continue
+        pod = d["spec"]["template"]["spec"]
+        c = pod["containers"][0]
+        vols = {v["name"]: v for v in pod.get("volumes", [])}
+        env = {e["name"]: e.get("value") for e in c["env"] if e.get("value") is not None}
+        if d["metadata"]["name"] == "autopilot-gateway":
+            assert "CLEARANCE_CORE_TOKEN_FILE" in env, (f, "serve reads the core token from the Go default path; set CLEARANCE_CORE_TOKEN_FILE to the projected path")
+        n = 0
+        for k, v in env.items():
+            if not (k.endswith("_FILE") or k == "CLEARANCE_CORE_TOKEN_FILE"):
+                continue
+            n += 1
+            ms = [m for m in c["volumeMounts"] if v.startswith(m["mountPath"].rstrip("/") + "/")]
+            assert ms, (f, k, v, "no volumeMount holds this path")
+            m = max(ms, key=lambda m: len(m["mountPath"]))
+            rest = v[len(m["mountPath"].rstrip("/")) + 1:]
+            vol = vols[m["name"]]
+            if "projected" in vol:
+                paths = [s["serviceAccountToken"]["path"] for s in vol["projected"]["sources"] if "serviceAccountToken" in s]
+                assert rest in paths, (f, k, v, "projected paths are", paths)
+        assert n, (f, "no *_FILE env at all")
+PY7
+fi
 # What the Python Deployments set is a list in autopilot's gateway/envtable.json (`deployed`); this holds that list to the rendered Python
 # Deployments, from a copy vendored at the pinned autopilot commit (tests/fixtures/autopilot-envtable.COMMIT), so clearing or adding an entry on either side fails.
 if [ "${HAVE_YAML}" = true ]; then

@@ -56,6 +56,8 @@ spec:
             - name: GATEWAY_DSN
               valueFrom: {secretKeyRef: {name: autopilot-pg-app, key: uri}}
             - {name: CLEARANCE_CORE_URL, value: "http://clearance-core.@@CLEARANCE_NAMESPACE@@.svc:8080"}
+            # The Go binary's default is /var/run/secrets/tokens/clearance; the projected token below is named clearance-core (the Python name).
+            - {name: CLEARANCE_CORE_TOKEN_FILE, value: /var/run/secrets/tokens/clearance-core}
             - {name: AUTOPILOT_AUDIENCE, value: clearance}
             - {name: METRICS_PORT, value: "9090"}
             - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
