@@ -1361,6 +1361,10 @@ render_ok "${LG}/go" "lab (Go gateway, step 2)"
 expect "${LG}/go" "lab step 2" 55-autopilot/gateway/gateway-go.yaml 55-autopilot/gateway/autopilot-api-go.yaml 55-autopilot/gateway/gateway-go-extras.yaml \
   55-autopilot/gateway/gateway-go-migrate.yaml '!55-autopilot/gateway/gateway.yaml' '!55-autopilot/gateway/autopilot-api.yaml' '!55-autopilot/gateway/gateway-go-egress.yaml'
 LGG="${LG}/go/55-autopilot/gateway"
+has "${LGG}/gateway-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "lab step 2: the Go gateway is in wave 2, after the migrate Job (wave 1)"
+has "${LGG}/autopilot-api-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "lab step 2: the Go read API is in wave 2, after the migrate Job (wave 1)"
+has "${LGG}/gateway-go-migrate.yaml" 'name: autopilot-gateway-migrate-v0-1-0-dddddddd' "lab step 2: the migrate Job is named for the image and stays in the render (it ran in step 1; a new image would run it again)"
+if grep -q 'argocd\.argoproj\.io/hook' "${LGG}/gateway-go-migrate.yaml" "${LGG}/gateway-go.yaml" "${LGG}/autopilot-api-go.yaml"; then bad "lab step 2: an Argo CD hook annotation rendered"; else ok "lab step 2: no hooks (nothing relies on a hook running)"; fi
 has "${LGG}/gateway-go.yaml" 'strategy: \{type: Recreate\}' "lab step 2: the gateway Deployment is Recreate (the writer lock is released before the next pod starts)"
 has "${LGG}/gateway-go.yaml" 'replicas: 1' "lab step 2: one gateway replica"
 has "${LGG}/autopilot-api-go.yaml" 'replicas: 2' "lab step 2: two read API replicas"
