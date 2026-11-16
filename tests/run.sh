@@ -369,7 +369,11 @@ has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"de
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
-if grep -q 'pipelinesAsCode:' "${LAB}/prod/${CPV}"; then bad "glidepath control plane: prod (glidepath.gateConcurrency unset) renders a pipelinesAsCode limit"; else ok "glidepath control plane: unset glidepath.gateConcurrency leaves the limit out"; fi
+mkdir -p "${GA}/nogate"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null}'; } >"${GA}/nogate/cluster.yaml"
+render_ok "${GA}/nogate" "dev glidepath.gateConcurrency unset"
+[ -f "${GA}/nogate/${CPV}" ] || bad "glidepath control plane: the unset render has no ${CPV} to check"
+if grep -q 'pipelinesAsCode:' "${GA}/nogate/${CPV}"; then bad "glidepath control plane: glidepath.gateConcurrency unset still renders a pipelinesAsCode limit"; else ok "glidepath control plane: unset glidepath.gateConcurrency leaves the limit out"; fi
 has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: glidepath.sourceIsolation warn warns"
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
