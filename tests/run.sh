@@ -345,6 +345,27 @@ GP=56-clearance-gate/admission.yaml
 expect "${G}/dev" "dev clearance gate key" "!${GP}"
 has "${G}/warn/56-clearance-gate/application.yaml" 'path: 56-clearance-gate' "clearance gate: its own Application"
 has "${G}/warn/56-clearance-gate/clearancegrant-crd.yaml" 'name: clearancegrants.clearance.hangar.io' "clearance gate: the ClearanceGrant CRD"
+CRDF="${G}/warn/56-clearance-gate/clearancegrant-crd.yaml"
+[ "$(grep -c '^  annotations:' "${CRDF}")" = 1 ] && ok "clearance gate: the CRD has one annotations key (a duplicate drops the sync wave)" \
+  || bad "clearance gate: the CRD has a duplicate metadata.annotations key"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${CRDF}" <<'PY' 2>&1
+import sys, yaml
+m = yaml.safe_load(open(sys.argv[1]))["metadata"]
+a = m.get("annotations") or {}
+want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "2"}
+bad = [k for k, v in want.items() if a.get(k) != v]
+bad += [k for k in want if k in (m.get("labels") or {})]
+if bad:
+    print("wrong or misplaced: " + ", ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 2"
+  else
+    bad "clearance gate: the CRD's metadata.annotations ${out}"
+  fi
+fi
 has "${G}/warn/${GP}" "== 'registry.invalid/clearance-wait@sha256:1{64}'" "clearance gate: the exemption pins the wait image from versions.clearance.waitImage"
 has "${G}/warn/${GP}" 'validationActions: \[Warn, Audit\]' "clearance gate: Warn by default"
 has "${G}/warn/${GP}" 'parameterNotFoundAction: Allow' "clearance gate: Warn allows a missing grant"
