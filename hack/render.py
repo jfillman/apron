@@ -892,6 +892,16 @@ def cron_schedule(value, key):
     return value
 
 
+def gate_concurrency(g):
+    """glidepath.gateConcurrency: a whole number of at least 1 (unset or empty = no limit, returns 0 and the values are left out)."""
+    v = g("glidepath.gateConcurrency", None)
+    if v in (None, ""):
+        return 0
+    if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+        raise ApronError(f"glidepath.gateConcurrency is {v!r}: a whole number of at least 1, or unset for no limit")
+    return v
+
+
 def glidepath_run_tokens(g):
     """glidepath-api's PipelineRun policies (30-policy/kyverno-policies/tower-identity-writes.yaml, pipeline trust T5): the
     per-task accounts of Glidepath's run admission (versions.glidepathRunTasks, checked against the pinned Glidepath by
@@ -921,6 +931,8 @@ def glidepath_run_tokens(g):
         "GLIDEPATH_CLOUD_DEPLOYER_TASKS": json.dumps(dict(lists.get("cloudDeployerTasks") or {}), sort_keys=True),
         "GLIDEPATH_RUN_SHAPE_ACTIONS": "[Deny]" if shape == "deny" else "[Warn, Audit]",
         "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
+        # Pipelines-as-Code's per-repository concurrency limit for every app's Repository CRs (omitted from the values when unset).
+        "GLIDEPATH_GATE_CONCURRENCY": str(gate_concurrency(g)),
         "GLIDEPATH_API_STORAGE_CLASSES": json.dumps(classes),
         "GLIDEPATH_SOURCE_ISOLATION_ACTIONS": "[Deny]" if mode == "deny" else "[Warn, Audit]",
     }

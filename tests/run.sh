@@ -368,6 +368,8 @@ has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidep
 has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
+has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
+if grep -q 'pipelinesAsCode:' "${LAB}/prod/${CPV}"; then bad "glidepath control plane: prod (glidepath.gateConcurrency unset) renders a pipelinesAsCode limit"; else ok "glidepath control plane: unset glidepath.gateConcurrency leaves the limit out"; fi
 has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: glidepath.sourceIsolation warn warns"
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
@@ -474,6 +476,13 @@ if python3 hack/render.py --cluster "${TMP}/gp-bad-mode/cluster.yaml" >/dev/null
   bad "glidepath.sourceIsolation: off was accepted"
 else
   grep -q 'deny (default) or warn' "${TMP}/gp-bad-mode/err" && ok "glidepath.sourceIsolation off is refused" || bad "glidepath.sourceIsolation off: $(cat "${TMP}/gp-bad-mode/err")"
+fi
+mkdir -p "${TMP}/gp-bad-gate"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: 0}'; } >"${TMP}/gp-bad-gate/cluster.yaml"
+if python3 hack/render.py --cluster "${TMP}/gp-bad-gate/cluster.yaml" >/dev/null 2>"${TMP}/gp-bad-gate/err"; then
+  bad "glidepath.gateConcurrency: 0 was accepted"
+else
+  grep -q 'whole number of at least 1' "${TMP}/gp-bad-gate/err" && ok "glidepath.gateConcurrency 0 is refused" || bad "glidepath.gateConcurrency 0: $(cat "${TMP}/gp-bad-gate/err")"
 fi
 
 echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
