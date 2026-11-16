@@ -210,7 +210,9 @@ def autopilot_provider_version(g):
     """The version the Clearance core registers for the Autopilot gateway: it must be the image's own tag, which the
     gateway reports (AUTOPILOT_GATEWAY_VERSION) when it publishes its definitions."""
     if autopilot_go_selected(g):
-        return g("autopilot.gateway.go.tag", "") or g("versions.autopilot.gateway")
+        # autopilot.gateway.go.registeredVersion holds the registration where it is (the switch then does not touch the Clearance
+        # Application, so the core is not restarted by it); unset: the Go image's tag, as before.
+        return g("autopilot.gateway.go.registeredVersion", "") or g("autopilot.gateway.go.tag", "") or g("versions.autopilot.gateway")
     return g("versions.autopilot.gateway")
 
 
