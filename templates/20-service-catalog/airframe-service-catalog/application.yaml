@@ -601,6 +601,8 @@ spec:
     # gateway_service, clearance_selector and model_proxy_selector (run egress follows the gateway's renamed pod label).
     # 2026-11-16: v0.3.174 -> v0.3.175. airframe#150: the Dex XRD gains spec.checkRide (check ride credentials for the app's
     # CI namespace). Nothing else changed.
+    # 2026-11-16: v0.3.175 -> v0.3.176. airframe#149: the SLO composition scopes every query to the SLO's own namespace and
+    # refuses namespace/__name__ matchers. Nothing else changed.
     targetRevision: @@AIRFRAME_CATALOG_VERSION@@
     path: .
     directory:
