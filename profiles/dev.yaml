@@ -40,7 +40,7 @@ kyverno:
   ttlReconciliationInterval: 5m   # TTL cleanup pass interval (chart 1m = 476 access reviews per pass on hangar-dev); an object is deleted up to 5 minutes after its TTL: break-glass overrun vs load
 glidepath:
   gateConcurrency: 3            # Pipelines-as-Code concurrency_limit per Repository CR: a release PR's ten gates start 3 at a time (one 11-CPU node stalled when all ten started at once, 2026-11-15/16). Unset = no limit
-  gitopsPipelineProvenance: default_branch  # Pipelines-as-Code reads a gitops repo's .tekton from its default branch, not the PR head: a release PR opened before a resync is judged by the current files, and a PR cannot change the pipeline that judges it. A resync PR's own checks run main's files (glidepath docs/admin/security.md). Unset = the PR head
+  gitopsRepoProvenance: default_branch  # Pipelines-as-Code reads a gitops repo's .tekton from its default branch, not the PR head: a release PR opened before a resync is judged by the current files, and a PR cannot change the pipeline that judges it. A resync PR's own checks run main's files (glidepath docs/admin/security.md). Unset = the PR head
 observability:
   full: true                    # Thanos, Loki, Tempo, MinIO, OTel collector, Grafana
   tracing: true                 # OTel collector + Operator (auto-instrumentation) + Tempo; implied by full

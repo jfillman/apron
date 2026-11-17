@@ -394,8 +394,34 @@ def derive(v):
     return v
 
 
+OLD_PROVENANCE_KEY = "gitopsPipelineProvenance"   # the name glidepath.gitopsRepoProvenance had in its first release
+NEW_PROVENANCE_KEY = "gitopsRepoProvenance"
+
+
+def fold_legacy_provenance(raw, v):
+    """cluster.yaml may still set glidepath.gitopsPipelineProvenance: alone it is used (with a warning on stderr), next to
+    glidepath.gitopsRepoProvenance with a different value it is an error. Only cluster.yaml counts, not Apron's defaults."""
+    rg = raw.get("glidepath") if isinstance(raw, dict) else None
+    if not isinstance(rg, dict) or OLD_PROVENANCE_KEY not in rg:
+        return v
+    old = rg[OLD_PROVENANCE_KEY]
+    if NEW_PROVENANCE_KEY in rg:
+        new = rg[NEW_PROVENANCE_KEY]
+        if (old or None) != (new or None):
+            raise ApronError(f"glidepath.{OLD_PROVENANCE_KEY} is {old!r} but glidepath.{NEW_PROVENANCE_KEY} is {new!r}: "
+                             f"they are the same setting, so set only glidepath.{NEW_PROVENANCE_KEY}")
+    else:
+        print(f"warning: glidepath.{OLD_PROVENANCE_KEY} is deprecated, rename it to glidepath.{NEW_PROVENANCE_KEY} "
+              "(the old name is still read)", file=sys.stderr)
+    g = v.setdefault("glidepath", {})
+    g.pop(OLD_PROVENANCE_KEY, None)
+    g[NEW_PROVENANCE_KEY] = old if NEW_PROVENANCE_KEY not in rg else rg[NEW_PROVENANCE_KEY]
+    return v
+
+
 def resolve(cluster_path, root=ROOT):
-    return derive(layered(load_yaml(cluster_path), root))
+    raw = load_yaml(cluster_path)
+    return fold_legacy_provenance(raw, derive(layered(raw, root)))
 
 
 # --- conditions ------------------------------------------------------------------------------------------------------

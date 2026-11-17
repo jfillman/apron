@@ -921,12 +921,12 @@ def gate_concurrency(g):
 
 
 def gitops_pipeline_provenance(g):
-    """glidepath.gitopsPipelineProvenance: default_branch or source (unset or empty = the chart's default, the values are left out)."""
-    v = g("glidepath.gitopsPipelineProvenance", None)
+    """glidepath.gitopsRepoProvenance: default_branch or source (unset or empty = the chart's default, the values are left out)."""
+    v = g("glidepath.gitopsRepoProvenance", None)
     if v in (None, ""):
         return ""
     if v not in ("default_branch", "source"):
-        raise ApronError(f"glidepath.gitopsPipelineProvenance is {v!r}: default_branch, source, or unset (Pipelines-as-Code's pipelinerun_provenance)")
+        raise ApronError(f"glidepath.gitopsRepoProvenance is {v!r}: default_branch, source, or unset (Pipelines-as-Code's pipelinerun_provenance)")
     return v
 
 

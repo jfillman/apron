@@ -162,7 +162,7 @@ agentToken:
     - system:serviceaccount:autopilot-system:autopilot-gateway
 #@end
 
-#@if glidepath.gateConcurrency or glidepath.gitopsPipelineProvenance
+#@if glidepath.gateConcurrency or glidepath.gitopsRepoProvenance
 # Pipelines-as-Code's per-repository settings for every app's Repository CRs, from cluster.yaml (one block: a key may appear once, and
 # #@if does not nest). Charts that do not know a value ignore it (glidepath#262 adds the first, the gitops-pipeline-provenance PR the second).
 pipelinesAsCode:
@@ -173,8 +173,8 @@ pipelinesAsCode:
   # (glidepath docs/admin/pipeline-performance.md, "Queueing gate runs"). Unset leaves this out and every run starts at once.
   concurrencyLimit: @@GLIDEPATH_GATE_CONCURRENCY@@
 #@end
-#@if glidepath.gitopsPipelineProvenance
-  # glidepath.gitopsPipelineProvenance: default_branch makes Pipelines-as-Code read each gitops-<app> repository's .tekton files from
+#@if glidepath.gitopsRepoProvenance
+  # glidepath.gitopsRepoProvenance: default_branch makes Pipelines-as-Code read each gitops-<app> repository's .tekton files from
   # its default branch, not from the pull request's head: a pull request cannot change the pipeline that judges it, and a release PR
   # opened before a resync is judged by the current files. The app repositories are not changed (glidepath docs/admin/security.md).
   gitopsRepoProvenance: @@GLIDEPATH_GITOPS_PROVENANCE@@
