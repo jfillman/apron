@@ -395,18 +395,18 @@ has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
 mkdir -p "${GA}/nogate"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsPipelineProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
-render_ok "${GA}/nogate" "dev glidepath.gateConcurrency and gitopsPipelineProvenance unset"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsRepoProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
+render_ok "${GA}/nogate" "dev glidepath.gateConcurrency and gitopsRepoProvenance unset"
 [ -f "${GA}/nogate/${CPV}" ] || bad "glidepath control plane: the unset render has no ${CPV} to check"
-if grep -q 'pipelinesAsCode:' "${GA}/nogate/${CPV}"; then bad "glidepath control plane: glidepath.gateConcurrency and gitopsPipelineProvenance unset still render a pipelinesAsCode block"; else ok "glidepath control plane: unset gateConcurrency and gitopsPipelineProvenance leave pipelinesAsCode out"; fi
+if grep -q 'pipelinesAsCode:' "${GA}/nogate/${CPV}"; then bad "glidepath control plane: glidepath.gateConcurrency and gitopsRepoProvenance unset still render a pipelinesAsCode block"; else ok "glidepath control plane: unset gateConcurrency and gitopsRepoProvenance leave pipelinesAsCode out"; fi
 has "${LAB}/dev/${CPV}" '^  gitopsRepoProvenance: default_branch$' "glidepath control plane: the dev profile reads gitops repositories' .tekton from the default branch"
 has "${LAB}/dev/${CPV}" '^pipelinesAsCode:$' "glidepath control plane: limit and provenance share one pipelinesAsCode block"
 mkdir -p "${GA}/noprov"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: null}'; } >"${GA}/noprov/cluster.yaml"
-render_ok "${GA}/noprov" "dev glidepath.gitopsPipelineProvenance unset"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsRepoProvenance: null}'; } >"${GA}/noprov/cluster.yaml"
+render_ok "${GA}/noprov" "dev glidepath.gitopsRepoProvenance unset"
 [ -f "${GA}/noprov/${CPV}" ] || bad "glidepath control plane: the unset-provenance render has no ${CPV} to check"
-has "${GA}/noprov/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: unset gitopsPipelineProvenance keeps the concurrency limit"
-if grep -q 'gitopsRepoProvenance' "${GA}/noprov/${CPV}"; then bad "glidepath control plane: glidepath.gitopsPipelineProvenance unset still renders gitopsRepoProvenance"; else ok "glidepath control plane: unset glidepath.gitopsPipelineProvenance leaves it out"; fi
+has "${GA}/noprov/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: unset gitopsRepoProvenance keeps the concurrency limit"
+if grep -q 'gitopsRepoProvenance' "${GA}/noprov/${CPV}"; then bad "glidepath control plane: glidepath.gitopsRepoProvenance unset still renders gitopsRepoProvenance"; else ok "glidepath control plane: unset glidepath.gitopsRepoProvenance leaves it out"; fi
 has "${GA}/warn/${GW}" '^  validationActions: \[Warn, Audit\]$' "glidepath-api: glidepath.sourceIsolation warn warns"
 has "${GA}/warn/${CPV}" '^  sourceIsolationActions: \[Warn, Audit\]$' "glidepath control plane: warn flips Glidepath's own binding too"
 has "${GA}/warn/${GW}" "expression: '\[\"fast\"\]'" "glidepath-api: glidepath.runStorageClasses is the volumeClaimTemplate allowlist"
@@ -548,14 +548,33 @@ else
 fi
 
 mkdir -p "${TMP}/gp-bad-prov"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: main}'; } >"${TMP}/gp-bad-prov/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsRepoProvenance: main}'; } >"${TMP}/gp-bad-prov/cluster.yaml"
 if python3 hack/render.py --cluster "${TMP}/gp-bad-prov/cluster.yaml" >/dev/null 2>"${TMP}/gp-bad-prov/err"; then
-  bad "glidepath.gitopsPipelineProvenance: main was accepted"
+  bad "glidepath.gitopsRepoProvenance: main was accepted"
 else
-  grep -q 'default_branch, source, or unset' "${TMP}/gp-bad-prov/err" && ok "glidepath.gitopsPipelineProvenance main is refused" || bad "glidepath.gitopsPipelineProvenance main: $(cat "${TMP}/gp-bad-prov/err")"
+  grep -q 'default_branch, source, or unset' "${TMP}/gp-bad-prov/err" && ok "glidepath.gitopsRepoProvenance main is refused" || bad "glidepath.gitopsRepoProvenance main: $(cat "${TMP}/gp-bad-prov/err")"
 fi
 
-echo "== 1b. the Argo CD gate (clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
+# the key's first name, glidepath.gitopsPipelineProvenance, is still read: alone it is used with a warning, next to a different new key it is an error
+mkdir -p "${TMP}/gp-prov-new" "${TMP}/gp-prov-old" "${TMP}/gp-prov-both" "${TMP}/gp-prov-same"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsRepoProvenance: source}'; } >"${TMP}/gp-prov-new/cluster.yaml"
+python3 hack/render.py --cluster "${TMP}/gp-prov-new/cluster.yaml" >/dev/null 2>"${TMP}/gp-prov-new/err" || bad "glidepath.gitopsRepoProvenance: source did not render: $(cat "${TMP}/gp-prov-new/err")"
+has "${TMP}/gp-prov-new/${CPV}" '^  gitopsRepoProvenance: source$' "glidepath.gitopsRepoProvenance source reaches the control plane values"
+if grep -q 'deprecated' "${TMP}/gp-prov-new/err"; then bad "glidepath.gitopsRepoProvenance warned about a deprecated key"; else ok "glidepath.gitopsRepoProvenance prints no deprecation warning"; fi
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: source}'; } >"${TMP}/gp-prov-old/cluster.yaml"
+python3 hack/render.py --cluster "${TMP}/gp-prov-old/cluster.yaml" >/dev/null 2>"${TMP}/gp-prov-old/err" || bad "the old glidepath.gitopsPipelineProvenance: source did not render: $(cat "${TMP}/gp-prov-old/err")"
+has "${TMP}/gp-prov-old/${CPV}" '^  gitopsRepoProvenance: source$' "the old key gitopsPipelineProvenance is still read"
+grep -q 'glidepath.gitopsPipelineProvenance is deprecated, rename it to glidepath.gitopsRepoProvenance' "${TMP}/gp-prov-old/err" && ok "the old key prints a deprecation warning" || bad "the old key printed no deprecation warning: $(cat "${TMP}/gp-prov-old/err")"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: source, gitopsRepoProvenance: default_branch}'; } >"${TMP}/gp-prov-both/cluster.yaml"
+if python3 hack/render.py --cluster "${TMP}/gp-prov-both/cluster.yaml" >/dev/null 2>"${TMP}/gp-prov-both/err"; then
+  bad "both provenance keys with different values were accepted"
+else
+  grep -q 'they are the same setting' "${TMP}/gp-prov-both/err" && ok "both provenance keys with different values are refused" || bad "both provenance keys differing: $(cat "${TMP}/gp-prov-both/err")"
+fi
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gitopsPipelineProvenance: source, gitopsRepoProvenance: source}'; } >"${TMP}/gp-prov-same/cluster.yaml"
+python3 hack/render.py --cluster "${TMP}/gp-prov-same/cluster.yaml" >/dev/null 2>"${TMP}/gp-prov-same/err" && ok "both provenance keys with the same value render" || bad "both provenance keys, same value: $(cat "${TMP}/gp-prov-same/err")"
+
+echo "== 1b. the Argo CD gate(clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
 GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
   --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
 new "${TMP}/gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
