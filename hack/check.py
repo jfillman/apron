@@ -146,6 +146,17 @@ def violations(v, fleet=None):
     # The Go gateway (autopilot A-9; docs/clusters-file.md "autopilot.gateway"): off unless implementation is go. Its settings may be
     # prepared while the Python gateway still runs, so they are checked only when the switch is on.
     impl = get(v, "autopilot.gateway.implementation") or "python"
+    # The migrate Job (go.migrateJob) is the cutover's step 4 and runs beside the Python gateway: it needs the image, not the switch.
+    if get(v, "autopilot.gateway.go.migrateJob") is not None and not isinstance(get(v, "autopilot.gateway.go.migrateJob"), bool):
+        add("autopilot.gateway.go.migrateJob must be true or false")
+    elif get(v, "autopilot.gateway.go.migrateJob") and impl == "python":
+        mg = "autopilot.gateway.go"
+        if not on("components.autopilot"):
+            add("autopilot.gateway.go.migrateJob needs components.autopilot")
+        if not re.fullmatch(r"gateway-go-v\d+\.\d+\.\d+", str(get(v, f"{mg}.tag") or "")):
+            add(f"{mg}.tag must be the Go image's release tag, gateway-go-vMAJOR.MINOR.PATCH: migrateJob runs that image")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, f"{mg}.digest") or "")):
+            add(f"{mg}.digest must be the image's sha256 digest: migrateJob pins tag and digest")
     if impl not in ("python", "go"):
         add(f"autopilot.gateway.implementation must be python or go (got {impl!r}); unset means python")
     elif impl == "go":
@@ -163,6 +174,9 @@ def violations(v, fleet=None):
                          ("agentXRs.namespaces", "the namespaces whose Agent XRs may define agents (the loader reads no other)")):
             if not get(v, f"{go}.{key}"):
                 add(f"{go}.{key} is required with implementation: go: {why}")
+        rv = get(v, f"{go}.registeredVersion")
+        if rv is not None and not (isinstance(rv, str) and 1 <= len(rv) <= 64):
+            add(f"{go}.registeredVersion must be a string of 1 to 64 characters (the provider version the Clearance core registers; unset: go.tag)")
         owners = get(v, f"{go}.githubOwners") or []
         ao = get(v, f"{go}.airframeOwner")
         if ao and ao not in owners:
@@ -207,6 +221,9 @@ def violations(v, fleet=None):
         if get(v, key) is not None and not isinstance(get(v, key), bool):
             add(f"{key} must be true or false")
 
+    ttl = get(v, "clearance.api.coverageCacheSeconds")
+    if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= 300):
+        add("clearance.api.coverageCacheSeconds is whole seconds, 0 to 300 (0 is off): clearance-api refuses anything else at start")
     # the standalone web UI (clearance web, clearance chart web.enabled): signs people in at people-dex, so it needs the same
     if get(v, "clearance.web.enabled") is not None and not isinstance(get(v, "clearance.web.enabled"), bool):
         add("clearance.web.enabled must be true or false")
@@ -334,6 +351,16 @@ def violations(v, fleet=None):
     si = get(v, "glidepath.sourceIsolation", None)
     if si is not None and si not in ("deny", "warn"):
         add(f"glidepath.sourceIsolation is {si!r}: deny (default) or warn (only while upgrading)")
+    gro = get(v, "releaseGuardrailOverrides", None)
+    if gro not in (None, {}):
+        if not isinstance(gro, dict):
+            add(f"releaseGuardrailOverrides is {gro!r}: a map of <gate>: {{required: true|false}}")
+        else:
+            for gate, o in gro.items():
+                if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", str(gate)):
+                    add(f"releaseGuardrailOverrides.{gate}: not a gate name (lowercase letters, digits and dashes)")
+                if not (isinstance(o, dict) and set(o) == {"required"} and isinstance(o["required"], bool)):
+                    add(f"releaseGuardrailOverrides.{gate} is {o!r}: only {{required: true|false}} is read")
     gc = get(v, "glidepath.gateConcurrency", None)
     if gc not in (None, "") and (isinstance(gc, bool) or not isinstance(gc, int) or gc < 1):
         add(f"glidepath.gateConcurrency is {gc!r}: a whole number of at least 1, or unset for no limit")

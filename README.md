@@ -98,7 +98,8 @@ and says, in cluster.yaml, what the Python gateway defaulted or assumed:
 | `go.delegates`, `go.notifiers`, `go.auditors` | more principals for `AUTOPILOT_DELEGATES`, `GATEWAY_API_NOTIFIERS`, `GATEWAY_API_AUDITORS` (Tower's backend and `autopilot.people` are already there) |
 | `go.plainHttp.{glidepath,broker,logs,catalog,jwks}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs) |
 | `go.egress.apiServerCIDRs`, `go.egress.extraCIDRs`, `go.egress.enabled` | the egress policies' API server addresses (required), more HTTPS destinations, and `false` for no egress policy |
-| `go.migrateJob` | render `autopilot-gateway migrate` as a PreSync hook; off: the cutover runbook runs it by hand first |
+| `go.registeredVersion` | the version the Clearance core registers for the gateway (every record carries it as `provider.version`; the core compares it with nothing); unset: `go.tag`. Setting it holds the registration, so the switch does not change the Clearance Application (a change to the core's `CLEARANCE_PROVIDERS` restarts its one pod); remove it at a quiet moment |
+| `go.migrateJob` | render the migrate Job and the NetworkPolicy that admits it to `autopilot-pg`, with either implementation (with `python` only these two render and no traffic changes; it needs `go.tag` and `go.digest`). Both are **ordinary resources ordered by sync waves, not Argo CD hooks**: policy wave 0, Job wave 1 (named for the image, so each new image runs migrate once; no TTL), the Go Deployments wave 2, so with `implementation: go` migrate has succeeded before the Go pods change (a failed Job in a non-final wave fails the sync, `sync_context.go:559-568`) and the Python pods are untouched. With `implementation: python` the Job shares the last wave with the Python Deployments, and Argo CD counts the last wave's non-hook resources as a success whatever they do next (`sync_context.go:700-709`), so a failed migrate shows as a Degraded Application, not a failed sync: read the Job's own status (`.status.succeeded` is 1) and log. The Go egress policies are wave 2 too (never before migrate). (A PreSync hook was dropped from a sync after a partial one, argo-cd#28701.) The Job and policy are pruned when the flag goes off (on a sync that prunes; the lab's automated sync does not); finished Jobs of older images stay until deleted. Off: the cutover runbook runs the Job by hand. `migrate` re-runs only for a new image, so unlike a per-sync hook it needs no turning off, but turn the flag off once the cutover has held to stop rendering it |
 
 The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
 The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).
@@ -120,6 +121,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 |---|---|
 | `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
 | `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
+| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. Nothing in the rendered output orders that (the policy Applications and `argocd-apps-install` carry no sync wave and sync independently); it holds in practice because the policies sync in seconds and the repo-server takes minutes. Before merging a roll-out, check that both policies show the new allow-list before the repo-server has rolled. Remove the key at the next release. The agent's `waitJob.image` stays the new digest |
 | `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
 | `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
 | `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
@@ -143,6 +145,11 @@ CloudNativePG has no object store on these clusters, so `clearance.backup.enable
 `55-clearance/clearance-config/backup.yaml`: a PVC and a nightly CronJob that `pg_dump`s clearance-pg (as the read-only
 role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
 `clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
+
+`clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
+coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
+coverage statement shown to a person can be up to that many seconds old (the response carries `Age`). Setting or changing it
+restarts clearance-api once. Only the cluster whose `cluster.yaml` sets it gets the cache; nothing is decided by cluster name.
 
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 
@@ -245,6 +252,16 @@ match: PaC's `pipelines-as-code` ConfigMap (`50-glidepath/tekton-operator/pipeli
 glidepath-catalog's `pipelinesAsCode.applicationName`, which the gate tasks find checks by. The PaC GitHub App can have
 any name; Backstage's `GLIDEPATH_GATE_COMMENT_APPS` must list its slug. See Glidepath's
 [github-app.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/github-app.md), including how to rename it.
+
+## Release-gate overrides (`releaseGuardrailOverrides`)
+
+`cluster.yaml` `releaseGuardrailOverrides: {<gate>: {required: true|false}}` becomes the glidepath-catalog Application's
+`releaseGuardrailOverrides` (glidepath [release-guardrails.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/release-guardrails.md),
+"Who sets it"): the cluster's own `required` for one gate, beside the per-app `releaseGuardrailOverridesByApp`. Unset renders no key, so a
+cluster that sets none renders what it did before (a prod-profile cluster runs no catalog Application at all). `apron check` refuses anything
+but a map of gate names to `{required: <bool>}`. hangar-dev sets `clearance-gate: {required: true}`: the deployment gate holds a release PR
+until it is cleared in Tower (glidepath [clearance-gate.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/clearance-gate.md),
+G-ARGO-8). Turn it back to advisory by deleting the entry (or `required: false`) and re-rendering.
 
 ## Flight admission (`admission.flight`, prod profile)
 

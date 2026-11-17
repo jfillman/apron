@@ -115,7 +115,9 @@ spec:
   # release with client_credentials, instead of the floating :master tag.
   # 2026-10-21: v0.1.8 -> v0.1.9 (airframe#118). The attach Usage names its composed credentials Secret as `by`:
   # Crossplane refuses a cross-namespace `of` without one, so every attacher of skyport-auth was Synced=False.
-  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.9
+  # 2026-11-16: v0.1.9 -> v0.1.10 (airframe#150). Adds spec.checkRide to the Dex XR: attach mode publishes check ride
+  # credentials to the app's CI namespace. Same multi-arch manifest (amd64 + arm64, skopeo-verified).
+  package: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/function-dex:v0.1.10
 
 #@end
 #@if components.autopilot

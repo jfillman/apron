@@ -212,6 +212,10 @@ if grep -rq 'autopilot-system:clearance\|autopilot-system/clearance\|name: clear
 has "${G}/argo-sync.yaml" "autopilot-system:autopilot-gateway'" "lab: argo-sync admits the new principal"
 has "${LAB}/dev/50-glidepath/glidepath-control-plane/values.yaml" 'system:serviceaccount:autopilot-system:autopilot-gateway' "lab: glidepath-api delegates the new principal"
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'principals": \["autopilot-system/autopilot-gateway"\]' "lab: the provider registers the gateway's principal only"
+# clearance-api headroom: 512Mi limit, 128Mi request, GOMEMLIMIT below the limit (the chart default OOMKilled in a loop)
+has "${LAB}/dev/55-clearance/clearance/application.yaml" 'limits: \{memory: 512Mi\}' "lab: clearance-api memory limit is 512Mi"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" 'requests: \{cpu: 25m, memory: 128Mi\}' "lab: clearance-api memory request is 128Mi"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" 'name: GOMEMLIMIT, value: 400MiB' "lab: clearance-api sets GOMEMLIMIT"
 has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9' "lab: function-agentrun v0.4.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
@@ -341,6 +345,27 @@ GP=56-clearance-gate/admission.yaml
 expect "${G}/dev" "dev clearance gate key" "!${GP}"
 has "${G}/warn/56-clearance-gate/application.yaml" 'path: 56-clearance-gate' "clearance gate: its own Application"
 has "${G}/warn/56-clearance-gate/clearancegrant-crd.yaml" 'name: clearancegrants.clearance.hangar.io' "clearance gate: the ClearanceGrant CRD"
+CRDF="${G}/warn/56-clearance-gate/clearancegrant-crd.yaml"
+[ "$(grep -c '^  annotations:' "${CRDF}")" = 1 ] && ok "clearance gate: the CRD has one annotations key (a duplicate drops the sync wave)" \
+  || bad "clearance gate: the CRD has a duplicate metadata.annotations key"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${CRDF}" <<'PY' 2>&1
+import sys, yaml
+m = yaml.safe_load(open(sys.argv[1]))["metadata"]
+a = m.get("annotations") or {}
+want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "2"}
+bad = [k for k, v in want.items() if a.get(k) != v]
+bad += [k for k in want if k in (m.get("labels") or {})]
+if bad:
+    print("wrong or misplaced: " + ", ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 2"
+  else
+    bad "clearance gate: the CRD's metadata.annotations ${out}"
+  fi
+fi
 has "${G}/warn/${GP}" "== 'registry.invalid/clearance-wait@sha256:1{64}'" "clearance gate: the exemption pins the wait image from versions.clearance.waitImage"
 has "${G}/warn/${GP}" 'validationActions: \[Warn, Audit\]' "clearance gate: Warn by default"
 has "${G}/warn/${GP}" 'parameterNotFoundAction: Allow' "clearance gate: Warn allows a missing grant"
@@ -431,6 +456,31 @@ if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${G
 else
   grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
 fi
+# releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
+# clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
+mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: true}}'; } >"${GA}/gro-on/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: "yes"}}'; } >"${GA}/gro-bad/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'releaseGuardrailOverrides: [clearance-gate]'; } >"${GA}/gro-bad2/cluster.yaml"
+render_ok "${GA}/gro-on" "dev releaseGuardrailOverrides clearance-gate required"
+has "${GA}/gro-on/${CATV}" '^          releaseGuardrailOverrides: \{"clearance-gate": \{"required": true\}\}$' "glidepath catalog: releaseGuardrailOverrides carries clearance-gate required: true"
+has "${GA}/gro-on/${CATV}" '^          releaseGuardrailOverridesByApp: ' "glidepath catalog: the by-app map is still rendered beside it"
+[ -f "${LAB}/dev/${CATV}" ] || bad "releaseGuardrailOverrides: the dev render has no ${CATV} to check"
+if grep -q '^          releaseGuardrailOverrides:' "${LAB}/dev/${CATV}"; then bad "releaseGuardrailOverrides unset: dev still renders the key"; else ok "releaseGuardrailOverrides unset: dev renders no key (unchanged)"; fi
+# hangar-prod: the key set in its cluster.yaml (a mistake, or a copy of the dev file) reaches nothing, because a prod-profile cluster runs no
+# glidepath-catalog Application (components.glidepath is off in profiles/prod.yaml); its unset render is proven byte-identical in the PR's diff.
+mkdir -p "${GA}/gro-prod"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'releaseGuardrailOverrides: {clearance-gate: {required: true}}'; } >"${GA}/gro-prod/cluster.yaml"
+render_ok "${GA}/gro-prod" "prod releaseGuardrailOverrides set"
+[ ! -f "${LAB}/prod/${CATV}" ] || bad "releaseGuardrailOverrides: prod renders a glidepath-catalog Application (this assertion needs updating)"
+if grep -rq 'releaseGuardrailOverrides' "${GA}/gro-prod"/[0-9][0-9]-*; then bad "releaseGuardrailOverrides: the prod render carries the key"; else ok "releaseGuardrailOverrides: the prod render carries no override (no catalog Application there)"; fi
+for b in gro-bad gro-bad2; do
+  if python3 hack/check.py --cluster "${GA}/${b}/cluster.yaml" >/dev/null 2>"${GA}/${b}/err"; then
+    bad "releaseGuardrailOverrides: ${b} was accepted"
+  else
+    grep -q 'releaseGuardrailOverrides' "${GA}/${b}/err" && ok "releaseGuardrailOverrides: ${b} is refused by apron check" || bad "releaseGuardrailOverrides ${b} refusal: $(cat "${GA}/${b}/err")"
+  fi
+done
 # versions.glidepath: cluster.yaml overrides versions.yaml (the resolution order), so a cluster can pin its own Glidepath revision.
 mkdir -p "${GA}/rev"
 { cat "${LAB}/dev/cluster.yaml"; echo 'versions: {glidepath: v9.9.9}'; } >"${GA}/rev/cluster.yaml"
@@ -528,6 +578,28 @@ new "${TMP}/gate-agent" prod hangar-prod kind --repo-url https://github.com/acme
 render_ok "${TMP}/gate-agent" "gate on with the agent, one app"
 has "${TMP}/gate-agent/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\(gate-api\)\$" .appName' "gate.apps: only that app gets the plugin"
 has "${TMP}/gate-agent/30-policy/kyverno-policies/flight-images.yaml" 'ghcr.io/acme/clearance-wait@sha256:bbbb' "gate on: Flight admission allows exactly the wait image"
+has "${TMP}/gate-agent/56-clearance-gate/admission.yaml" "variables.waitctr.image == 'ghcr.io/acme/clearance-wait@sha256:bbbb' &&" "gate on, no previousWaitImage: the exemption is the single-image test as before"
+if grep -q "waitctr.image in" "${TMP}/gate-agent/56-clearance-gate/admission.yaml"; then bad "no previousWaitImage: the exemption renders a list"; else ok "no previousWaitImage: no list in the exemption"; fi
+PREV=ghcr.io/acme/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111
+new "${TMP}/gate-prev" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=${PREV}"
+render_ok "${TMP}/gate-prev" "gate on with versions.clearance.previousWaitImage"
+has "${TMP}/gate-prev/56-clearance-gate/admission.yaml" "variables.waitctr.image in \\['ghcr.io/acme/clearance-wait@sha256:bbbb', '${PREV}'\\] &&" "previousWaitImage: the gate exemption admits the new and the previous wait image"
+has "${TMP}/gate-prev/30-policy/kyverno-policies/flight-images.yaml" "clearance-wait@sha256:bbbb\", \"${PREV}\"" "previousWaitImage: Flight admission's allow-list has both digests"
+has "${TMP}/gate-prev/56-clearance-gate/agent/application.yaml" 'image: "ghcr.io/acme/clearance-wait@sha256:bbbb"' "previousWaitImage: the agent's waitJob.image stays the new digest"
+new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
+  --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
+if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
@@ -834,6 +906,19 @@ printf 'clearance:\n  web: {enabled: false}\n' >>"${TMP}/web-offdev/cluster.yaml
 render_ok "${TMP}/web-offdev" "web explicitly off"
 if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/web-offdev" >/dev/null; then ok "web key off == absent, byte for byte"; else bad "web off differs from absent"; fi
 
+echo "== 1c-4b. clearance-api's coverage cache (clearance.api.coverageCacheSeconds, off by default)"
+new "${TMP}/cov-on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set clearance.api.coverageCacheSeconds=30
+render_ok "${TMP}/cov-on" "coverage cache on"
+python3 hack/check.py --cluster "${TMP}/cov-on/cluster.yaml" >/dev/null && ok "coverage cache on passes check" || bad "coverage cache on fails check"
+has "${TMP}/cov-on/${CA}" '^          coverageCacheSeconds: 30$' "coverage cache on: the chart's api.coverageCacheSeconds is 30"
+if grep -rq 'coverageCacheSeconds' "${LAB}/dev" "${LAB}/prod"; then bad "coverage cache default: coverageCacheSeconds rendered"; else ok "coverage cache default: not rendered (chart default, off)"; fi
+mkdir -p "${TMP}/cov-offdev"
+cp "${LAB}/dev/cluster.yaml" "${TMP}/cov-offdev/cluster.yaml"
+printf 'clearance:\n  api: {coverageCacheSeconds: 0}\n' >>"${TMP}/cov-offdev/cluster.yaml"
+render_ok "${TMP}/cov-offdev" "coverage cache explicitly 0"
+if diff -r --exclude=cluster.yaml --exclude=.apron-rendered "${LAB}/dev" "${TMP}/cov-offdev" >/dev/null; then ok "coverage cache 0 == absent, byte for byte"; else bad "coverage cache 0 differs from absent"; fi
+
 echo "== 1c-5. Clearance Slack (clearance.slack.enabled)"
 SLACK_COMMON=(--set versions.clearance.chart=0.47.1 --set 'clearance.people=[alice]' --set clearance.slack.enabled=true
   --set clearance.slack.publicUrl=https://slack.clearance.example.com --set clearance.slack.slackClientId=1234.5678
@@ -855,7 +940,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:7d7c65d4' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:9c655397' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"
@@ -958,6 +1043,8 @@ python3 hack/check.py --cluster "${LAB}/prod/cluster.yaml" >/dev/null && ok "lab
 P="${LAB}/prod"
 D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
+refuse "a coverage cache over 300 seconds" "${D}" 'clearance: {api: {coverageCacheSeconds: 301}}'
+refuse "a coverage cache that is not a whole number" "${D}" 'clearance: {api: {coverageCacheSeconds: "30s"}}'
 # Slack refusals: each case is built from the working Slack cluster with one --set changed (the keys sit in a block cluster.yaml
 # already has, so refuse() above, which appends a second top-level key, cannot reach them), and must be refused for the stated reason.
 slack_refuse() { # slack_refuse LABEL WANT-IN-MESSAGE [--set k=v ...]   (SLACK_NODNS=1: without the dns01 block)
@@ -1188,6 +1275,21 @@ expect "${K}/go" "implementation: go" 55-autopilot/gateway/gateway-go.yaml 55-au
 for f in gateway-go.yaml autopilot-api-go.yaml; do
   has "${G}/${f}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:a{64}$' "go: ${f} pins the Go image by tag and digest"
 done
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${G}/gateway-go-egress.yaml" <<'PY6' && ok "go: both egress policies are wave 2 (with the Go Deployments, after migrate) and the read API's allow DNS, the database, the API server and the OTLP collector" || bad "go: egress policies not in wave 2 or missing a destination the read API needs"
+import sys, yaml
+docs = {d["metadata"]["name"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+for n in ("autopilot-gateway-egress", "autopilot-api-egress"):
+    assert docs[n]["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "2", n
+ports = lambda d: {(p["protocol"], p["port"]) for r in d["spec"]["egress"] for p in r.get("ports", [])}
+api = ports(docs["autopilot-api-egress"])
+assert {("UDP", 53), ("TCP", 5432), ("TCP", 443), ("TCP", 4318)} <= api, api
+gw = ports(docs["autopilot-gateway-egress"])
+assert {("TCP", 5432), ("TCP", 8080), ("TCP", 4318), ("TCP", 443)} <= gw, gw
+PY6
+fi
+has "${G}/gateway-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the gateway is in wave 2, after the migrate Job (wave 1)"
+has "${G}/autopilot-api-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "go: the read API is in wave 2, after the migrate Job (wave 1)"
 has "${G}/gateway-go.yaml" 'args: \[serve\]' "go: the gateway runs serve"
 has "${G}/autopilot-api-go.yaml" 'args: \[api\]' "go: the read API runs api"
 has "${G}/gateway-go.yaml" 'path: /healthz, port: mcp' "go: gateway probes /healthz"
@@ -1251,6 +1353,38 @@ for k in py:
         assert pp <= gp, (k, pp, gp)
 PY3
 fi
+# Every file the Go gateway is told to read must exist in the pod: each *_FILE env value, and the Clearance core token (the Go default,
+# /var/run/secrets/tokens/clearance, is not the name the manifest projects, clearance-core: serve must set CLEARANCE_CORE_TOKEN_FILE), sits
+# under a volumeMount and, where the volume is projected, is the path of one of its service account tokens. Secret volumes: the mount only.
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${G}" <<'PY7' && ok "go: every *_FILE env and the core token path point at a mounted volume (projected token paths exist)" || bad "go: a *_FILE env or the core token path does not point at a file the pod mounts"
+import sys, yaml
+for f in ("gateway-go.yaml", "autopilot-api-go.yaml"):
+    for d in yaml.safe_load_all(open(f"{sys.argv[1]}/{f}")):
+        if not d or d["kind"] != "Deployment":
+            continue
+        pod = d["spec"]["template"]["spec"]
+        c = pod["containers"][0]
+        vols = {v["name"]: v for v in pod.get("volumes", [])}
+        env = {e["name"]: e.get("value") for e in c["env"] if e.get("value") is not None}
+        if d["metadata"]["name"] == "autopilot-gateway":
+            assert "CLEARANCE_CORE_TOKEN_FILE" in env, (f, "serve reads the core token from the Go default path; set CLEARANCE_CORE_TOKEN_FILE to the projected path")
+        n = 0
+        for k, v in env.items():
+            if not (k.endswith("_FILE") or k == "CLEARANCE_CORE_TOKEN_FILE"):
+                continue
+            n += 1
+            ms = [m for m in c["volumeMounts"] if v.startswith(m["mountPath"].rstrip("/") + "/")]
+            assert ms, (f, k, v, "no volumeMount holds this path")
+            m = max(ms, key=lambda m: len(m["mountPath"]))
+            rest = v[len(m["mountPath"].rstrip("/")) + 1:]
+            vol = vols[m["name"]]
+            if "projected" in vol:
+                paths = [s["serviceAccountToken"]["path"] for s in vol["projected"]["sources"] if "serviceAccountToken" in s]
+                assert rest in paths, (f, k, v, "projected paths are", paths)
+        assert n, (f, "no *_FILE env at all")
+PY7
+fi
 # What the Python Deployments set is a list in autopilot's gateway/envtable.json (`deployed`); this holds that list to the rendered Python
 # Deployments, from a copy vendored at the pinned autopilot commit (tests/fixtures/autopilot-envtable.COMMIT), so clearing or adding an entry on either side fails.
 if [ "${HAVE_YAML}" = true ]; then
@@ -1277,11 +1411,96 @@ printf '%s\n' '  # migrate as a PreSync hook' >>"${K}/gomig/cluster.yaml"
 sed -i.bak 's/^      plainHttp: /      migrateJob: true\n      plainHttp: /' "${K}/gomig/cluster.yaml" && rm -f "${K}/gomig/cluster.yaml.bak"
 render_ok "${K}/gomig" "go with migrateJob"
 expect "${K}/gomig" "go with migrateJob" 55-autopilot/gateway/gateway-go-migrate.yaml
-has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'argocd\.argoproj\.io/hook: PreSync' "go: the migrate Job is a PreSync hook"
+if grep -q 'argocd\.argoproj\.io/hook' "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml"; then bad "go: the migrate file has an Argo CD hook annotation (hooks are dropped from partial syncs, argo-cd#28701)"; else ok "go: the migrate Job and policy are ordinary resources, not hooks"; fi
 has "${K}/gomig/55-autopilot/gateway/gateway-go-migrate.yaml" 'args: \[migrate\]' "go: the migrate Job runs migrate"
 # the core registers the Go image's tag as the gateway's provider version
 has "${K}/go/55-clearance/clearance/application.yaml" '"version": "gateway-go-v0\.1\.0"' "go: the Clearance core registers the Go image's tag as the provider version"
 has "${K}/pyx/55-clearance/clearance/application.yaml" '"version": "gateway-v' "default: the provider version is still the Python gateway's"
+# A-9 S9 step 1 ("prepare"): migrateJob with the Python gateway still serving renders the Job and its NetworkPolicy and nothing else
+mkdir -p "${K}/pymig"
+cp "${K}/pyx/cluster.yaml" "${K}/pymig/cluster.yaml"
+printf '%s\n' '  gateway:' '    implementation: python' '    go:' '      tag: gateway-go-v0.1.0' \
+  '      digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' '      migrateJob: true' >>"${K}/pymig/cluster.yaml"
+render_ok "${K}/pymig" "implementation: python + migrateJob (step 1)"
+expect "${K}/pymig" "step 1" 55-autopilot/gateway/gateway.yaml 55-autopilot/gateway/autopilot-api.yaml 55-autopilot/gateway/gateway-go-migrate.yaml \
+  '!55-autopilot/gateway/gateway-go.yaml' '!55-autopilot/gateway/autopilot-api-go.yaml' '!55-autopilot/gateway/gateway-go-extras.yaml' '!55-autopilot/gateway/gateway-go-egress.yaml'
+d="$(diff -rq -x cluster.yaml -x .apron-rendered "${K}/pyx" "${K}/pymig" || true)"
+if [ "$(wc -l <<<"${d}" | tr -d ' ')" = 1 ] && [[ "${d}" == "Only in ${K}/pymig/55-autopilot/gateway: gateway-go-migrate.yaml" ]]; then
+  ok "step 1: the only difference from the switch unset is the migrate file (the Python gateway, read API and everything else are byte-identical)"
+else bad "step 1: differences from the switch unset, want only gateway-go-migrate.yaml: ${d}"; fi
+M="${K}/pymig/55-autopilot/gateway/gateway-go-migrate.yaml"
+has "${M}" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:b{64}$' "step 1: the migrate Job pins the Go image by tag and digest"
+has "${M}" 'args: \[migrate\]' "step 1: the Job runs migrate"
+has "${M}" 'name: autopilot-pg-migrate' "step 1: the NetworkPolicy that admits the Job to the database renders"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${M}" <<'PY5' && ok "step 1: ordinary tracked resources (no hook), policy wave 0 < Job wave 1 < the Go Deployments' wave 2, Job named for the image, no TTL, fails fast, cause in the termination message" || bad "step 1: the migrate shape is not as designed"
+import sys, yaml
+docs = {d["kind"]: d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+np, job = docs["NetworkPolicy"], docs["Job"]
+ann = lambda d: d["metadata"].get("annotations", {})
+for d in (np, job):
+    assert not any(k.startswith("argocd.argoproj.io/hook") for k in ann(d)), "a hook is dropped from a partial sync (argo-cd#28701)"
+assert int(ann(np)["argocd.argoproj.io/sync-wave"]) < int(ann(job)["argocd.argoproj.io/sync-wave"]) < 2, "policy, then Job, then the Deployments (wave 2)"
+assert job["metadata"]["name"] == "autopilot-gateway-migrate-v0-1-0-bbbbbbbb", job["metadata"]["name"]
+assert "ttlSecondsAfterFinished" not in job["spec"], "a deleted finished Job would be re-created and migrate re-run"
+assert job["spec"]["activeDeadlineSeconds"] == 300 and job["spec"]["backoffLimit"] == 2
+c = job["spec"]["template"]["spec"]["containers"][0]
+assert c["terminationMessagePolicy"] == "FallbackToLogsOnError"
+assert np["spec"]["ingress"][0]["from"][0]["podSelector"]["matchLabels"] == {"app.kubernetes.io/name": "autopilot-gateway-migrate"}
+assert job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"] == "autopilot-gateway-migrate"
+PY5
+fi
+if grep -c 'kind: Deployment\|kind: Service$' "${M}" | grep -qv '^0$'; then bad "step 1: the migrate file renders a Deployment or Service"; else ok "step 1: the migrate file renders no Deployment or Service"; fi
+if grep -rl 'autopilot-gateway-go\|gateway-go-v' "${K}/pymig" --exclude=cluster.yaml | grep -qv 'gateway-go-migrate.yaml$'; then bad "step 1: the Go image is named outside the migrate file"; else ok "step 1: the Go image is named only in the migrate file"; fi
+has "${K}/pymig/55-clearance/clearance/application.yaml" '"version": "gateway-v' "step 1: the core still registers the Python gateway's version"
+refuse "migrateJob (python) without go.digest" "${K}/pyx" '  gateway: {go: {tag: gateway-go-v0.1.0, migrateJob: true}}'
+refuse "migrateJob (python) without go.tag" "${K}/pyx" '  gateway: {go: {digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, migrateJob: true}}'
+# the production profile renders none of it (the lab-only Go files are named only by a cluster that sets the keys)
+PX="${TMP}/prodx"; mkdir -p "${PX}"
+cp "${LAB}/prod/cluster.yaml" "${PX}/cluster.yaml"
+render_ok "${PX}" "prod profile, no gateway keys"
+[ -n "$(find "${PX}/55-autopilot" -type f 2>/dev/null | head -1)" ] && ok "prod profile: the Autopilot files render (the check below is not vacuous)" || ok "prod profile: no Autopilot files (nothing to switch)"
+if grep -rq 'autopilot-gateway-go\|gateway-go-v\|autopilot-gateway-migrate' "${PX}" --exclude=cluster.yaml; then bad "prod profile: renders something of the Go gateway or the migrate Job"; else ok "prod profile: nothing of the Go gateway or migrate Job renders"; fi
+
+# A-9 S9 step 2 ("switch") on a lab: the Go gateway serves, the Python Deployments are gone, the lab alias is the one the Python gateway had,
+# the migrate Job runs as the PreSync step before the switch, and no egress policy renders (egress.enabled: false, as the Python gateway has none)
+LG="${TMP}/labgo"; mkdir -p "${LG}/py" "${LG}/go"
+new "${LG}/py" dev lab-go kiac --repo-url https://github.com/acme/g --scm-owner acme --tower-cluster lab-prod \
+  --set tower.hostAliasIP=192.0.2.5 --set components.autopilot=true --set components.serviceCatalog.enabled=true --set components.serviceCatalog.scope=full
+printf '%s\n' 'autopilot:' '  people: [alice]' >>"${LG}/py/cluster.yaml"
+cp "${LG}/py/cluster.yaml" "${LG}/go/cluster.yaml"
+printf '%s\n' '  gateway:' '    implementation: go' '    go:' '      tag: gateway-go-v0.1.0' \
+  '      digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' '      migrateJob: true' '      registeredVersion: held' \
+  '      brokerUrl: http://broker.platform-system.svc:8080' '      githubOwners: [acme]' '      airframeUpperClusters: [lab-prod]' \
+  '      agentXRs: {namespaces: [app-agents], names: {reader: app-agents}}' \
+  '      plainHttp: {glidepath: true, broker: true, logs: true, catalog: true, jwks: true}' '      egress: {enabled: false}' >>"${LG}/go/cluster.yaml"
+python3 hack/check.py --cluster "${LG}/go/cluster.yaml" >/dev/null 2>"${TMP}/lg-check" && ok "lab go: passes check" || bad "lab go: check: $(cat "${TMP}/lg-check")"
+render_ok "${LG}/py" "lab (Python gateway)"
+render_ok "${LG}/go" "lab (Go gateway, step 2)"
+expect "${LG}/go" "lab step 2" 55-autopilot/gateway/gateway-go.yaml 55-autopilot/gateway/autopilot-api-go.yaml 55-autopilot/gateway/gateway-go-extras.yaml \
+  55-autopilot/gateway/gateway-go-migrate.yaml '!55-autopilot/gateway/gateway.yaml' '!55-autopilot/gateway/autopilot-api.yaml' '!55-autopilot/gateway/gateway-go-egress.yaml'
+LGG="${LG}/go/55-autopilot/gateway"
+has "${LGG}/gateway-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "lab step 2: the Go gateway is in wave 2, after the migrate Job (wave 1)"
+has "${LGG}/autopilot-api-go.yaml" 'argocd\.argoproj\.io/sync-wave: "2"' "lab step 2: the Go read API is in wave 2, after the migrate Job (wave 1)"
+has "${LGG}/gateway-go-migrate.yaml" 'name: autopilot-gateway-migrate-v0-1-0-dddddddd' "lab step 2: the migrate Job is named for the image and stays in the render (it ran in step 1; a new image would run it again)"
+if grep -q 'argocd\.argoproj\.io/hook' "${LGG}/gateway-go-migrate.yaml" "${LGG}/gateway-go.yaml" "${LGG}/autopilot-api-go.yaml"; then bad "lab step 2: an Argo CD hook annotation rendered"; else ok "lab step 2: no hooks (nothing relies on a hook running)"; fi
+has "${LGG}/gateway-go.yaml" 'strategy: \{type: Recreate\}' "lab step 2: the gateway Deployment is Recreate (the writer lock is released before the next pod starts)"
+has "${LGG}/gateway-go.yaml" 'replicas: 1' "lab step 2: one gateway replica"
+has "${LGG}/autopilot-api-go.yaml" 'replicas: 2' "lab step 2: two read API replicas"
+has "${LGG}/gateway-go.yaml" 'ip: "192\.0\.2\.5"' "lab step 2: the Go gateway gets the lab alias the Python gateway had (tower.hostAliasIP)"
+has "${LG}/py/55-autopilot/gateway/gateway.yaml" 'ip: "192\.0\.2\.5"' "lab: the Python gateway has the same alias"
+has "${LGG}/gateway-go.yaml" 'image: [^ ]*/autopilot-gateway-go:gateway-go-v0\.1\.0@sha256:d{64}$' "lab step 2: the Go gateway pins tag and digest"
+has "${LG}/go/55-clearance/clearance/application.yaml" '"version": "held"' "lab step 2: go.registeredVersion holds the registration (the core's CLEARANCE_PROVIDERS)"
+if grep -q 'gateway-go-v0.1.0' "${LG}/go/55-clearance/clearance/application.yaml"; then bad "lab step 2: the Go tag reached the Clearance Application despite registeredVersion"; else ok "lab step 2: the Go tag is not in the Clearance Application"; fi
+sed 's/"version": "held"/"version": "PY"/' "${LG}/go/55-clearance/clearance/application.yaml" >"${TMP}/lg-go-app"
+V="$(grep -o '"name": "autopilot-gateway", "version": "[^"]*"' "${LG}/py/55-clearance/clearance/application.yaml" | sed 's/.*"version": "\([^"]*\)"/\1/')"
+sed "s/\"version\": \"PY\"/\"version\": \"${V}\"/" "${TMP}/lg-go-app" | diff -q - "${LG}/py/55-clearance/clearance/application.yaml" >/dev/null \
+  && ok "lab step 2: apart from that held value the Clearance Application is the Python render's (the switch does not touch the core)" || bad "lab step 2: the Clearance Application differs from the Python render"
+refuse "an empty registeredVersion" "${K}/go" '      registeredVersion: ""'
+for e in EVENTS_RABBITMQ_ENABLED AUTOPILOT_EPHEMERAL CLEARANCE_EPHEMERAL CLEARANCE_DSN CLEARANCE_VERIFIERS AGENT_LOGINS CLEARANCE_GITHUB GATEWAY_API_TABLES; do
+  if grep -q "name: ${e}" "${LGG}/gateway-go.yaml" "${LGG}/autopilot-api-go.yaml"; then bad "lab step 2: ${e} is set, and the Go gateway refuses it"; else ok "lab step 2: ${e} (refused by the Go gateway) is not set"; fi
+done
+
 GD="${K}/dev"
 refuse "go without a tag" "${GD}" 'autopilot: {gateway: {implementation: go}}'
 refuse "an unknown implementation" "${GD}" 'autopilot: {gateway: {implementation: rust}}'

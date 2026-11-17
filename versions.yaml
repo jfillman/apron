@@ -5,34 +5,34 @@
 # no-hardcoded-cluster-names branches: cut new tags from them and set those tags here before rebuilding.
 versions:
   airframe:
-    catalog: v0.3.174 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions. v0.3.172..v0.3.173 adds xrds/agentrepository.yaml + compositions/agentrepository (Autopilot M4) and a comment in xrds/agentrun.yaml; v0.3.173..v0.3.174 (airframe#145): the AgentRun Composition names the gateway autopilot-gateway (gateway_service, clearance_selector, model_proxy_selector)
+    catalog: v0.3.176 # 20-service-catalog/airframe-service-catalog: XRDs + Compositions. v0.3.172..v0.3.173 adds xrds/agentrepository.yaml + compositions/agentrepository (Autopilot M4) and a comment in xrds/agentrun.yaml; v0.3.173..v0.3.174 (airframe#145): the AgentRun Composition names the gateway autopilot-gateway (gateway_service, clearance_selector, model_proxy_selector); v0.3.174..v0.3.175 (airframe#150): the Dex XRD gains spec.checkRide; v0.3.175..v0.3.176 (airframe#149): the SLO composition scopes every query to the SLO's own namespace and refuses namespace/__name__ matchers
     clusterRegistry: v0.3.154 # 00-bootstrap/cluster-registry: charts/cluster-registry
     analysisCatalog: v0.3.135 # 20-service-catalog/analysis-catalog: ClusterAnalysisTemplates
     defaultChart: v0.3.173 # cluster-defaults.yaml defaultChart: the app chart every environment renders
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.50.0
-    imageDigest: sha256:3e903575bfe51f414a4c195f0ad705044660a640ec12592eabc007bf50dd41a3
+    chart: 0.51.0
+    imageDigest: sha256:b4663525ded8261fadda67948eb8bdf1bfd2db8d672ec46135a2a930eb01ba60
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
-    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:72b28e132d8442b28a8701bca2af328029968991de854a97f976e1d5659ca959
-    waitImage: ghcr.io/jfillman/clearance-wait@sha256:bc581b5e6543f3ee5dd54ad1a0039ec5eb5e001c7ddb0c60b17a13f770687d42
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:b3726474dba74f92e280318000780e1bc1b6ef95e7e58da77c1bcba5b9cd5356
+    waitImage: ghcr.io/jfillman/clearance-wait@sha256:67474750e6043c2a24065afc286987461c0f1be4045ff804bd3f5eb866bfff90
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
-    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:fe3177f77424b9f61f2ee7736ff08ff2cb7895f335264723a59450e56748dbb7
-    argocdAgentChart: 0.50.0
+    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:ef0b4c5540f62a278d851c7f3a72109742b0ae41008a66da899735dd0544e760
+    argocdAgentChart: 0.51.0
     # The Slack service (clearance.slack.enabled; clearance chart slack.*, first in clearance v0.47.1): ghcr.io/jfillman/clearance-slack by
-    # digest (v0.50.0's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
-    slackImageDigest: sha256:7d7c65d43f8c901a0d80eb123735b5cea4fea67a93458f48685b91ef1925c157
+    # digest (v0.51.0's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
+    slackImageDigest: sha256:9c655397d2b2011e6d48ef1663bc8ef6061d776c57c869aacc0f771c4021dd65
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
-    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:b6cd08a3c171592aeecb4774c43c3b83740b1c8583a2f0fd1ef69042e7b53e11
-    observeK8sChart: 0.50.0
+    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:f63fa8fdb4e0a06a183d9e9e848d5c3b4fc0f9fbd11aec5d58a62a5afff40f23
+    observeK8sChart: 0.51.0
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
-    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:3f8f3727d34aaa2039d43b2c4e9c03e228bae7f88d0fe0846d5bf162d901accb
-    observeAWSChart: 0.50.0
+    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:40fcf314026213592d70a6e08cae4f29decd282ef4e80083442ab59e9c198a17
+    observeAWSChart: 0.51.0
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
-    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:ce008fd0cd1b92e403b46176590646805f037adc2f3a1a40ff4d25a369e24299
+    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:f673e5a76e765adaa52742f0e2a654a521cc1d63dd866da61046456ff28b054b
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.8.0

@@ -231,6 +231,25 @@ class Shape(unittest.TestCase):
         o["metadata"]["annotations"]["glidepath.io/origin-chain-other"] = "v"
         self.refused(o, "annotation")
 
+    # Reissue: glidepath-api stamps the closed release's chain id (a UUID) on the run it starts for POST .../releases/{chainId}/reissue.
+    def test_the_reissue_annotation_is_allowed_with_a_chain_id_only(self):
+        o = promote()
+        o["metadata"]["annotations"]["glidepath.io/reissue-of"] = "94e8228a-5cdc-4350-914a-d73802e5b296"
+        self.admitted(o)
+        for v in ["not-a-uuid", "94E8228A-5cdc-4350-914a-d73802e5b296", "94e8228a-5cdc-4350-914a-d73802e5b296x", "", "../x"]:
+            with self.subTest(v=v):
+                o = promote()
+                o["metadata"]["annotations"]["glidepath.io/reissue-of"] = v
+                self.refused(o, "promotion-lineage shape rule")
+        # the lineage annotations beside it are unchanged, and another glidepath.io/ key is still refused
+        o = promote()
+        o["metadata"]["annotations"].update(self.LINEAGE)
+        o["metadata"]["annotations"]["glidepath.io/reissue-of"] = "94e8228a-5cdc-4350-914a-d73802e5b296"
+        self.admitted(o)
+        o = promote()
+        o["metadata"]["annotations"]["glidepath.io/reissue-other"] = "94e8228a-5cdc-4350-914a-d73802e5b296"
+        self.refused(o, "annotation")
+
     def test_workspace_volume_claim_templates_are_bounded(self):
         def spec(o):
             return o["spec"]["workspaces"][0]["volumeClaimTemplate"]["spec"]
