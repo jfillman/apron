@@ -200,8 +200,9 @@ spec:
                 - {name: CLEARANCE_CMP_CACHE_DIR, value: /tmp/clearance-cmp-cache}
                 # The repositories a chart may be fetched from: the plugin, not Argo CD, fetches it, so the AppProject's
                 # sourceRepos do not apply and the plugin refuses any other chartRepo. The same repository as the cluster's
-                # defaultChart and the tenant AppProjects' idpServiceCatalogRepoUrl (comma-separated when there are more).
-                - {name: CLEARANCE_CHART_REPOS, value: "https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git"}
+                # defaultChart and the tenant AppProjects' idpServiceCatalogRepoUrl, plus cluster.yaml allowedChartRepos
+                # (which the AppProjects also allow): what Argo CD allowed an app before the gate. Comma-separated.
+                - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
                 limits: {memory: 512Mi}

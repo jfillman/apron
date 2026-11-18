@@ -62,6 +62,15 @@ def signing_dir_check(out_dir):
                     raise ApronError(f"signing-pki/{f} holds a private key: only public certificates and keys belong here")
 
 
+def allowed_chart_repos(g):
+    """cluster.yaml `allowedChartRepos`: operator-approved chart repository URLs a tenant's deploy.chart may name."""
+    out = [str(r) for r in (g("allowedChartRepos", None) or [])]
+    for r in out:
+        if not re.fullmatch(r"(https|http|ssh|git|oci)://[^\s,'\"\\?#]+", r):
+            raise ApronError(f"allowedChartRepos: {r!r} is a repository URL (https://host/path), with no space, comma or quote")
+    return out
+
+
 def tokens(v):
     """Every @@TOKEN@@ and where its value comes from (templates/TOKENS.md documents the same list)."""
     lab = lab_networking(v)
@@ -80,6 +89,10 @@ def tokens(v):
         "SCM_HOST_RE": re.escape(scm_host or ""),
         "SCM_OWNER": g("scm.owner"),
         "REGISTRY_HOST": g("registry.host"),
+        # The chart repositories a tenant AppProject allows (sourceRepos) besides Airframe's: `allowedChartRepos` in
+        # cluster.yaml. The AppProjects and the Clearance plugin's allow list read this one list, so they cannot differ.
+        "ALLOWED_CHART_REPOS_LIST": json.dumps(allowed_chart_repos(g)),
+        "CLEARANCE_GATE_CHART_REPOS": ",".join([f"https://{scm_host}/{g('scm.owner')}/airframe.git"] + allowed_chart_repos(g)),
         "REGISTRY_OWNER": g("registry.owner"),
         "GATEWAY_NAMESPACE": g("gateway.namespace", "hangar-gateway"),
         "GATEWAY_NAME": g("gateway.name", "hangar"),

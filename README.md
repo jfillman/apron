@@ -111,8 +111,8 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 
 - argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
   container that mounts the clearance token (a projected service-account token, audience `clearance`).
-  Its `CLEARANCE_CHART_REPOS` is the cluster's airframe repository (the same one as `defaultChart` and the tenant
-  AppProjects' `sourceRepos`): the plugin, not Argo CD, fetches the chart, so it refuses any other `chartRepo`. It is
+  Its `CLEARANCE_CHART_REPOS` is the cluster's airframe repository plus `allowedChartRepos` from cluster.yaml (the same
+  repositories as `defaultChart` and every tenant AppProject's `sourceRepos`, which now read that one list): the plugin, not Argo CD, fetches the chart, so it refuses any other `chartRepo`. It is
   an environment variable of the sidecar, not a plugin parameter, so no tenant value can widen it. An app whose
   `deploy.chart` names another repository is refused at the Application until the platform lists that repository.
 - the tenant-onboarding ApplicationSet gives an environment the gate covers one source, the plugin

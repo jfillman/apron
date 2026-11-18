@@ -589,6 +589,16 @@ has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'name:
 has "${AS}" 'regexMatch "\^\.\*\$" .appName' "gate on without gate.apps: every app in a protected environment"
 CMPENV="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
 has "${CMPENV}" 'name: CLEARANCE_CHART_REPOS, value: "https://github.com/acme/airframe.git"' "gate on: the sidecar's chart allow list is the cluster's airframe repository, set by the platform"
+new "${TMP}/gate-more" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set 'allowedChartRepos=[https://github.com/acme/team-charts.git]'
+render_ok "${TMP}/gate-more" "gate on with allowedChartRepos"
+has "${TMP}/gate-more/01-argocd-platform/argocd-apps-install/application.yaml" 'name: CLEARANCE_CHART_REPOS, value: "https://github.com/acme/airframe.git,https://github.com/acme/team-charts.git"' "allowedChartRepos: the plugin's list is airframe plus those repositories (the union Argo CD allows)"
+has "${TMP}/gate-more/02-argocd-apps/tenant-appprojects/applicationset.yaml" 'allowedChartRepos: \["https://github.com/acme/team-charts.git"\]' "allowedChartRepos: the tenant AppProjects get the same repositories"
+has "${TMP}/gate/02-argocd-apps/tenant-appprojects/applicationset.yaml" 'allowedChartRepos: \[\]' "no allowedChartRepos: the AppProjects allow only Airframe's"
+new "${TMP}/gate-badrepo" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'allowedChartRepos=["https://x.test/a,b"]'
+if python3 hack/render.py --cluster "${TMP}/gate-badrepo/cluster.yaml" >/dev/null 2>&1; then bad "allowedChartRepos entry with a comma was accepted"; else ok "allowedChartRepos entry with a comma is refused"; fi
 DEFREPO="$(sed -n 's/^  repoURL: //p' "${TMP}/gate/cluster-defaults.yaml" | head -1)"
 if [ -n "${DEFREPO}" ] && grep -qF "name: CLEARANCE_CHART_REPOS, value: \"${DEFREPO}\"" "${CMPENV}"; then ok "gate on: the allow list names the same repository as cluster-defaults.yaml's defaultChart"; else bad "gate on: allow list differs from defaultChart.repoURL (${DEFREPO})"; fi
 if grep -n 'CLEARANCE_CHART_REPOS' "${AS}" | grep -v '^[0-9]*: *#' | grep -q .; then bad "gate on: the allow list is set in the ApplicationSet (a plugin parameter a tenant value could reach)"; else ok "gate on: the allow list is not an ApplicationSet parameter"; fi
