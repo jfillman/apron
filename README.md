@@ -120,6 +120,10 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
   plugin fetches the same chart at the same pinned tag and renders it with the same value files and platform values.
   An environment is covered when `<cluster>/<env>` matches `clearance.protectedEnvironments` (every environment when
   that is empty); an environment on a registry (OCI) chart keeps the Helm source.
+- `versions.clearance.cmpImage` must be a Clearance release that enforces `CLEARANCE_CHART_REPOS`; an older image
+  ignores the variable and fetches any `chartRepo`, so the pin and the render go together.
+- The chart allow list is Airframe's repository plus `allowedChartRepos`, not the AppProject's full `sourceRepos`: the
+  app's own gitops repository is the plugin's source itself (Argo CD fetches it), not a chart repository.
 
 | `cluster.yaml` key | |
 |---|---|

@@ -598,7 +598,14 @@ has "${TMP}/gate-more/02-argocd-apps/tenant-appprojects/applicationset.yaml" 'al
 has "${TMP}/gate/02-argocd-apps/tenant-appprojects/applicationset.yaml" 'allowedChartRepos: \[\]' "no allowedChartRepos: the AppProjects allow only Airframe's"
 new "${TMP}/gate-badrepo" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'allowedChartRepos=["https://x.test/a,b"]'
-if python3 hack/render.py --cluster "${TMP}/gate-badrepo/cluster.yaml" >/dev/null 2>&1; then bad "allowedChartRepos entry with a comma was accepted"; else ok "allowedChartRepos entry with a comma is refused"; fi
+BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-badrepo/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -q "allowedChartRepos: 'https://x.test/a,b' is a repository URL" <<<"${BADERR}"; then ok "allowedChartRepos entry with a comma is refused with its validation error"; else bad "allowedChartRepos comma entry: rc=${BADRC} ${BADERR}"; fi
+for BAD in 'allowedChartRepos={a: b}' 'allowedChartRepos=https://x.test/a'; do
+  new "${TMP}/gate-badtype" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+    --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-badtype/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -q "allowedChartRepos must be a list of repository URL strings" <<<"${BADERR}"; then ok "${BAD}: refused as not a list of strings"; else bad "${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
 DEFREPO="$(sed -n 's/^  repoURL: //p' "${TMP}/gate/cluster-defaults.yaml" | head -1)"
 if [ -n "${DEFREPO}" ] && grep -qF "name: CLEARANCE_CHART_REPOS, value: \"${DEFREPO}\"" "${CMPENV}"; then ok "gate on: the allow list names the same repository as cluster-defaults.yaml's defaultChart"; else bad "gate on: allow list differs from defaultChart.repoURL (${DEFREPO})"; fi
 if grep -n 'CLEARANCE_CHART_REPOS' "${AS}" | grep -v '^[0-9]*: *#' | grep -q .; then bad "gate on: the allow list is set in the ApplicationSet (a plugin parameter a tenant value could reach)"; else ok "gate on: the allow list is not an ApplicationSet parameter"; fi

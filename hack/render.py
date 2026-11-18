@@ -64,7 +64,12 @@ def signing_dir_check(out_dir):
 
 def allowed_chart_repos(g):
     """cluster.yaml `allowedChartRepos`: operator-approved chart repository URLs a tenant's deploy.chart may name."""
-    out = [str(r) for r in (g("allowedChartRepos", None) or [])]
+    raw = g("allowedChartRepos", None)
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(r, str) for r in raw):
+        raise ApronError("allowedChartRepos must be a list of repository URL strings")
+    out = list(raw)
     for r in out:
         if not re.fullmatch(r"(https|http|ssh|git|oci)://[^\s,'\"\\?#]+", r):
             raise ApronError(f"allowedChartRepos: {r!r} is a repository URL (https://host/path), with no space, comma or quote")
