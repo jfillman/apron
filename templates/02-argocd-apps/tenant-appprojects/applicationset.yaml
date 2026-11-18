@@ -104,6 +104,9 @@ spec:
             # app or infra: the prefix of every namespace this tenant deploys into (AppProject destinations).
             type: '{{ dig "platformIdentity" "type" "app" . }}'
             idpServiceCatalogRepoUrl: "https://@@SCM_HOST@@/@@SCM_OWNER@@/airframe.git"
+            # cluster.yaml allowedChartRepos: chart repositories besides Airframe's that every tenant AppProject allows
+            # (and, as the same list, that the Clearance plugin may fetch from: argocd-apps-install).
+            allowedChartRepos: @@ALLOWED_CHART_REPOS_LIST@@
       destination:
         server: https://kubernetes.default.svc
         namespace: argocd-apps

@@ -184,6 +184,8 @@ the render with `file:line`.
 | `@@CLEARANCE_FEED_READERS_LIST@@` | `clearance.feedReaders`: `{principal, cluster}` entries that read a cluster's grant feed |
 | `@@CLEARANCE_AGENT_CHART_VERSION@@`, `@@CLEARANCE_AGENT_IMAGE_REPOSITORY@@`, `@@CLEARANCE_AGENT_IMAGE_TAG@@` | `versions.clearance.argocdAgentChart` and `argocdAgentImage`, the digest carried in the tag |
 | `@@CLEARANCE_AGENT_API_URL@@`, `@@CLEARANCE_AGENT_PROJECTS@@`, `@@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@`, `@@CLEARANCE_AGENT_HOST_ALIASES@@` | `clearance.gate.agent` and `clearance.gate.hostAlias` plus clearance-api's host |
+| `@@ALLOWED_CHART_REPOS_LIST@@` | `allowedChartRepos` (JSON list, may be empty): chart repositories besides Airframe's that every tenant AppProject allows |
+| `@@CLEARANCE_GATE_CHART_REPOS@@` | the plugin's chart allow list: the cluster's airframe repository plus `allowedChartRepos`, comma-separated - only under `#@if clearance.gate.enabled` |
 | `@@CLEARANCE_GATE_URL@@` | `clearance.gate.url`, default `http://clearance-core.<clearance namespace>.svc:8080`: the core as the plugin sidecar and the PreSync wait Job reach it |
 | `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
 | `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |

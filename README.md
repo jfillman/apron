@@ -111,11 +111,19 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 
 - argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
   container that mounts the clearance token (a projected service-account token, audience `clearance`).
+  Its `CLEARANCE_CHART_REPOS` is the cluster's airframe repository plus `allowedChartRepos` from cluster.yaml (the same
+  repositories as `defaultChart` and every tenant AppProject's `sourceRepos`, which now read that one list): the plugin, not Argo CD, fetches the chart, so it refuses any other `chartRepo`. It is
+  an environment variable of the sidecar, not a plugin parameter, so no tenant value can widen it. An app whose
+  `deploy.chart` names another repository is refused at the Application until the platform lists that repository.
 - the tenant-onboarding ApplicationSet gives an environment the gate covers one source, the plugin
   (`plugin.name: clearance`) on the app's gitops repo, in place of the Helm source and its `$appsrc` ref. The
   plugin fetches the same chart at the same pinned tag and renders it with the same value files and platform values.
   An environment is covered when `<cluster>/<env>` matches `clearance.protectedEnvironments` (every environment when
   that is empty); an environment on a registry (OCI) chart keeps the Helm source.
+- `versions.clearance.cmpImage` must be a Clearance release that enforces `CLEARANCE_CHART_REPOS`; an older image
+  ignores the variable and fetches any `chartRepo`, so the pin and the render go together.
+- The chart allow list is Airframe's repository plus `allowedChartRepos`, not the AppProject's full `sourceRepos`: the
+  app's own gitops repository is the plugin's source itself (Argo CD fetches it), not a chart repository.
 
 | `cluster.yaml` key | |
 |---|---|
