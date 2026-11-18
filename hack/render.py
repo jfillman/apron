@@ -73,6 +73,8 @@ def allowed_chart_repos(g):
     for r in out:
         if not re.fullmatch(r"(https|http|ssh|git|oci)://[^\s,'\"\\?#]+", r):
             raise ApronError(f"allowedChartRepos: {r!r} is a repository URL (https://host/path), with no space, comma or quote")
+        if not urllib.parse.urlparse(r).hostname:
+            raise ApronError(f"allowedChartRepos: {r!r} has no host name (https://host/path)")
     return out
 
 
