@@ -587,6 +587,14 @@ has "${AS}" 'name: valueFiles, string: "hangar-prod/base.yaml,hangar-prod/\{\{.e
   "gate on: the plugin gets all three value files and skips absent ones (the Helm source's ignoreMissingValueFiles)"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'name: clearance-cmp' "gate on: repo-server has the plugin sidecar"
 has "${AS}" 'regexMatch "\^\.\*\$" .appName' "gate on without gate.apps: every app in a protected environment"
+CMPENV="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
+has "${CMPENV}" 'name: CLEARANCE_CHART_REPOS, value: "https://github.com/acme/airframe.git"' "gate on: the sidecar's chart allow list is the cluster's airframe repository, set by the platform"
+DEFREPO="$(sed -n 's/^  repoURL: //p' "${TMP}/gate/cluster-defaults.yaml" | head -1)"
+if [ -n "${DEFREPO}" ] && grep -qF "name: CLEARANCE_CHART_REPOS, value: \"${DEFREPO}\"" "${CMPENV}"; then ok "gate on: the allow list names the same repository as cluster-defaults.yaml's defaultChart"; else bad "gate on: allow list differs from defaultChart.repoURL (${DEFREPO})"; fi
+if grep -n 'CLEARANCE_CHART_REPOS' "${AS}" | grep -v '^[0-9]*: *#' | grep -q .; then bad "gate on: the allow list is set in the ApplicationSet (a plugin parameter a tenant value could reach)"; else ok "gate on: the allow list is not an ApplicationSet parameter"; fi
+for P in chartRepo chartRevision chartPath; do
+  has "${AS}" "name: ${P}, string: '\{\{ dig .* \| replace \"'\" \"''\" \}\}'\}" "gate on: plugin parameter ${P} doubles a quote in its value, so identity.yaml cannot add a parameter"
+done
 [ ! -e "${TMP}/gate/56-clearance-gate/agent/application.yaml" ] && ok "gate on without gate.agent: no agent" || bad "gate on without gate.agent: the agent rendered"
 new "${TMP}/gate-agent" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
@@ -628,6 +636,7 @@ if grep -n 'clearance-cmp\|name: clearance$' "${TMP}/lab/prod/01-argocd-platform
 else
   ok "gate off: no sidecar and no plugin source"
 fi
+if grep -q 'CLEARANCE_CHART_REPOS' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml"; then bad "gate off: the chart allow list leaked into a cluster that did not ask for it"; else ok "gate off: no chart allow list"; fi
 new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
 render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"

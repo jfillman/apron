@@ -200,12 +200,16 @@ spec:
           plugin:
             name: clearance
             parameters:
+              # chartRepo, chartRevision and chartPath are written by the app's cicd.yaml (deploy.chart) through identity.yaml and
+              # sit inside single quotes in a YAML flow mapping, so a quote in one is doubled: it cannot end the string and add a
+              # parameter of its own. They are also checked by the plugin: it fetches a chart only from CLEARANCE_CHART_REPOS, an
+              # environment variable of the sidecar (argocd-apps-install), which no parameter can set.
               - {name: app, string: "{{.appName}}"}
               - {name: env, string: "{{.env}}"}
               - {name: cluster, string: "@@CLUSTER_NAME@@"}
-              - {name: chartRepo, string: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'}
-              - {name: chartRevision, string: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'}
-              - {name: chartPath, string: '{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . }}'}
+              - {name: chartRepo, string: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . | replace "'" "''" }}'}
+              - {name: chartRevision, string: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . | replace "'" "''" }}'}
+              - {name: chartPath, string: '{{ dig "chart" "path" "__DEFAULT_CHART_PATH__" . | replace "'" "''" }}'}
               # The Helm source had ignoreMissingValueFiles: the plugin skips every value file that is absent (an app with no
               # base.yaml or release.yaml yet still renders), so all three paths are listed, as above.
               - {name: valueFiles, string: "@@CLUSTER_NAME@@/base.yaml,@@CLUSTER_NAME@@/{{.env}}/values.yaml,@@CLUSTER_NAME@@/{{.env}}/release.yaml"}
