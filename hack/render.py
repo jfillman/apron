@@ -553,12 +553,21 @@ def clearance_gate_tokens(g):
                 raise ApronError("clearance.gate.agent.optIn needs versions.clearance.argocdAgentChart 0.49.0 or later (the annotation opt-in, clearance G-ARGO-10c)")
             # The core must let this cluster's agent report protected pairs (its provider entry's `protection`), or every report is a 403
             # and no Application is ever switched. Checked where the core runs here; a core on another cluster is that cluster's file.
+            # The principal is the agent's service account as the core knows a caller on its own cluster: <namespace>/<name>. An entry counts when
+            # its glob matches that principal, the cluster after the `=` is this one, and the same entry lists a principal that glob covers.
             cluster = g("name", "")
-            if g("components.clearance", False) and not any(
-                    str(x).endswith(f"={cluster}") for p in (g("clearance.extraProviders", None) or []) if isinstance(p, dict)
-                    for x in (p.get("protection") or [])):
-                raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"<the agent's principal>={cluster}\"] "
-                                 "(clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
+            principal = (g("clearance.gate.agentServiceAccount", None) or "clearance-system:clearance-argocd-agent").replace(":", "/", 1)
+
+            def _grants_protection(entry):
+                for x in (entry.get("protection") or []):
+                    glob, _, cl = str(x).rpartition("=")
+                    if cl == cluster and fnmatch.fnmatchcase(principal, glob) and any(
+                            fnmatch.fnmatchcase(principal, str(q)) for q in (entry.get("principals") or [])):
+                        return True
+                return False
+            if g("components.clearance", False) and not any(_grants_protection(p) for p in (g("clearance.extraProviders", None) or []) if isinstance(p, dict)):
+                raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"{principal}={cluster}\"] "
+                                 f"and {principal} among its principals (clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
     return {
         "CLEARANCE_GATE_ENV_REGEX": regex,
         # gate.apps limits the plugin to those apps, so a cluster can turn the gate on one app at a time. Empty: every

@@ -735,12 +735,22 @@ expect "${TMP}/gate-lower-off" "gate.lowerZone false" '!56-clearance-gate/admiss
 for BADP in "clearance.gate.agent.optIn=maybe|agent.optIn is true or false" "clearance.gate.agent.environment=Bad_Env|agent.environment is a DNS label" \
             "clearance.gate.tenantPlugin=maybe|tenantPlugin is true or false" "clearance.gate.lowerZone=maybe|lowerZone is true or false" \
             "versions.clearance.argocdAgentChart=0.48.0|needs versions.clearance.argocdAgentChart 0.49.0" "clearance.extraProviders=[]|needs a clearance.extraProviders entry with protection" \
-            "clearance.extraProviders=[{name: argocd-agent-dev, version: '1', principals: [a/b], protection: ['a/b=hangar-prod']}]|needs a clearance.extraProviders entry with protection"; do
+            "clearance.extraProviders=[{name: argocd-agent-dev, version: '1', principals: [a/b], protection: ['a/b=hangar-prod']}]|needs a clearance.extraProviders entry with protection" \
+            "clearance.extraProviders=[{name: other, version: '1', principals: [other/sa], protection: ['other/sa=hangar-dev']}]|needs a clearance.extraProviders entry with protection" \
+            "clearance.extraProviders=[{name: other, version: '1', principals: [other/sa], protection: ['clearance-system/clearance-argocd-agent=hangar-dev']}]|needs a clearance.extraProviders entry with protection"; do
   BAD="${BADP%%|*}"; WANT="${BADP#*|}"
   new "${TMP}/gate-opt-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" --set "${BAD}"
   BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-opt-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
   if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "gate opt-in ${BAD}: refused (${WANT})"; else bad "gate opt-in ${BAD}: rc=${BADRC} ${BADERR}"; fi
 done
+# a glob entry that covers the agent's principal is accepted; so is a renamed agent account, when the entry names it
+new "${TMP}/gate-opt-glob" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set 'clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: ["clearance-system/*"], protection: ["clearance-system/*=hangar-dev"]}]'
+render_ok "${TMP}/gate-opt-glob" "gate opt-in: a protection glob that covers the agent's principal"
+new "${TMP}/gate-opt-sa" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agentServiceAccount=clearance-system:the-agent \
+  --set 'clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: ["clearance-system/the-agent"], protection: ["clearance-system/the-agent=hangar-dev"]}]'
+render_ok "${TMP}/gate-opt-sa" "gate opt-in: a renamed agent account named by its entry"
 new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
 render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"
