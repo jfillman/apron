@@ -183,6 +183,7 @@ the render with `file:line`.
 | `@@CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST@@` | Tower's backend and `clearance.foreignServiceAccounts`: the other cluster's `<namespace>/<sa>` globs the core and clearance-api accept |
 | `@@CLEARANCE_FEED_READERS_LIST@@` | `clearance.feedReaders`: `{principal, cluster}` entries that read a cluster's grant feed |
 | `@@CLEARANCE_AGENT_CHART_VERSION@@`, `@@CLEARANCE_AGENT_IMAGE_REPOSITORY@@`, `@@CLEARANCE_AGENT_IMAGE_TAG@@` | `versions.clearance.argocdAgentChart` and `argocdAgentImage`, the digest carried in the tag |
+| `@@CLEARANCE_AGENT_SERVICE_ACCOUNT@@` | the name part of `clearance.gate.agentServiceAccount` (`clearance-system:<name>`): the agent chart's `serviceAccount.name` - only under `#@if clearance.gate.agentServiceAccount` |
 | `@@CLEARANCE_AGENT_ENVIRONMENT@@` | `clearance.gate.agent.environment` (a DNS label): the agent's `environment`, for a protected namespace with no `clearance.hangar.io/environment` label - only under `#@if clearance.gate.agent.environment` |
 | `@@CLEARANCE_AGENT_API_URL@@`, `@@CLEARANCE_AGENT_PROJECTS@@`, `@@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@`, `@@CLEARANCE_AGENT_HOST_ALIASES@@` | `clearance.gate.agent` and `clearance.gate.hostAlias` plus clearance-api's host |
 | `@@ALLOWED_CHART_REPOS_LIST@@` | `allowedChartRepos` (JSON list, may be empty): chart repositories besides Airframe's that every tenant AppProject allows |

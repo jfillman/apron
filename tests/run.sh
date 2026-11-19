@@ -751,6 +751,13 @@ new "${TMP}/gate-opt-sa" dev hangar-dev kiac --repo-url https://github.com/acme/
   --set clearance.gate.agentServiceAccount=clearance-system:the-agent \
   --set 'clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: ["clearance-system/the-agent"], protection: ["clearance-system/the-agent=hangar-dev"]}]'
 render_ok "${TMP}/gate-opt-sa" "gate opt-in: a renamed agent account named by its entry"
+has "${TMP}/gate-opt-sa/56-clearance-gate/agent/application.yaml" '^          name: "the-agent"$' "gate opt-in: the renamed account is the agent chart's serviceAccount.name"
+has "${TMP}/gate-opt-sa/56-clearance-gate/admission.yaml" "== 'system:serviceaccount:clearance-system:the-agent'" "gate opt-in: the policy names the same account as the only grant writer"
+if grep -q 'serviceAccount:' "${TMP}/gate-opt/56-clearance-gate/agent/application.yaml"; then bad "agentServiceAccount unset: the agent chart's serviceAccount is set"; else ok "agentServiceAccount unset: the agent chart's own account name (the render is today's)"; fi
+new "${TMP}/gate-opt-sa-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agentServiceAccount=other-ns:the-agent
+BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-opt-sa-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -q "agentServiceAccount is clearance-system:<name>" <<<"${BADERR}"; then ok "gate.agentServiceAccount outside clearance-system with the agent is refused"; else bad "gate.agentServiceAccount other-ns: rc=${BADRC} ${BADERR}"; fi
 new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
 render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"

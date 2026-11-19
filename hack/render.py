@@ -536,6 +536,14 @@ def clearance_gate_tokens(g):
     low = g("clearance.gate.lowerZone", None)
     if on and low is not None and not isinstance(low, bool):
         raise ApronError("clearance.gate.lowerZone is true or false")
+    # The agent's service account (the policy names it as the only ClearanceGrant writer, and the core's provider entry as a principal): the chart's
+    # default, or clearance.gate.agentServiceAccount "<namespace>:<name>", passed to the chart. The Application installs it in clearance-system.
+    agent_sa = g("clearance.gate.agentServiceAccount", None)
+    agent_sa_name = ""
+    if on and agent_sa and g("clearance.gate.agent", None):
+        sa_ns, _, agent_sa_name = str(agent_sa).partition(":")
+        if sa_ns != "clearance-system" or not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", agent_sa_name):
+            raise ApronError("clearance.gate.agentServiceAccount is clearance-system:<name> with gate.agent (the agent runs in clearance-system, as that account)")
     opt_in = g("clearance.gate.agent.optIn", None)
     agent_env = g("clearance.gate.agent.environment", None)
     if on and g("clearance.gate.agent", None):
@@ -575,6 +583,7 @@ def clearance_gate_tokens(g):
         # tenantPlugin: false matches no app (an app name is never empty), so no tenant Application is given the plugin.
         "CLEARANCE_GATE_APP_REGEX": ("^$" if (on and tenant_plugin is False) else (f"^({'|'.join(apps)})$" if apps else "^.*$")),
         "CLEARANCE_AGENT_ENVIRONMENT": str(agent_env or ""),
+        "CLEARANCE_AGENT_SERVICE_ACCOUNT": agent_sa_name,
         "CLEARANCE_GATE_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts}] if alias else []),
         "CLEARANCE_AGENT_CHART_VERSION": agent_chart,
         "CLEARANCE_AGENT_IMAGE_REPOSITORY": agent_repo,

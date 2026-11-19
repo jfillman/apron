@@ -31,6 +31,11 @@ spec:
           projects: @@CLEARANCE_AGENT_PROJECTS@@
         protectedNamespaces: @@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@
         hostAliases: @@CLEARANCE_AGENT_HOST_ALIASES@@
+#@if clearance.gate.agentServiceAccount
+        # The account the admission policy and the core's provider entry name (clearance.gate.agentServiceAccount): the chart's default otherwise.
+        serviceAccount:
+          name: "@@CLEARANCE_AGENT_SERVICE_ACCOUNT@@"
+#@end
 #@if clearance.gate.agent.environment
         # The environment of a protected namespace that has no clearance.hangar.io/environment label (chart default: prod).
         environment: "@@CLEARANCE_AGENT_ENVIRONMENT@@"
