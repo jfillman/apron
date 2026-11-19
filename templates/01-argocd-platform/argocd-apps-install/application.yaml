@@ -211,8 +211,47 @@ spec:
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
                 - {name: cmp-tmp, mountPath: /tmp}
                 - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
+            # The canary sidecar (clearance.gate.canary; clearance docs/gate.md, "Rolling out a plugin release"): the same
+            # plugin from another image, registered as `clearance-canary` (the image's config-canary/plugin.yaml, which
+            # sets version: canary, so the socket is plugins/clearance-canary.sock). Only the Applications listed in
+            # clearance.gate.canary.apps name it. Settings and security context are the first sidecar's; its /tmp (the
+            # render cache and work directory) is its own volume, so the two never share state.
+            - name: clearance-cmp-canary
+              image: @@CLEARANCE_CMP_CANARY_IMAGE@@
+              command: [/var/run/argocd/argocd-cmp-server, --config-dir-path, /home/argocd/cmp-server/config-canary]
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+                seccompProfile: {type: RuntimeDefault}
+              env:
+                - {name: CLEARANCE_URL, value: "@@CLEARANCE_GATE_URL@@"}
+                - {name: CLEARANCE_TOKEN_FILE, value: /var/run/secrets/tokens/clearance}
+                - {name: CLEARANCE_WAIT_IMAGE, value: "@@CLEARANCE_WAIT_IMAGE@@"}
+                - {name: CLEARANCE_WAIT_HOST_ALIAS, value: "@@CLEARANCE_GATE_HOST_ALIAS@@"}
+                - {name: CLEARANCE_CMP_CACHE_DIR, value: /tmp/clearance-cmp-cache}
+                - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+              volumeMounts:
+                - {name: var-files, mountPath: /var/run/argocd}
+                - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
+                - {name: cmp-tmp-canary, mountPath: /tmp}
+                - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled
           volumes:
             - {name: cmp-tmp, emptyDir: {}}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
+            - {name: cmp-tmp-canary, emptyDir: {}}
+#@end
+#@if clearance.gate.enabled
             - name: clearance-token
               projected:
                 sources:
