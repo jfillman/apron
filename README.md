@@ -316,6 +316,23 @@ audience-`clearance` token (the waiter mounts a clearance token, so its URL must
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's
 `providers/argocd/crd/test_admission.py` carries the full matrix. The two copies of the manifests are kept in step by hand.
 
+**Removing the gate.** Deleting the `clearance:` gate block and re-rendering only deletes the files: the root Application does
+not prune its child Applications, and `clearance-gate` cannot prune an empty directory (Argo CD refuses a sync that would
+prune everything). So remove it by hand, in this order:
+
+1. Set `clearance.gate.enforce` to false and sync, or remove the `clearance.hangar.io/protected` label from the protected
+   namespaces, so nothing is refused while the gate comes down.
+2. Delete the `clearance-argocd-agent` Application. It carries the `resources-finalizer`, so the agent and its RBAC go with it
+   (the agent is stateless). From here nothing rewrites grants.
+3. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
+   clearance-grant-writer` and then `kubectl delete validatingadmissionpolicy clearance-protected-writes clearance-grant-writer`.
+4. Delete the `clearance-gate` Application (it has **no** finalizer on purpose: a cascade
+   would delete the CRD in the same breath as the policies), then delete the CRD last:
+   `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored `ClearanceGrant`.** They are only
+   a cache of the signed grant feed, so re-enabling the gate rebuilds them, but do it only once nothing depends on them.
+5. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
+   `kubectl get deploy -n clearance-system` return nothing from the gate.
+
 ## Install
 
 1. **Create two new repos per cluster**, the cluster repo and its tenants repo (`<repo>-tenants` by default): by hand,

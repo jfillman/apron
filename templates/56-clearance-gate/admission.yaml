@@ -55,7 +55,7 @@ spec:
     # exactly CLEARANCE_URL=<the pinned core URL> and CLEARANCE_TOKEN_FILE=/var/run/secrets/tokens/clearance;
     # automountServiceAccountToken false and no serviceAccountName (the CMP sets automount false and no service account;
     # it never sets one); hostAliases exactly the pinned one (none when the pin is empty); the one mount and the one projected
-    # service-account token (audience 'clearance'). The waiter mounts a clearance token, so anything that could
+    # service-account token (audience 'clearance'), BOTH required: a Job with neither is not the CMP's and is not exempt. The waiter mounts a clearance token, so anything that could
     # redirect it is refused. Only the change id and the timeout vary.
     - name: waitjob
       expression: "has(object.spec) ? dyn(object.spec) : dyn({})"
@@ -121,7 +121,7 @@ spec:
         has(variables.waitctr.securityContext.capabilities.drop) &&
         variables.waitctr.securityContext.capabilities.drop == ['ALL'] &&
         (!has(variables.waitctr.imagePullPolicy) || variables.waitctr.imagePullPolicy == 'IfNotPresent') &&
-        (!has(variables.waitctr.volumeMounts) ||
+        (has(variables.waitctr.volumeMounts) &&
          (variables.waitctr.volumeMounts.size() == 1 &&
           variables.waitctr.volumeMounts[0].all(k, k in ['name', 'mountPath', 'readOnly']) &&
           variables.waitctr.volumeMounts[0].name == 'clearance-token' &&
@@ -132,7 +132,7 @@ spec:
           variables.waitpod.hostAliases[0].all(k, k in ['ip', 'hostnames']) &&
           has(variables.waitpod.hostAliases[0].ip) && has(variables.waitpod.hostAliases[0].hostnames) &&
           variables.waitpod.hostAliases[0].ip + '=' + variables.waitpod.hostAliases[0].hostnames.join(',') == '@@CLEARANCE_GATE_HOST_ALIAS@@')) &&
-        (!has(variables.waitpod.volumes) ||
+        (has(variables.waitpod.volumes) &&
          (variables.waitpod.volumes.size() == 1 && variables.waitpod.volumes[0].all(k, k in ['name', 'projected']) &&
           variables.waitpod.volumes[0].name == 'clearance-token' && has(variables.waitpod.volumes[0].projected) &&
           variables.waitpod.volumes[0].projected.all(k, k in ['sources', 'defaultMode']) &&
