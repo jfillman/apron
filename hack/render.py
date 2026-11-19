@@ -494,6 +494,27 @@ def clearance_gate_tokens(g):
         for a in apps:
             if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", a):
                 raise ApronError(f"clearance.gate.apps: {a!r} is not an app name")
+    # clearance.gate.canary: a second sidecar (clearance-cmp-canary, plugin `clearance-canary`) from another image, named
+    # by the listed apps only (clearance docs/gate.md, "Rolling out a plugin release"). Unset: nothing renders and the
+    # plugin name is the literal `clearance`, so the render is what it was.
+    canary_image = g("clearance.gate.canary.image", "") or ""
+    canary_apps = [str(a) for a in (g("clearance.gate.canary.apps", None) or [])]
+    plugin_name = "clearance"
+    if on and g("clearance.gate.canary", None):
+        if not re.fullmatch(r"[^\s'\"]+@sha256:[0-9a-f]{64}", canary_image):
+            raise ApronError("clearance.gate.canary.image is a digest reference (<repo>@sha256:<64 hex>)")
+        if not canary_apps:
+            raise ApronError("clearance.gate.canary.apps lists the apps that use the canary plugin; an image with no app would run an idle sidecar")
+        for a in canary_apps:
+            if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", a):
+                raise ApronError(f"clearance.gate.canary.apps: {a!r} is not an app name")
+        if len(set(canary_apps)) != len(canary_apps):
+            raise ApronError("clearance.gate.canary.apps lists an app twice")
+        if apps and not set(canary_apps) <= set(apps):
+            raise ApronError("clearance.gate.canary.apps names an app clearance.gate.apps leaves out: the gate does not cover it, so it would never use the plugin")
+        plugin_name = ('{{ if regexMatch "^(' + "|".join(canary_apps) + ')$" .appName }}clearance-canary{{ else }}clearance{{ end }}')
+    elif not on:
+        canary_image = ""
     agent_api = g("clearance.gate.agent.apiURL", "") or ""
     agent_host = urllib.parse.urlparse(agent_api).hostname or ""
     agent_image = g("versions.clearance.argocdAgentImage", "") or ""
@@ -523,6 +544,8 @@ def clearance_gate_tokens(g):
         "CLEARANCE_GATE_URL": g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080",
         "CLEARANCE_GATE_HOST_ALIAS": alias,
         "CLEARANCE_CMP_IMAGE": cmp_image,
+        "CLEARANCE_CMP_CANARY_IMAGE": canary_image,
+        "CLEARANCE_PLUGIN_NAME": plugin_name,
         "CLEARANCE_WAIT_IMAGE": wait_image,
     }
 

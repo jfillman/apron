@@ -198,7 +198,7 @@ spec:
           targetRevision: main
           path: .
           plugin:
-            name: clearance
+            name: @@CLEARANCE_PLUGIN_NAME@@
             parameters:
               # chartRepo, chartRevision and chartPath are written by the app's cicd.yaml (deploy.chart) through identity.yaml and
               # sit inside single quotes in a YAML flow mapping, so a quote in one is doubled: it cannot end the string and add a
