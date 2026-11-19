@@ -17,6 +17,12 @@ spec:
   rules:
     - matches:
         - path: {type: PathPrefix, value: /mcp}
+        # OAuth protected-resource metadata (RFC 9728): the 401 names /.well-known/oauth-protected-resource/mcp, and a
+        # client may also try the root or /mcp/.well-known/... (the prefix covers the first two; the last is under /mcp).
+        # Without this a client cannot read it and falls back to POST /register on the host ("Dynamic Client
+        # Registration rejected (HTTP 404)").
+        - path: {type: PathPrefix, value: /.well-known/oauth-protected-resource}
+          method: GET
         # The gateway's liveness from outside the cluster (A-7): {ok, tools, core} with no credential, the same
         # answer the kubelet's probes get. Exact, so nothing under it is exposed.
         - path: {type: Exact, value: /healthz}
