@@ -1197,8 +1197,8 @@ def cli_values(v):
         shapes = {"provider-infisical-creds": '{"client_id": "...", "client_secret": "..."} (Terraform adds the host)',
                   f"argocd-repo-creds-{get(v, 'scm.owner')}": '{"username": "...", "password": "..."}'}
         for s in secrets:
-            s["create"] = (f"put {shapes.get(s['name'], 'the value')} in Secrets Manager (terraform output "
-                           f"bootstrap_secret_ids), add {v['name']} to bootstrap_secrets in hangar-infra "
+            s["create"] = (f"put {shapes.get(s['name'], 'the value')} in Secrets Manager (hangar-infra 35-bootstrap-secrets output "
+                           f"secret_names), add {v['name']} to bootstrap_secrets in hangar-infra "
                            f"stacks/40-clusters/terraform.tfvars, then terraform apply in workspace {v['name']}")
     out["bootstrapSecrets"] = secrets
     hosts = ["argocd", "argocd-apps"]
