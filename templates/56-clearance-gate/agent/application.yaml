@@ -10,6 +10,10 @@ metadata:
   labels:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: policy
+  # Deleting this Application removes the agent (a stateless Deployment) and its RBAC, so it is safe to cascade: step 2 of
+  # README.md, "Clearance gate", "Removing the gate". The grants it wrote stay until the CRD goes.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:

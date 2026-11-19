@@ -34,7 +34,7 @@ def cm(name, rendered=None):
 WAIT = "registry.invalid/clearance-wait@sha256:" + "1" * 64
 
 
-def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=None, pod_extra=None):
+def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=None, pod_extra=None, drop_mount=False, drop_volume=False):
     """The Job as the plugin builds it (clearance providers/argocd/cmp/job.go), with at most one deviation."""
     spec = {"restartPolicy": "Never", "automountServiceAccountToken": False,
             "securityContext": {"runAsNonRoot": True, "runAsUser": 65532, "runAsGroup": 65532,
@@ -42,10 +42,15 @@ def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=N
         "name": "w", "image": image, "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
                                                          "capabilities": {"drop": ["ALL"]}}, "args": args or ["--change", "ch-1", "--timeout", "1h0m0s"],
         "env": [{"name": "CLEARANCE_URL", "value": env_url or url},
-                {"name": "CLEARANCE_TOKEN_FILE", "value": "/var/run/secrets/tokens/clearance"}]}],
+                {"name": "CLEARANCE_TOKEN_FILE", "value": "/var/run/secrets/tokens/clearance"}],
+        "volumeMounts": [{"name": "clearance-token", "mountPath": "/var/run/secrets/tokens", "readOnly": True}]}],
         "volumes": [{"name": "clearance-token", "projected": {"sources": [{"serviceAccountToken": {"audience": "clearance", "path": "clearance"}}]}}]}
     spec["containers"][0].update(ctr_extra or {})
     spec.update(pod_extra or {})
+    for k in (drop_mount and ["volumeMounts"] or []):
+        del spec["containers"][0][k]
+    if drop_volume:
+        del spec["volumes"]
     if alias:
         spec["hostAliases"] = [{"ip": "10.9.9.9", "hostnames": ["x.invalid"]}]
     return {"apiVersion": "batch/v1", "kind": "Job",
@@ -128,6 +133,8 @@ def run(rendered, agent, deny):
                                                                                          "seccompProfile": {"type": "RuntimeDefault"}}})),
                           ("seccomp Unconfined", wait_job("wait-seccomp", WAIT, url, pod_extra={"securityContext": {"runAsNonRoot": True, "runAsUser": 65532,
                                                           "runAsGroup": 65532, "seccompProfile": {"type": "Unconfined"}}})),
+                          ("no volumeMounts", wait_job("wait-nomount", WAIT, url, drop_mount=True)),
+                          ("neither the mount nor the volume", wait_job("wait-neither", WAIT, url, drop_mount=True, drop_volume=True)),
                           ("a dnsConfig", wait_job("wait-dns", WAIT, url, pod_extra={"dnsConfig": {"nameservers": ["10.9.9.9"]}}))):
             ok, out = k.kubectl(["create", "-f", "-"], job, ARGO)
             check(f"a labelled Job with {what} is " + ("refused" if deny else "warned"),

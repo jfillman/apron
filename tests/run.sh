@@ -353,7 +353,7 @@ if [ "${HAVE_YAML}" = true ]; then
 import sys, yaml
 m = yaml.safe_load(open(sys.argv[1]))["metadata"]
 a = m.get("annotations") or {}
-want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "2"}
+want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "3"}
 bad = [k for k, v in want.items() if a.get(k) != v]
 bad += [k for k in want if k in (m.get("labels") or {})]
 if bad:
@@ -361,7 +361,7 @@ if bad:
     sys.exit(1)
 PY
   )"; then
-    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 2"
+    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 3"
   else
     bad "clearance gate: the CRD's metadata.annotations ${out}"
   fi
