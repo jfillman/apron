@@ -90,6 +90,21 @@ spec:
   # Deleting or replacing this ApplicationSet must not delete the Flight workloads (ADR-0023 consequences).
   syncPolicy:
     preserveResourcesOnDeletion: true
+  #@if (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn
+  # W-43, only on a cluster whose Clearance agent runs the annotation opt-in (clearance.gate.agent.optIn): what the agent needs
+  # of an ApplicationSet's Applications (clearance docs/gate.md, "What the parent must say"). Both are scoped to the
+  # opted-in Applications: the ignore rule is a jq expression that selects only an Application carrying the opt-in
+  # annotation (ignoreApplicationDifferences is ApplicationSet-wide, but an expression that selects nothing ignores nothing,
+  # so every other tenant Application keeps being updated from this template), and preservedFields only keeps live values
+  # of the one annotation the agent writes, which no un-opted Application has. Without optIn neither key is rendered.
+  ignoreApplicationDifferences:
+    - jqPathExpressions:
+        - 'select(.metadata.annotations["clearance.hangar.io/protect"] == "true") | .spec.source'
+        - 'select(.metadata.annotations["clearance.hangar.io/protect"] == "true") | .spec.sources'
+  preservedFields:
+    annotations:
+      - clearance.hangar.io/switched
+  #@end
   goTemplate: true
   goTemplateOptions: ["missingkey=invalid"]
   generators:
@@ -190,6 +205,13 @@ spec:
           # namespace isn't in the source manifests at all).
           - CreateNamespace=true
   templatePatch: |
+    #@if (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn
+    {{- if dig "clearanceGate" false . }}
+    metadata:
+      annotations:
+        clearance.hangar.io/protect: "true"
+    {{- end }}
+    #@end
 #@if clearance.gate.enabled
     {{- if and (regexMatch "@@CLEARANCE_GATE_ENV_REGEX@@" (printf "%s/%s" "@@CLUSTER_NAME@@" .env)) (regexMatch "@@CLEARANCE_GATE_APP_REGEX@@" .appName) (not (dig "chart" "chart" "" .)) }}
     spec:
@@ -265,8 +287,22 @@ spec:
           targetRevision: main
           path: @@CLUSTER_NAME@@/{{.env}}/configmap
     {{- else }}
+    #@if (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn
+    {{- if not (dig "clearanceGate" false .) }}
     {}
     {{- end }}
-    {{- else }}
+    #@end
+    #@if not ((zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn)
     {}
+    #@end
+    {{- end }}
+    {{- else }}
+    #@if (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn
+    {{- if not (dig "clearanceGate" false .) }}
+    {}
+    {{- end }}
+    #@end
+    #@if not ((zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn)
+    {}
+    #@end
     {{- end }}
