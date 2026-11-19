@@ -693,7 +693,7 @@ def norm(b, tmp):
 a, b = norm(block("clearance-cmp"), "cmp-tmp,"), norm(block("clearance-cmp-canary"), "cmp-tmp-canary,")
 sys.exit(0 if a == b and any("readOnlyRootFilesystem: true" in l for l in a) and len(a) > 15 else 1)
 PY
-for BAD in "clearance.gate.canary.image=ghcr.io/acme/clearance-cmp:latest" "clearance.gate.canary.apps=[]" "clearance.gate.canary.apps=[Bad_App]"; do
+for BAD in "clearance.gate.canary.image=ghcr.io/acme/clearance-cmp:latest" "clearance.gate.canary.apps=[]" "clearance.gate.canary.apps=[Bad_App]" "clearance.gate.canary.apps=gate-api"; do
   new "${TMP}/gate-canary-bad" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
     --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
     --set "clearance.gate.canary.image=${CANARY}" --set 'clearance.gate.canary.apps=[gate-api]' --set "${BAD}"

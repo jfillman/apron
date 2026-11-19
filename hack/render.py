@@ -498,11 +498,14 @@ def clearance_gate_tokens(g):
     # by the listed apps only (clearance docs/gate.md, "Rolling out a plugin release"). Unset: nothing renders and the
     # plugin name is the literal `clearance`, so the render is what it was.
     canary_image = g("clearance.gate.canary.image", "") or ""
-    canary_apps = [str(a) for a in (g("clearance.gate.canary.apps", None) or [])]
+    canary_apps_raw = g("clearance.gate.canary.apps", None) or []
+    canary_apps = [str(a) for a in canary_apps_raw] if isinstance(canary_apps_raw, list) else []
     plugin_name = "clearance"
     if on and g("clearance.gate.canary", None):
         if not re.fullmatch(r"[^\s'\"]+@sha256:[0-9a-f]{64}", canary_image):
             raise ApronError("clearance.gate.canary.image is a digest reference (<repo>@sha256:<64 hex>)")
+        if not isinstance(canary_apps_raw, list):
+            raise ApronError("clearance.gate.canary.apps is a list of app names ([gate-api]), not a string")
         if not canary_apps:
             raise ApronError("clearance.gate.canary.apps lists the apps that use the canary plugin; an image with no app would run an idle sidecar")
         for a in canary_apps:
