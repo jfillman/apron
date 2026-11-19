@@ -1194,9 +1194,12 @@ def cli_values(v):
     if get(v, "runtime.type") == "eks":
         # On EKS, Terraform declares both (hangar-infra stacks/40-clusters/bootstrap-secrets.tf): the values live in
         # Secrets Manager and are written through write-only arguments. Never kubectl-create them by hand.
+        shapes = {"provider-infisical-creds": '{"client_id": "...", "client_secret": "..."} (Terraform adds the host)',
+                  f"argocd-repo-creds-{get(v, 'scm.owner')}": '{"username": "...", "password": "..."}'}
         for s in secrets:
-            s["create"] = ("put the value in Secrets Manager (terraform output bootstrap_secret_ids), then in "
-                           f"hangar-infra stacks/40-clusters (workspace {v['name']}): terraform apply -var bootstrap_secrets=true")
+            s["create"] = (f"put {shapes.get(s['name'], 'the value')} in Secrets Manager (terraform output "
+                           f"bootstrap_secret_ids), add {v['name']} to bootstrap_secrets in hangar-infra "
+                           f"stacks/40-clusters/terraform.tfvars, then terraform apply in workspace {v['name']}")
     out["bootstrapSecrets"] = secrets
     hosts = ["argocd", "argocd-apps"]
     if get(v, "infisical.host"):
