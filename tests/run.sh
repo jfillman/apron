@@ -721,13 +721,9 @@ has "${OA}" '^          enabled: true$' "gate.agent.optIn: enabled"
 has "${OA}" '^        environment: "dev"$' "gate.agent.environment: the agent's default environment"
 has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\$" .appName' "gate.tenantPlugin false: no app name matches the plugin regex"
 # W-43: an environment that asks (identity.yaml clearanceGate: true, Airframe ApplicationEnvironment spec.clearanceGate) is annotated for the agent's
-# opt-in, and the ApplicationSet carries what the agent needs of it: the ignore rule selects only an Application with that annotation (it cannot
-# stop sources updating on any other), and the one annotation the agent writes is preserved. All of it only with the agent's optIn.
+# opt-in, and the one annotation the agent writes is preserved. All of it only with the agent's optIn.
 OAS="${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
-has "${OAS}" '^  ignoreApplicationDifferences:$' "gate.agent.optIn: the ApplicationSet has ignoreApplicationDifferences"
-has "${OAS}" "select(.metadata.annotations\\[\"clearance.hangar.io/protect\"\\] == \"true\") | .spec.sources'" "gate.agent.optIn: /spec/sources is ignored only where the Application carries the opt-in annotation"
-has "${OAS}" "select(.metadata.annotations\\[\"clearance.hangar.io/protect\"\\] == \"true\") | .spec.source'" "gate.agent.optIn: /spec/source is ignored only where the Application carries the opt-in annotation"
-[ "$(grep -c '^        - .select(' "${OAS}")" = 2 ] && ok "gate.agent.optIn: every ignore expression is selected by the annotation (none is unconditional)" || bad "gate.agent.optIn: an ignore expression is not annotation-scoped"
+if grep -q '^  ignoreApplicationDifferences:' "${OAS}"; then bad "gate.agent.optIn: ignoreApplicationDifferences rendered (it is ApplicationSet-wide: not shipped, see apron#256)"; else ok "gate.agent.optIn: no ignoreApplicationDifferences (ApplicationSet-wide, would freeze sources for every tenant app)"; fi
 has "${OAS}" '^      - clearance.hangar.io/switched$' "gate.agent.optIn: preservedFields keeps the switched annotation"
 has "${OAS}" '^    \{\{- if dig "clearanceGate" false . \}\}$' "gate.agent.optIn: identity.yaml clearanceGate turns into the annotation"
 has "${OAS}" 'clearance.hangar.io/protect: "true"$' "gate.agent.optIn: the annotation is clearance.hangar.io/protect"

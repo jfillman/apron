@@ -91,16 +91,14 @@ spec:
   syncPolicy:
     preserveResourcesOnDeletion: true
   #@if (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.optIn
-  # W-43, only on a cluster whose Clearance agent runs the annotation opt-in (clearance.gate.agent.optIn): what the agent needs
-  # of an ApplicationSet's Applications (clearance docs/gate.md, "What the parent must say"). Both are scoped to the
-  # opted-in Applications: the ignore rule is a jq expression that selects only an Application carrying the opt-in
-  # annotation (ignoreApplicationDifferences is ApplicationSet-wide, but an expression that selects nothing ignores nothing,
-  # so every other tenant Application keeps being updated from this template), and preservedFields only keeps live values
-  # of the one annotation the agent writes, which no un-opted Application has. Without optIn neither key is rendered.
-  ignoreApplicationDifferences:
-    - jqPathExpressions:
-        - 'select(.metadata.annotations["clearance.hangar.io/protect"] == "true") | .spec.source'
-        - 'select(.metadata.annotations["clearance.hangar.io/protect"] == "true") | .spec.sources'
+  # W-43, only on a cluster whose Clearance agent runs the annotation opt-in (clearance.gate.agent.optIn): what an opted-in tenant
+  # Application needs of this ApplicationSet. preservedFields keeps the one annotation the agent writes (the controller would
+  # wipe it, and the agent then marks the Application blocked); no Application that has not been switched has it, so nothing else
+  # is affected. NOT rendered here: ignoreApplicationDifferences on /spec/source and /spec/sources. It is ApplicationSet-wide
+  # (static rules, not per element) and Argo CD normalizes the live and generated Application separately, so a rule scoped by an
+  # annotation deletes the live sources when an existing Application first gains the annotation; an unscoped one stops this
+  # ApplicationSet updating sources for every tenant Application. Until that is decided (apron#256), the agent reports an
+  # annotated tenant Application as blocked ("does not ignore /spec/source"), which is the safe state.
   preservedFields:
     annotations:
       - clearance.hangar.io/switched
