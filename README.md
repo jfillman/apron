@@ -324,13 +324,17 @@ prune everything). So remove it by hand, in this order:
    namespaces, so nothing is refused while the gate comes down.
 2. Delete the `clearance-argocd-agent` Application. It carries the `resources-finalizer`, so the agent and its RBAC go with it
    (the agent is stateless). From here nothing rewrites grants.
-3. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
-   clearance-grant-writer` and then `kubectl delete validatingadmissionpolicy clearance-protected-writes clearance-grant-writer`.
-4. Delete the `clearance-gate` Application (it has **no** finalizer on purpose: a cascade
-   would delete the CRD in the same breath as the policies), then delete the CRD last:
-   `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored `ClearanceGrant`.** They are only
-   a cache of the signed grant feed, so re-enabling the gate rebuilds them, but do it only once nothing depends on them.
-5. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
+3. Delete the `clearance-gate` Application **without cascade**, so `selfHeal` cannot recreate what the next step deletes:
+   `kubectl delete application clearance-gate -n argocd` (the manifest has no finalizer, so this orphans its resources), or
+   `argocd app delete clearance-gate --cascade=false`. Never `argocd app delete` without `--cascade=false`: the CLI adds the
+   finalizer itself, and the cascade would delete the CRD and every stored grant ahead of step 5. The gate is deliberately
+   finalizer-free for that reason.
+4. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
+   clearance-grant-writer`, then `kubectl delete validatingadmissionpolicy clearance-protected-writes clearance-grant-writer`.
+5. Delete the CRD last: `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored
+   `ClearanceGrant`.** They are only a cache of the signed grant feed, so re-enabling the gate rebuilds them, but do it only
+   once nothing depends on them.
+6. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
    `kubectl get deploy -n clearance-system` return nothing from the gate.
 
 ## Install
