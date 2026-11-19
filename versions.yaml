@@ -16,7 +16,7 @@ versions:
     imageDigest: sha256:b4663525ded8261fadda67948eb8bdf1bfd2db8d672ec46135a2a930eb01ba60
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
-    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:c5f682b949e3a4c47cc933c360e5fffc6e6eab7a6527fcbd92e85618bdafa63b
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:8984f36ab71094fdcbd8c73b0a22b6a98754e9be8263fc7e7c6451a7ee7eb1b3
     waitImage: ghcr.io/jfillman/clearance-wait@sha256:67474750e6043c2a24065afc286987461c0f1be4045ff804bd3f5eb866bfff90
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:ef0b4c5540f62a278d851c7f3a72109742b0ae41008a66da899735dd0544e760
