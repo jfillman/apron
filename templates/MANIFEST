@@ -118,9 +118,10 @@
 55-clearance/clearance-config/backup.yaml  components.clearance and clearance.backup.enabled
 55-clearance/clearance-config/attest-trust.yaml  components.clearance and clearance.attestation.keyless and signing.trustedRoot
 
-# 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce
-56-clearance-gate/                      zone == 'upper' and clearance.gate.enabled
-56-clearance-gate/agent/                zone == 'upper' and clearance.gate.enabled and clearance.gate.agent
+# 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce.
+# clearance.gate.lowerZone puts the same stack on a lower cluster (a rehearsal; README, "Clearance gate"): unset, only an upper cluster has it.
+56-clearance-gate/                      (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled
+56-clearance-gate/agent/                (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent
 
 # 56 the ledger's witness (clearance C-3): one witness on a protected cluster, run by someone the log's operator does not control
 56-clearance-witness/                   zone == 'upper' and clearance.witness.enabled

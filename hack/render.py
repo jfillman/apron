@@ -528,11 +528,62 @@ def clearance_gate_tokens(g):
             raise ApronError("clearance.gate.agent needs versions.clearance.argocdAgentImage (by digest) and argocdAgentChart")
     agent_repo, _, agent_digest = agent_image.partition("@")
     agent_chart = g("versions.clearance.argocdAgentChart", "") or ""
+    # clearance.gate.tenantPlugin: false keeps the tenant-onboarding ApplicationSet from giving any Application the plugin, so
+    # the gate covers only what opts in by annotation (clearance docs/gate.md, "Annotation opt-in"). Unset or true: as before.
+    tenant_plugin = g("clearance.gate.tenantPlugin", None)
+    if on and tenant_plugin is not None and not isinstance(tenant_plugin, bool):
+        raise ApronError("clearance.gate.tenantPlugin is true or false")
+    low = g("clearance.gate.lowerZone", None)
+    if on and low is not None and not isinstance(low, bool):
+        raise ApronError("clearance.gate.lowerZone is true or false")
+    # The agent's service account (the policy names it as the only ClearanceGrant writer, and the core's provider entry as a principal): the chart's
+    # default, or clearance.gate.agentServiceAccount "<namespace>:<name>", passed to the chart. The Application installs it in clearance-system.
+    agent_sa = g("clearance.gate.agentServiceAccount", None)
+    agent_sa_name = ""
+    if on and agent_sa and g("clearance.gate.agent", None):
+        sa_ns, _, agent_sa_name = str(agent_sa).partition(":")
+        if sa_ns != "clearance-system" or not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", agent_sa_name):
+            raise ApronError("clearance.gate.agentServiceAccount is clearance-system:<name> with gate.agent (the agent runs in clearance-system, as that account)")
+    opt_in = g("clearance.gate.agent.optIn", None)
+    agent_env = g("clearance.gate.agent.environment", None)
+    if on and g("clearance.gate.agent", None):
+        if opt_in is not None and not isinstance(opt_in, bool):
+            raise ApronError("clearance.gate.agent.optIn is true or false")
+        if agent_env is not None and not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", str(agent_env)):
+            raise ApronError("clearance.gate.agent.environment is a DNS label (the environment of a protected namespace that carries no clearance.hangar.io/environment label)")
+        if opt_in:
+            # The opt-in is in the agent chart from clearance 0.49.0 (G-ARGO-10c); an older chart ignores the value and would render an agent that does nothing.
+            try:
+                chart_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", agent_chart).groups())
+            except AttributeError:
+                chart_v = (0, 0, 0)
+            if chart_v < (0, 49, 0):
+                raise ApronError("clearance.gate.agent.optIn needs versions.clearance.argocdAgentChart 0.49.0 or later (the annotation opt-in, clearance G-ARGO-10c)")
+            # The core must let this cluster's agent report protected pairs (its provider entry's `protection`), or every report is a 403
+            # and no Application is ever switched. Checked where the core runs here; a core on another cluster is that cluster's file.
+            # The principal is the agent's service account as the core knows a caller on its own cluster: <namespace>/<name>. An entry counts when
+            # its glob matches that principal, the cluster after the `=` is this one, and the same entry lists a principal that glob covers.
+            cluster = g("name", "")
+            principal = (g("clearance.gate.agentServiceAccount", None) or "clearance-system:clearance-argocd-agent").replace(":", "/", 1)
+
+            def _grants_protection(entry):
+                for x in (entry.get("protection") or []):
+                    glob, _, cl = str(x).rpartition("=")
+                    if cl == cluster and fnmatch.fnmatchcase(principal, glob) and any(
+                            fnmatch.fnmatchcase(principal, str(q)) for q in (entry.get("principals") or [])):
+                        return True
+                return False
+            if g("components.clearance", False) and not any(_grants_protection(p) for p in (g("clearance.extraProviders", None) or []) if isinstance(p, dict)):
+                raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"{principal}={cluster}\"] "
+                                 f"and {principal} among its principals (clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
     return {
         "CLEARANCE_GATE_ENV_REGEX": regex,
         # gate.apps limits the plugin to those apps, so a cluster can turn the gate on one app at a time. Empty: every
         # app in a protected environment. No backslash: the regex sits in a Go-template double-quoted string.
-        "CLEARANCE_GATE_APP_REGEX": f"^({'|'.join(apps)})$" if apps else "^.*$",
+        # tenantPlugin: false matches no app (an app name is never empty), so no tenant Application is given the plugin.
+        "CLEARANCE_GATE_APP_REGEX": ("^$" if (on and tenant_plugin is False) else (f"^({'|'.join(apps)})$" if apps else "^.*$")),
+        "CLEARANCE_AGENT_ENVIRONMENT": str(agent_env or ""),
+        "CLEARANCE_AGENT_SERVICE_ACCOUNT": agent_sa_name,
         "CLEARANCE_GATE_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts}] if alias else []),
         "CLEARANCE_AGENT_CHART_VERSION": agent_chart,
         "CLEARANCE_AGENT_IMAGE_REPOSITORY": agent_repo,
