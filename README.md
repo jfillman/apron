@@ -334,8 +334,10 @@ prune everything). So remove it by hand, in this order:
      status entries)
    - the core's protected pairs for this cluster, read directly (not from the agent's log, which has no line when nothing
      was ever reported or after a restart): `curl -s -H "Authorization: Bearer $TOKEN" $CLEARANCE_URL/v1/protection | jq
-     '[.clusters[] | select(.cluster == "<cluster>") | .pairs[]]'` with your own person token: `[]` (no entry for the
-     cluster also counts as empty).
+     '[.clusters[] | select(.cluster == "<cluster>") | .pairs[]]'`. Use a Clearance admin's token: the core shows a
+     non-admin only the clusters it may read, so `[]` from any other token can mean "not allowed", not "empty". With an
+     admin token, `[]` or no entry for the cluster is empty. Point `$CLEARANCE_URL` at an `https://` address wherever the
+     core is served over TLS; over plain HTTP the bearer token crosses the network in clear.
 
    The agent and the plugin sidecar must both still be running for this step: once
    either is gone, nothing puts a switched Application's source back and Argo CD cannot render it.
