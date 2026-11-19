@@ -321,20 +321,23 @@ not prune its child Applications, and `clearance-gate` cannot prune an empty dir
 prune everything). So remove it by hand, in this order:
 
 1. Set `clearance.gate.enforce` to false and sync, or remove the `clearance.hangar.io/protected` label from the protected
-   namespaces, so nothing is refused while the gate comes down.
-2. Delete the `clearance-argocd-agent` Application. It carries the `resources-finalizer`, so the agent and its RBAC go with it
+   namespaces, so nothing is refused while the gate comes down. This step does not remove any manifest.
+2. Remove the gate from Git: delete the `clearance:` gate block (or set `clearance.gate.enabled: false`), re-render, commit,
+   and let the root sync. The root does not prune, so both Applications stay; but with their manifests gone from Git its
+   `selfHeal` can no longer recreate them after the next two steps delete them.
+3. Delete the `clearance-argocd-agent` Application. It carries the `resources-finalizer`, so the agent and its RBAC go with it
    (the agent is stateless). From here nothing rewrites grants.
-3. Delete the `clearance-gate` Application **without cascade**, so `selfHeal` cannot recreate what the next step deletes:
+4. Delete the `clearance-gate` Application **without cascade**, so `selfHeal` cannot recreate what the next step deletes:
    `kubectl delete application clearance-gate -n argocd` (the manifest has no finalizer, so this orphans its resources), or
    `argocd app delete clearance-gate --cascade=false`. Never `argocd app delete` without `--cascade=false`: the CLI adds the
-   finalizer itself, and the cascade would delete the CRD and every stored grant ahead of step 5. The gate is deliberately
+   finalizer itself, and the cascade would delete the CRD and every stored grant ahead of step 6. The gate is deliberately
    finalizer-free for that reason.
-4. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
+5. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
    clearance-grant-writer`, then `kubectl delete validatingadmissionpolicy clearance-protected-writes clearance-grant-writer`.
-5. Delete the CRD last: `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored
+6. Delete the CRD last: `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored
    `ClearanceGrant`.** They are only a cache of the signed grant feed, so re-enabling the gate rebuilds them, but do it only
    once nothing depends on them.
-6. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
+7. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
    `kubectl get deploy -n clearance-system` return nothing from the gate.
 
 ## Install
