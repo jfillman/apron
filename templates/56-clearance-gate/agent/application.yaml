@@ -31,6 +31,19 @@ spec:
           projects: @@CLEARANCE_AGENT_PROJECTS@@
         protectedNamespaces: @@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@
         hostAliases: @@CLEARANCE_AGENT_HOST_ALIASES@@
+#@if clearance.gate.agent.environment
+        # The environment of a protected namespace that has no clearance.hangar.io/environment label (chart default: prod).
+        environment: "@@CLEARANCE_AGENT_ENVIRONMENT@@"
+#@end
+#@if clearance.gate.agent.optIn
+        # The annotation opt-in (clearance docs/gate.md, "Annotation opt-in", G-ARGO-10c): an Application annotated
+        # clearance.hangar.io/protect: "true" is switched to the plugin, its namespace (protectedNamespaces above) is
+        # labelled once its merged grant is active, and the pair is reported to the core. The ClearanceGrant CRD
+        # (clearancegrant-crd.yaml, schema revision 2) must be in the cluster first; the agent reads its schema and does
+        # not run the opt-in against an older one. denyApplications keeps the chart's default (the gate's own Applications).
+        optIn:
+          enabled: true
+#@end
         # What the exception scan recognises as the gate's own wait Job: the values admission's exemption is rendered with.
         waitJob:
           image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
