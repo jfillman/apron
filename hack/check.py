@@ -198,14 +198,22 @@ def violations(v, fleet=None):
             add(f"{go}.plainHttp.clearanceApi must be true: CLEARANCE_API_URL is the in-cluster clearance-api http Service, and the Go gateway refuses to start with a plain http URL it was not told to allow")
         if on("components.observability") and on("observability.full") and not ph("logs"):
             add(f"{go}.plainHttp.logs must be true: the log collector's OTLP endpoint is an in-cluster http Service")
-        if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks"):
-            add(f"{go}.plainHttp.jwks must be true: people-dex's key set is an in-cluster http Service")
+        if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks") and not get(v, "autopilot.peopleTls"):
+            add(f"{go}.plainHttp.jwks must be true: people-dex's key set is an in-cluster http Service (or set autopilot.peopleTls: true, which serves it over https)")
         if get(v, "tower.cluster") and str(get(v, "tower.baseUrl") or "").startswith("http://") and not ph("catalog"):
             add(f"{go}.plainHttp.catalog must be true: tower.baseUrl is plain http")
         if str(get(v, f"{go}.brokerUrl") or "").startswith("http://") and not ph("broker"):
             add(f"{go}.plainHttp.broker must be true: {go}.brokerUrl is plain http")
         if get(v, f"{go}.plainHttp.broker") and str(get(v, f"{go}.brokerUrl") or "").startswith("https://"):
             add(f"{go}.plainHttp.broker is on and {go}.brokerUrl is https: turn the switch off")
+    if get(v, "autopilot.peopleTls"):
+        # people-dex's in-cluster https (templates/55-identity/people-dex/tls.yaml, I-28)
+        if not (get(v, "autopilot.people") and on("components.gatewayRoutes")):
+            add("autopilot.peopleTls needs autopilot.people and components.gatewayRoutes (people-dex is rendered with them)")
+        if not on("components.certManager"):
+            add("autopilot.peopleTls needs components.certManager: the serving certificate and its CA are cert-manager's")
+        if (get(v, "autopilot.gateway.implementation") or "python") != "go":
+            add("autopilot.peopleTls needs autopilot.gateway.implementation: go: only the Go gateway can trust the CA (AUTOPILOT_JWKS_CA_FILE); the Python gateway keeps the http listener")
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

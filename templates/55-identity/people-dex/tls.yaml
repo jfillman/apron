@@ -1,0 +1,69 @@
+# TLS for people-dex's in-cluster key listener (autopilot.peopleTls; I-28, hangar specs/plans/i28-people-dex-tls.md). The Go
+# gateway and read API fetch the key set over https and verify it against the CA below; the issuer (the public URL) is unchanged.
+# Everything is cert-manager's, nothing is a hand-made Secret: a self-signed bootstrap Issuer signs a CA certificate, a CA Issuer
+# built on that signs the serving certificate. The Secret people-dex-tls holds tls.crt, tls.key and ca.crt; people-dex mounts it
+# whole, the gateway and read API mount only its ca.crt (all three run in this namespace).
+# Dex reads the certificate once, at start: after cert-manager renews it (renewBefore, below) restart the people-dex Deployment.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: people-dex-selfsigned
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: people-dex, hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: people-dex-ca
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: people-dex, hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  isCA: true
+  commonName: people-dex-ca
+  secretName: people-dex-ca
+  duration: 87600h
+  renewBefore: 8760h
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: people-dex-selfsigned, kind: Issuer, group: cert-manager.io}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: people-dex-ca
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: people-dex, hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  ca: {secretName: people-dex-ca}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: people-dex-tls
+  namespace: autopilot-system
+  labels: {app.kubernetes.io/name: people-dex, hangar.io/component: autopilot, hangar.io/subcomponent: people-dex}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  secretName: people-dex-tls
+  dnsNames:
+    - people-dex
+    - people-dex.autopilot-system
+    - people-dex.autopilot-system.svc
+    - people-dex.autopilot-system.svc.cluster.local
+  usages: [digital signature, key encipherment, server auth]
+  duration: 8760h
+  renewBefore: 1440h
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+  issuerRef: {name: people-dex-ca, kind: Issuer, group: cert-manager.io}

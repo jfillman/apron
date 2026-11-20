@@ -1464,6 +1464,41 @@ has "${G}/gateway-go-egress.yaml" 'cidr: 203\.0\.113\.10/32|203\.0\.113\.10/32' 
 has "${G}/gateway-go-egress.yaml" 'port: 4318' "go: egress admits the OTLP collector"
 has "${G}/gateway-go-egress.yaml" 'cnpg\.io/cluster: autopilot-pg' "go: egress admits the database"
 has "${G}/gateway-go-egress.yaml" 'app.kubernetes.io/name: people-dex' "go: port 5556 is admitted to the people-dex pods only"
+# autopilot.peopleTls (I-28): people-dex serves its keys over https from a cert-manager certificate; the Go gateway and read API fetch them
+# over https and trust the in-cluster CA (AUTOPILOT_JWKS_CA_FILE); off, none of it renders (the go/ render above is the byte-for-byte baseline)
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  if grep -q 'JWKS_CA_FILE\|people-dex-ca\|5557' "${G}/${f}"; then bad "tls off: ${f} renders something of people-dex TLS"; else ok "tls off: ${f} renders nothing of people-dex TLS"; fi
+done
+if grep -rq 'https: 0.0.0.0:5557\|people-dex-tls' "${K}/go/55-identity" "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml"; then bad "tls off: people-dex TLS rendered"; else ok "tls off: people-dex renders without TLS"; fi
+mkdir -p "${K}/gotls"
+sed 's/^  gateway:/  peopleTls: true\n  gateway:/' "${K}/go/cluster.yaml" >"${K}/gotls/cluster.yaml"
+render_ok "${K}/gotls" "eks-dev (people), go, autopilot.peopleTls"
+python3 hack/check.py --cluster "${K}/gotls/cluster.yaml" >/dev/null && ok "tls on: check passes" || bad "tls on: check fails"
+T="${K}/gotls/55-autopilot/gateway"
+expect "${K}/gotls" "peopleTls" 55-identity/people-dex/tls.yaml
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  has "${T}/${f}" 'name: AUTOPILOT_OIDC_JWKS_URL, value: "https://people-dex\.autopilot-system\.svc:5557/dex/keys"' "tls on: ${f} fetches the keys over https"
+  has "${T}/${f}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "tls on: ${f} trusts the in-cluster CA file"
+  has "${T}/${f}" 'secretName: people-dex-tls' "tls on: ${f} mounts the cert-manager Secret"
+  has "${T}/${f}" 'items: \[\{key: ca\.crt, path: ca\.crt\}\]' "tls on: ${f} mounts only the CA certificate, never the key"
+  if grep -q 'http://people-dex' "${T}/${f}"; then bad "tls on: ${f} still names the http keys URL"; else ok "tls on: ${f} names no http keys URL"; fi
+done
+has "${T}/gateway-go-egress.yaml" 'port: 5557' "tls on: egress admits people-dex's https port"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'https: 0\.0\.0\.0:5557' "tls on: dex serves https on 5557"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'http: 0\.0\.0\.0:5556' "tls on: dex keeps the http listener (Clearance and glidepath-api still use it)"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'tlsKey: /etc/dex/tls/tls\.key' "tls on: dex reads its key from the cert-manager Secret mount"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'issuer: http' "tls on: the issuer is still the public URL"
+if grep -q 'issuer: https\?://[^d]' "${K}/gotls/55-identity/people-dex/dex.yaml"; then bad "tls on: dex issuer changed"; else ok "tls on: the issuer is unchanged (dex.<domain>/dex)"; fi
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'port: 5557, targetPort: https' "tls on: the Service exposes 5557"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'issuerRef: \{name: people-dex-ca, kind: Issuer' "tls on: the serving certificate is signed by the in-cluster CA Issuer"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'people-dex\.autopilot-system\.svc$' "tls on: the certificate names the Service host the gateway dials"
+if grep -q 'kind: Secret' "${K}/gotls/55-identity/people-dex/tls.yaml"; then bad "tls on: a Secret is hand-made"; else ok "tls on: no Secret is written, cert-manager fills it"; fi
+# with TLS the jwks plain-http switch is not needed (and stays harmless on): check passes without it
+mkdir -p "${K}/gotls-nojwks"
+sed 's/jwks: true, //' "${K}/gotls/cluster.yaml" >"${K}/gotls-nojwks/cluster.yaml"
+python3 hack/check.py --cluster "${K}/gotls-nojwks/cluster.yaml" >/dev/null && ok "tls on: check passes without plainHttp.jwks" || bad "tls on: check wants plainHttp.jwks"
+sed 's/jwks: true, //' "${K}/go/cluster.yaml" >"${K}/gonojwks.yaml"
+if python3 hack/check.py --cluster "${K}/gonojwks.yaml" >/dev/null 2>&1; then bad "tls off: check accepted a missing plainHttp.jwks"; else ok "tls off: check still requires plainHttp.jwks"; fi
 if grep -q 'podSelector: {}' "${G}/gateway-go-egress.yaml"; then bad "go: an egress rule admits every pod of the namespace"; else ok "go: no egress rule admits every pod of the namespace"; fi
 # the read API's public-HTTPS rule exists only with a Tower (its one public destination); the gateway keeps its own (GitHub, registry, model provider)
 n="$(grep -c 'cidr: 0.0.0.0/0' "${G}/gateway-go-egress.yaml")"
