@@ -40,6 +40,17 @@ spec:
         login: true
         passwordSecret: {name: clearance-pg-slack}
 #@end
+  # Sized for a small lab VM (clearance.postgres.* in cluster.yaml overrides each value). The CPU request is what the
+  # core's 5s statement_timeout bursts need; there is no CPU limit, so a burst is not throttled. The memory limit leaves
+  # headroom over shared_buffers + per-connection work_mem. shared_buffers is set explicitly (otherwise CNPG derives it
+  # from the memory limit).
   resources:
-    requests: {cpu: 50m, memory: 128Mi}
-    limits: {memory: 512Mi}
+    requests: {cpu: @@CLEARANCE_PG_CPU_REQUEST@@, memory: @@CLEARANCE_PG_MEMORY_REQUEST@@}
+    limits: {memory: @@CLEARANCE_PG_MEMORY_LIMIT@@}
+  postgresql:
+    parameters: @@CLEARANCE_PG_PARAMETERS@@
+  # The instance manager gives up the primary lease if the apiserver is slow for renewDeadlineSeconds, and the pod exits
+  # (hangar-dev, 2026-11-19: a 3 minute outage). With one instance nothing can take over, so a long lease only makes the
+  # primary tolerant of a slow apiserver. Invariants (CNPG webhook): lease > renewDeadline > 1.2 * retryPeriod; keep
+  # renewDeadline + retryPeriod + isolationCheck.requestTimeout (1s) under the lease.
+  primaryLease: @@CLEARANCE_PG_PRIMARY_LEASE@@
