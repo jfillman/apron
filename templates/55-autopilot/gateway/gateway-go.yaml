@@ -8,7 +8,7 @@
 #   - the image is ghcr.io/<owner>/autopilot-gateway-go (tag gateway-go-v*, pinned by digest), and `args: [serve]`;
 #   - it needs what the Python gateway defaulted or assumed, said in cluster.yaml (autopilot.gateway.go.*): the broker URL, the GitHub
 #     owners, the Airframe owner and upper clusters, the namespaces whose Agent XRs may define agents;
-#   - plain-http links are off unless autopilot.gateway.go.plainHttp.<name> turns each on (glidepath, broker, logs, catalog, jwks);
+#   - plain-http links are off unless autopilot.gateway.go.plainHttp.<name> turns each on (glidepath, broker, logs, catalog, jwks, clearanceApi);
 #   - it creates no index: `autopilot-gateway migrate` does (gateway-go-extras.yaml, the cutover runbook), and `serve` only checks.
 # One replica: the store is single-writer (the Go gateway takes the same advisory lock as the Python one).
 apiVersion: apps/v1
@@ -60,6 +60,11 @@ spec:
             - {name: CLEARANCE_CORE_TOKEN_FILE, value: /var/run/secrets/tokens/clearance-core}
             - {name: AUTOPILOT_AUDIENCE, value: clearance}
             - {name: METRICS_PORT, value: "9090"}
+            # The preflight paths (autopilot W-16) call the Clearance API; the same in-cluster address the read API names.
+            - {name: CLEARANCE_API_URL, value: "http://clearance-api.@@CLEARANCE_NAMESPACE@@.svc:8080"}
+#@if autopilot.gateway.go.plainHttp.clearanceApi
+            - {name: CLEARANCE_API_ALLOW_HTTP, value: "1"}
+#@end
             - {name: GLIDEPATH_API_URL, value: "http://glidepath-api.platform-system.svc:8080"}
             - {name: GLIDEPATH_ON_BEHALF_OF, value: "1"}
 #@if autopilot.gateway.go.plainHttp.glidepath

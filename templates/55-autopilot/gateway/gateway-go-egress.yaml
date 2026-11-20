@@ -2,10 +2,11 @@
 # has no egress policy). Namespaces are named by kubernetes.io/metadata.name, never by a pod label a chart could rename.
 #
 # Egress of the gateway: DNS, its database, the API server (the cluster's own addresses, autopilot.gateway.go.egress.apiServerCIDRs), the
-# Clearance core, glidepath-api and its broker, Thanos and Loki and the OTLP collector, people-dex, and HTTPS to the public internet
+# Clearance namespace (the core, and clearance-api for the preflight paths, both on 8080: one rule), glidepath-api and its broker, Thanos and Loki and the OTLP collector, people-dex, and HTTPS to the public internet
 # (GitHub, the model provider, Tower's catalog and keys) except the private ranges, which autopilot.gateway.go.egress.extraCIDRs reopens for one
 # address (a Tower on a private network). Ingress is networkpolicy.yaml's and monitoring.yaml's.
 # Both policies are sync wave 2, with the Go Deployments: at wave 0 their selectors would restrict the still-running Python pods before migrate has run.
+# The gateway's Clearance rule below is by namespace on 8080, so it covers clearance-api (CLEARANCE_API_URL) as well as the core.
 # The read API gets no rule to Clearance: it only names CLEARANCE_API_URL in its /v1/contract document and never calls it (autopilot read_api.py:474,
 # gateway/internal/readapi/handler.go:227-229).
 apiVersion: networking.k8s.io/v1
