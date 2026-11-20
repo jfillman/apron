@@ -46,6 +46,10 @@ versions:
     sourceTasks: {build: [build-source, unit-test, build-image, build-python-wheel-artifact, build-go-binary-artifact], test: [run-integration-script], policy-validation-check: [render], clearance-gate-check: [render], values-check: [render]}
     pusherTasks: {build: [push-image]}
     cloudDeployerTasks: {deploy: [deploy-aws-lambda, deploy-aws-ecs]}
+    # Pipeline trust T4 split accounts (release-record-writer, clearance-gate, test-runner), mapped by glidepath step 3.
+    recordWriterTasks: {bypass-merge-check: [mark-release-merged, itsm-implement], clearance-gate-check: [join-release], itsm-check: [verify-change, verify-change-advisory], release: [open-release-pr]}
+    clearanceTasks: {agent-definitions-check: [review], agent-gates-check: [agent-gates], agent-release: [release], clearance-gate-check: [fetch, register, register-advisory, render-check]}
+    testRunnerTasks: {test: [run-testworkflow]}
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
 infisical:

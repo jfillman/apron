@@ -29,7 +29,9 @@ fields), so an odd shape is refused or ignored, never an evaluation error.
 
 ## Where the task lists come from
 
-The lists are Glidepath's `cicdRunAdmission.sourceTasks`, `pusherTasks` and `cloudDeployerTasks`. A Kyverno policy cannot read a
+The lists are Glidepath's `cicdRunAdmission.sourceTasks`, `pusherTasks`, `cloudDeployerTasks` and, for the pipeline-trust T4 split
+accounts (`release-record-writer`, `clearance-gate`, `test-runner`), `recordWriterTasks`, `clearanceTasks` and `testRunnerTasks`. The
+shape policy allows each account on exactly its own tasks of the Pipeline, by exact account name (a rerun copies a run's `taskRunSpecs`). A Kyverno policy cannot read a
 chart's values, and Apron does not set them (the chart's defaults apply), so `versions.yaml` (`versions.glidepathRunTasks`)
 carries them next to the Glidepath pin and `apron render` compares them with the pinned Glidepath's
 `charts/glidepath-control-plane/values.yaml` (`hack/glidepath_tasks.py`): a list that differs refuses the render and names the

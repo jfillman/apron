@@ -128,6 +128,46 @@ class Shape(unittest.TestCase):
         o["spec"]["taskRunSpecs"][0]["pipelineTaskName"] = "build-source"
         self.refused(o, "taskRunSpecs entries")
 
+    def test_split_task_accounts_are_allowed_on_their_own_tasks_only(self):
+        """Pipeline trust T4 step 3: a rerun copies the taskRunSpecs the Trigger/PaC runs carry, so each split account is allowed
+        on exactly its own (Pipeline, task) pairs (Glidepath recordWriterTasks, clearanceTasks, testRunnerTasks), exact names."""
+        def run(pipeline, *pairs, base="release"):
+            o = rerun(base)
+            o["spec"]["pipelineRef"]["params"][1]["value"] = pipeline
+            o["spec"]["taskRunSpecs"] = [{"pipelineTaskName": t, "serviceAccountName": sa} for t, sa in pairs]
+            return o
+        W, C, T = "release-record-writer", "clearance-gate", "test-runner"
+        for o in [run("release", ("open-release-pr", W)),
+                  run("bypass-merge-check", ("mark-release-merged", W), ("itsm-implement", W)),
+                  run("itsm-check", ("verify-change", W)), run("itsm-check", ("verify-change-advisory", W)),
+                  run("clearance-gate-check", ("join-release", W), ("fetch", C), ("register", C)),
+                  run("clearance-gate-check", ("register-advisory", C), ("render-check", C), ("render", "source-runner")),
+                  run("agent-gates-check", ("agent-gates", C)), run("agent-definitions-check", ("review", C)),
+                  run("agent-release", ("release", C)), run("test", ("run-testworkflow", T), ("run-integration-script", "source-runner"))]:
+            with self.subTest(o["spec"]["pipelineRef"]["params"][1]["value"]):
+                self.admitted(o)
+        # a split account on another Pipeline's task, another account's task, an unlisted task, or a near-miss name
+        for pipeline, task, sa in [("release", "open-release-pr", C), ("release", "open-release-pr", T), ("release", "run-testworkflow", W),
+                                   ("release", "unit-test", W), ("build", "open-release-pr", W), ("build", "unit-test", T),
+                                   ("test", "run-testworkflow", W), ("test", "run-testworkflow", C), ("test", "open-release-pr", T),
+                                   ("clearance-gate-check", "join-release", C), ("clearance-gate-check", "fetch", W),
+                                   ("clearance-gate-check", "comment-pr-check-result", W), ("itsm-check", "itsm-close", W),
+                                   ("agent-release", "agent-gates", C), ("agent-gates-check", "review", C),
+                                   ("release", "open-release-pr", "release-record-writer-x"), ("release", "open-release-pr", "Release-Record-Writer"),
+                                   ("release", "open-release-pr", "pipeline-runner"), ("test", "run-testworkflow", "testrunner"),
+                                   ("agent-release", "release", "clearance")]:
+            with self.subTest(pipeline=pipeline, task=task, sa=sa):
+                self.refused(run(pipeline, (task, sa)), "taskRunSpecs entries")
+        # still once per task, and no other override, with the new accounts
+        o = run("release", ("open-release-pr", W), ("open-release-pr", W))
+        self.refused(o, "once per task")
+        o = run("release", ("open-release-pr", W))
+        o["spec"]["taskRunSpecs"][0]["podTemplate"] = {}
+        self.refused(o, "no other override")
+        # the warn policy set does not change which pairs are allowed
+        self.refused(run("release", ("open-release-pr", C)), "taskRunSpecs entries", policies=WARN)
+        self.admitted(run("release", ("open-release-pr", W)), policies=WARN)
+
     def test_entries_carry_two_fields_once_per_task(self):
         for extra in [{"podTemplate": {"hostAliases": []}}, {"computeResources": {}}, {"stepSpecs": []}, {"sidecarSpecs": []},
                       {"metadata": {"labels": {"a": "b"}}}, {"timeout": "1h"}]:

@@ -1072,6 +1072,9 @@ def glidepath_run_tokens(g):
         "GLIDEPATH_SOURCE_TASK_PIPELINES": json.dumps(sorted(sources)),
         "GLIDEPATH_PUSHER_TASKS": json.dumps(dict(lists.get("pusherTasks") or {}), sort_keys=True),
         "GLIDEPATH_CLOUD_DEPLOYER_TASKS": json.dumps(dict(lists.get("cloudDeployerTasks") or {}), sort_keys=True),
+        "GLIDEPATH_RECORD_WRITER_TASKS": json.dumps(dict(lists.get("recordWriterTasks") or {}), sort_keys=True),
+        "GLIDEPATH_CLEARANCE_TASKS": json.dumps(dict(lists.get("clearanceTasks") or {}), sort_keys=True),
+        "GLIDEPATH_TEST_RUNNER_TASKS": json.dumps(dict(lists.get("testRunnerTasks") or {}), sort_keys=True),
         "GLIDEPATH_RUN_SHAPE_ACTIONS": "[Deny]" if shape == "deny" else "[Warn, Audit]",
         "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
         # Pipelines-as-Code's per-repository concurrency limit for every app's Repository CRs (omitted from the values when unset).
