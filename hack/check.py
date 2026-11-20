@@ -187,13 +187,15 @@ def violations(v, fleet=None):
             add(f"{go}.egress.apiServerCIDRs is required: the egress policy admits the API server by address, which is the cluster's "
                 f"to say (or set {go}.egress.enabled: false to render no egress policy)")
         for k in (get(v, f"{go}.plainHttp") or {}):
-            if k not in ("glidepath", "broker", "logs", "catalog", "jwks"):
-                add(f"{go}.plainHttp.{k} is not a plain-http switch (glidepath, broker, logs, catalog, jwks)")
+            if k not in ("glidepath", "broker", "logs", "catalog", "jwks", "clearanceApi"):
+                add(f"{go}.plainHttp.{k} is not a plain-http switch (glidepath, broker, logs, catalog, jwks, clearanceApi)")
         # Every http link the templates render needs its switch (plain-http options are off by default, so a render that would start a
         # gateway that refuses its own URLs is refused here, naming the switch).
         ph = lambda k: bool(get(v, f"{go}.plainHttp.{k}"))  # noqa: E731
         if not ph("glidepath"):
             add(f"{go}.plainHttp.glidepath must be true: glidepath-api is an in-cluster http Service, and the Go gateway refuses a plain http URL it was not told to allow")
+        if not ph("clearanceApi"):
+            add(f"{go}.plainHttp.clearanceApi must be true: CLEARANCE_API_URL is the in-cluster clearance-api http Service, and the Go gateway refuses to start with a plain http URL it was not told to allow")
         if on("components.observability") and on("observability.full") and not ph("logs"):
             add(f"{go}.plainHttp.logs must be true: the log collector's OTLP endpoint is an in-cluster http Service")
         if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks"):
