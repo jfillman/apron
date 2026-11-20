@@ -62,6 +62,13 @@ spec:
       ports:
         - {protocol: TCP, port: 5556}
 #@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: people-dex}
+      ports:
+        - {protocol: TCP, port: 5557}
+#@end
     # HTTPS to the public internet: GitHub (api.github.com, the agents' App), the registry (ghcr.io) and the model provider. A NetworkPolicy
     # matches addresses, not names, and these services publish no stable address list, so this is the narrowest rule plain NetworkPolicy can say:
     # port 443 to anything that is not a private range. Tighten it with a FQDN-aware policy (Cilium, or an egress proxy) where the cluster has one.
@@ -121,6 +128,13 @@ spec:
             matchLabels: {app.kubernetes.io/name: people-dex}
       ports:
         - {protocol: TCP, port: 5556}
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: people-dex}
+      ports:
+        - {protocol: TCP, port: 5557}
 #@end
     # The read API calls only Tower's catalog and key set, so it gets the public-HTTPS rule only when there is a Tower (a Tower on a private
     # network is `go.egress.extraCIDRs`, below); addresses, not names, for the same reason as above.

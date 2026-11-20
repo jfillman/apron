@@ -17,6 +17,13 @@ data:
       config: {file: /var/dex/dex.db}
     web:
       http: 0.0.0.0:5556
+#@if autopilot.peopleTls
+      # In-cluster https for the key set (docs: specs/plans/i28-people-dex-tls.md). The issuer above does not change; both listeners
+      # serve the same paths, so Clearance and glidepath-api keep the http one until they trust the CA too.
+      https: 0.0.0.0:5557
+      tlsCert: /etc/dex/tls/tls.crt
+      tlsKey: /etc/dex/tls/tls.key
+#@end
     telemetry:
       http: 0.0.0.0:5558
     oauth2:
@@ -130,6 +137,9 @@ spec:
 #@end
           ports:
             - {name: http, containerPort: 5556}
+#@if autopilot.peopleTls
+            - {name: https, containerPort: 5557}
+#@end
             - {name: telemetry, containerPort: 5558}
           readinessProbe:
             httpGet: {path: /healthz/ready, port: telemetry}
@@ -149,6 +159,9 @@ spec:
             - {name: data, mountPath: /var/dex}
             # The image entrypoint renders the config (env expansion) into /tmp before starting dex.
             - {name: tmp, mountPath: /tmp}
+#@if autopilot.peopleTls
+            - {name: tls, mountPath: /etc/dex/tls, readOnly: true}
+#@end
       volumes:
         - name: config
           configMap: {name: people-dex}
@@ -156,6 +169,10 @@ spec:
           persistentVolumeClaim: {claimName: people-dex}
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
+#@if autopilot.peopleTls
+        - name: tls
+          secret: {secretName: people-dex-tls}
+#@end
 ---
 apiVersion: v1
 kind: Service
@@ -167,3 +184,6 @@ spec:
   selector: {app.kubernetes.io/name: people-dex}
   ports:
     - {name: http, port: 5556, targetPort: http}
+#@if autopilot.peopleTls
+    - {name: https, port: 5557, targetPort: https}
+#@end
