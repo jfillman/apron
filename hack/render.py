@@ -774,6 +774,9 @@ TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9._:/-]{0,126}$")
 TARGET_TIER = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 TARGET_SOURCE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
 # An application namespace is app-<app>-<env> (Glidepath, airframe): the environment is the last word.
+# The -cicd service accounts the Glidepath clearance-gate check may register changes as (W-8 pipeline-trust T4: the old shared
+# runner and the new clearance-gate account). Each is a gate instance on the Map; drop "pipeline-runner" at W-8 step 7.
+GLIDEPATH_GATE_ACCOUNTS = ("pipeline-runner", "clearance-gate")
 APP_NAMESPACE = re.compile(r"^app-(?P<app>[a-z0-9][a-z0-9-]*)-(?P<env>[a-z0-9]+)$")
 
 
@@ -850,13 +853,17 @@ def clearance_targets_tokens(v, g):
         app, env = (m.group("app"), m.group("env")) if m else ("", "")
         gates = []
         if app:
-            # The Glidepath clearance-gate check registers the change as the pipeline-runner of the app's -cicd namespace (the
-            # core's CLEARANCE_VERIFIERS entry app-*-cicd/pipeline-runner): that principal is what the record's change names
+            # The Glidepath clearance-gate check registers the change as a service account of the app's -cicd namespace (the
+            # core's CLEARANCE_VERIFIERS entries app-*-cicd/pipeline-runner and, from W-8, app-*-cicd/clearance-gate): that principal is what the record's change names
             # (registered_by), so it is the gate's instance. It refuses (enforce) where the environment is protected; elsewhere
             # a change clears at tier 0 and is recorded (flag).
             # An empty clearance.protectedEnvironments protects EVERY environment (the core fails closed), so unset is enforce.
             prot = any(fnmatch.fnmatchcase(f"{cluster}/{env}", e) for e in protected) if protected else True
-            gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/pipeline-runner", "mode": "enforce" if prot else "flag"})
+            # W-8 step 1 (additive): during the split-runner overlap the check may run as either account, so declare both
+            # principals (GLIDEPATH_GATE_ACCOUNTS) so neither is undeclared. Until an app has moved, its unused instance
+            # shows as silent (info only, clearance internal/api/map.go:705). Step 7 drops pipeline-runner.
+            for sa in GLIDEPATH_GATE_ACCOUNTS:
+                gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/{sa}", "mode": "enforce" if prot else "flag"})
             if gate_on and (ns in agent_ns if agent_ns else (not gate_apps or app in gate_apps)):
                 # The Argo CD gate's agent reports every sync outcome and refused write as provider argocd-agent.
                 gates.append({"type": "g-argo", "instance": argo_instance, "mode": "enforce" if g("clearance.gate.enforce", False) else "flag"})
