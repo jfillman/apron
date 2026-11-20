@@ -396,6 +396,15 @@ has "${LAB}/dev/${GW}" "expression: '\{\"test\": \[\"run-testworkflow\"\]\}'" "g
 has "${LAB}/dev/${GW}" "s.serviceAccountName == 'clearance-gate' && variables.pipelineName in variables.clearanceTasks" "glidepath-api: clearance-gate is allowed on its own tasks, by exact name"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
+# itsm.enabled (glidepath-app, pipeline trust T4 step 3) follows itsm.provider: true with the webhook provider (hangar-dev's mock), absent without.
+mkdir -p "${GA}/itsm" "${GA}/noitsm"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: webhook, webhookUrl: "http://itsm-mock.platform-system.svc.cluster.local:8080/webhook"}'; } >"${GA}/itsm/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: null, webhookUrl: null}'; } >"${GA}/noitsm/cluster.yaml"
+render_ok "${GA}/itsm" "dev with the webhook ITSM provider"
+render_ok "${GA}/noitsm" "dev with no ITSM provider"
+for d in itsm noitsm; do [ -f "${GA}/${d}/${CPV}" ] || bad "glidepath control plane: the ${d} render has no ${CPV} to check"; done
+if awk '/^itsm:$/{f=1;next} f&&/^  enabled: true$/{ok=1} f&&/^[^ #]/{f=0} END{exit !ok}' "${GA}/itsm/${CPV}"; then ok "glidepath control plane: the webhook ITSM provider renders itsm.enabled: true"; else bad "glidepath control plane: the webhook ITSM provider does not render itsm.enabled: true"; fi
+if grep -q '^itsm:' "${GA}/noitsm/${CPV}"; then bad "glidepath control plane: no ITSM provider still renders itsm.enabled"; else ok "glidepath control plane: no ITSM provider leaves itsm.enabled out (false)"; fi
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
 mkdir -p "${GA}/nogate"
 { cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsRepoProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
