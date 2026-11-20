@@ -359,6 +359,17 @@ def clearance_tokens(g):
         "CLEARANCE_BACKUP_SCHEDULE": str(g("clearance.backup.schedule", "") or "17 2 * * *"),
         "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
         "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
+        # clearance-pg's sizing (clearance-config postgres.yaml): clearance.postgres.* in cluster.yaml. `parameters` is merged
+        # over the defaults key by key; primaryLease is the CNPG instance manager's lease timing (CNPG 1.30 .spec.primaryLease).
+        "CLEARANCE_PG_CPU_REQUEST": str(g("clearance.postgres.cpuRequest", "") or "250m"),
+        "CLEARANCE_PG_MEMORY_REQUEST": str(g("clearance.postgres.memoryRequest", "") or "512Mi"),
+        "CLEARANCE_PG_MEMORY_LIMIT": str(g("clearance.postgres.memoryLimit", "") or "768Mi"),
+        "CLEARANCE_PG_PARAMETERS": json.dumps({str(k): str(v) for k, v in {
+            "shared_buffers": "128MB", "effective_cache_size": "384MB", "work_mem": "8MB",
+            **(g("clearance.postgres.parameters", None) or {})}.items()}),
+        "CLEARANCE_PG_PRIMARY_LEASE": json.dumps({k: int(v) for k, v in {
+            "leaseDurationSeconds": 60, "renewDeadlineSeconds": 40, "retryPeriodSeconds": 15,
+            **(g("clearance.postgres.primaryLease", None) or {})}.items()}),
         # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": autopilot_provider_version(g),
                                             "principals": ["autopilot-system/autopilot-gateway"],
