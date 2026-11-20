@@ -164,7 +164,7 @@ the render with `file:line`.
 | `@@CLEARANCE_GATEWAY_POD_NAMES@@` | `clearance.gatewayPodNames`, default `["autopilot-gateway"]`: the gateway pods' `app.kubernetes.io/name` values the core's and api's NetworkPolicies admit from `autopilot-system` |
 | `@@CLEARANCE_BACKUP_SCHEDULE@@`, `@@CLEARANCE_BACKUP_KEEP@@`, `@@CLEARANCE_BACKUP_STORAGE_SIZE@@` | `clearance.backup.schedule` (default `17 2 * * *`), `.keep` (default 7 dumps) and `.storageSize` (default `5Gi`): the nightly pg_dump of clearance-pg, rendered with `clearance.backup.enabled` |
 | `@@CLEARANCE_PROVIDERS@@` | the registered runtime provider, the Autopilot gateway (`autopilot-system/autopilot-gateway`; version `versions.autopilot.gateway`, `"definitions": true`), a YAML flow list |
-| `@@CLEARANCE_VERIFIERS_LIST@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks), `github:<glob>` for each `clearance.githubWorkflows` entry, and `clearance.verifiers` |
+| `@@CLEARANCE_VERIFIERS_LIST@@` | `app-*-cicd/pipeline-runner` (Glidepath's gate checks; `app-*-cicd/clearance-gate` is added via `clearance.verifiers` during W-8), `github:<glob>` for each `clearance.githubWorkflows` entry, and `clearance.verifiers` |
 | `@@CLEARANCE_DELEGATES_LIST@@` | Tower's backend (`<tower.cluster>/<tower.namespace>/backstage-ingestor`) when `tower.cluster` is set, plus `clearance.delegates` |
 | `@@CLEARANCE_NOTIFIERS_LIST@@` | the same Tower backend plus `clearance.notifiers`: clearance-api's notifiers |
 | `@@CLEARANCE_OBSERVATION_READERS_LIST@@` | the same Tower backend plus `clearance.observationReaders`: clearance-api's observation readers (machine pollers of coverage and observations only) |

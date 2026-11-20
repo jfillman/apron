@@ -46,14 +46,15 @@ Gates (only on an application namespace, because the core attributes a gate's re
 
 | Gate | Declared when | `instance` | `mode` |
 |---|---|---|---|
-| `glidepath` | always (the Glidepath `clearance-gate` check) | `app-<app>-cicd/pipeline-runner` | `enforce` where `<cluster>/<env>` matches `clearance.protectedEnvironments`, else `flag` (tier 0: recorded, not refused); an unset `protectedEnvironments` protects every environment (the core fails closed), so `enforce` |
+| `glidepath` | always (the Glidepath `clearance-gate` check); one gate per principal while both are trusted (W-8) | `app-<app>-cicd/pipeline-runner` and `app-<app>-cicd/clearance-gate` (`GLIDEPATH_GATE_ACCOUNTS` in `hack/render.py`; `pipeline-runner` is dropped at W-8 step 7) | `enforce` where `<cluster>/<env>` matches `clearance.protectedEnvironments`, else `flag` (tier 0: recorded, not refused); an unset `protectedEnvironments` protects every environment (the core fails closed), so `enforce` |
 | `g-argo` | `clearance.gate.enabled` and the namespace is one the agent protects (or, without an agent, the app is in `clearance.gate.apps`) | `argocd-agent` | `enforce` with `clearance.gate.enforce`, else `flag` |
 
 **Why the instances attribute.** The Map counts a record for a gate instance when the record's `provider.name` is the
 instance, or the change the record names was registered by it (`registered_by`, the principal that registered the change)
-(`internal/api/map.go`, `byInst`). Glidepath's `clearance-gate` check registers each change as the pipeline-runner of the app's
-`-cicd` namespace, which is the core's `CLEARANCE_VERIFIERS` entry `app-*-cicd/pipeline-runner`, so that principal is the
-`registered_by` and the gate's instance. The Argo CD agent's outcomes and exceptions are written by the registered provider
+(`internal/api/map.go`, `byInst`). Glidepath's `clearance-gate` check registers each change as a service account of the app's
+`-cicd` namespace (`pipeline-runner`, or `clearance-gate` once Glidepath moves the Tasks), which is a core `CLEARANCE_VERIFIERS` entry
+(`app-*-cicd/pipeline-runner`; `app-*-cicd/clearance-gate` is added through `clearance.verifiers`), so that principal is the
+`registered_by` and the gate's instance. Both are declared during the overlap. The Argo CD agent's outcomes and exceptions are written by the registered provider
 `argocd-agent` (`provider.name`). A declared instance no record names is shown `silent`: declare only what the core
 attributes. Two things stay in `cluster.yaml` because the renderer cannot know the principal: the G-TF gate's instance
 (`clearance.observeAWS.gates`: hangar-infra's workflow registers the plan as `github:repo:<owner>/hangar-infra:ref:refs/heads/main`)
