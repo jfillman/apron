@@ -54,7 +54,7 @@ instance, or the change the record names was registered by it (`registered_by`, 
 (`internal/api/map.go`, `byInst`). Glidepath's `clearance-gate` check registers each change as a service account of the app's
 `-cicd` namespace (`pipeline-runner`, or `clearance-gate` once Glidepath moves the Tasks), which is a core `CLEARANCE_VERIFIERS` entry
 (`app-*-cicd/pipeline-runner`; `app-*-cicd/clearance-gate` is added through `clearance.verifiers`), so that principal is the
-`registered_by` and the gate's instance. Both are declared during the overlap. The Argo CD agent's outcomes and exceptions are written by the registered provider
+`registered_by` and the gate's instance. Both are declared during the overlap, so neither is undeclared; the one an app is not using yet shows as `silent` (info only) until it moves. The Argo CD agent's outcomes and exceptions are written by the registered provider
 `argocd-agent` (`provider.name`). A declared instance no record names is shown `silent`: declare only what the core
 attributes. Two things stay in `cluster.yaml` because the renderer cannot know the principal: the G-TF gate's instance
 (`clearance.observeAWS.gates`: hangar-infra's workflow registers the plan as `github:repo:<owner>/hangar-infra:ref:refs/heads/main`)

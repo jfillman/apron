@@ -860,7 +860,8 @@ def clearance_targets_tokens(v, g):
             # An empty clearance.protectedEnvironments protects EVERY environment (the core fails closed), so unset is enforce.
             prot = any(fnmatch.fnmatchcase(f"{cluster}/{env}", e) for e in protected) if protected else True
             # W-8 step 1 (additive): during the split-runner overlap the check may run as either account, so declare both
-            # principals (GLIDEPATH_GATE_ACCOUNTS) and the Map shows neither as silent. Step 7 drops pipeline-runner.
+            # principals (GLIDEPATH_GATE_ACCOUNTS) so neither is undeclared. Until an app has moved, its unused instance
+            # shows as silent (info only, clearance internal/api/map.go:705). Step 7 drops pipeline-runner.
             for sa in GLIDEPATH_GATE_ACCOUNTS:
                 gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/{sa}", "mode": "enforce" if prot else "flag"})
             if gate_on and (ns in agent_ns if agent_ns else (not gate_apps or app in gate_apps)):
