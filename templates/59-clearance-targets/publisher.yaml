@@ -32,6 +32,7 @@ data:
     (a refusal: 400/401/403/409...) is final and never retried.
     """
 
+    import http.client
     import json
     import os
     import sys
@@ -66,11 +67,15 @@ data:
                 answer = put(body, token)
                 break
             except urllib.error.HTTPError as e:
-                detail = f"HTTP {e.code} {e.read()[:300]!r}"
+                try:  # the body is only for the log: a read that fails (IncompleteRead, reset) must not end the retry flow
+                    body_text = e.read(300)
+                except Exception as read_err:  # noqa: BLE001
+                    body_text = f"<unreadable: {type(read_err).__name__}>"
+                detail = f"HTTP {e.code} {body_text!r}"
                 if e.code not in RETRY_STATUS:
                     print(f"FAILED PUT /v1/targets/{SOURCE}: {detail}", file=sys.stderr)
                     return 1
-            except (OSError, ValueError) as e:  # URLError, RemoteDisconnected, reset, timeout; ValueError: a cut-off body
+            except (OSError, http.client.HTTPException, ValueError) as e:  # URLError, reset, timeout; RemoteDisconnected and IncompleteRead (a response cut off mid-body) are HTTPExceptions; ValueError: an unparsable body
                 detail = f"{type(e).__name__}: {e}"
             if attempt == len(BACKOFF):
                 print(f"FAILED PUT /v1/targets/{SOURCE}: {detail} (after {attempt + 1} attempts)", file=sys.stderr)

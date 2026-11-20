@@ -82,6 +82,23 @@ class Publish(unittest.TestCase):
             rc, calls, sleeps = self.run_main([http_error(code), OK])
             self.assertEqual((rc, len(calls), sleeps), (1, 1, []), code)
 
+    def test_retries_incomplete_read_then_succeeds(self):
+        rc, calls, sleeps = self.run_main([http.client.IncompleteRead(b"ab", 98), OK])
+        self.assertEqual((rc, len(calls), sleeps), (0, 2, [2]))
+
+    def test_unreadable_error_body_does_not_end_the_retry_flow(self):
+        class Broken(io.BytesIO):
+            def read(self, *a):
+                raise http.client.IncompleteRead(b"", 10)
+
+        def broken(code):
+            return urllib.error.HTTPError("http://core.invalid", code, "x", {}, Broken())
+
+        rc, calls, sleeps = self.run_main([broken(503), OK])
+        self.assertEqual((rc, len(calls), sleeps), (0, 2, [2]))
+        rc, calls, sleeps = self.run_main([broken(403), OK])  # a refusal stays final
+        self.assertEqual((rc, len(calls), sleeps), (1, 1, []))
+
     def test_put_sends_fresh_request_with_connection_close(self):
         m = load()
         seen = []
