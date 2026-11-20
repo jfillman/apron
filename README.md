@@ -164,7 +164,7 @@ role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance
 clearance-pg is sized by `clearance.postgres.*` (defaults: cpu request `250m` and no CPU limit, memory `512Mi` request / `768Mi` limit,
 `shared_buffers` 128MB, `effective_cache_size` 384MB, `work_mem` 8MB; `parameters` and `primaryLease` merge key by key over the defaults).
 `primaryLease` (`leaseDurationSeconds` 60, `renewDeadlineSeconds` 40, `retryPeriodSeconds` 15) makes the one primary tolerate a slow apiserver
-instead of exiting when it cannot renew its lease. Changing the resources or a restart-only parameter restarts Postgres. Changing only `primaryLease` does not restart the primary, and the running primary keeps its previous timings (CNPG reads them when it first acquires the lease): restart the primary's pod (a switchover or a pod delete) to activate a lease-only change.
+instead of exiting when it cannot renew its lease. Changing the resources or a restart-only parameter restarts Postgres. Changing only `primaryLease` does not restart the primary, and the running primary keeps its previous timings (CNPG reads them when it first acquires the lease): restart the primary's pod to activate a lease-only change. clearance-pg is a single instance (no replica to switch over to), so deleting the pod is the way, and it interrupts Clearance for the restart (every gate that calls it, including a cluster's gate that uses another cluster's Clearance, fails closed until Postgres is back): do it in a quiet window.
 
 `clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
 coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
