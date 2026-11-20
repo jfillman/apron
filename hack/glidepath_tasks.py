@@ -2,7 +2,8 @@
 
 glidepath-api's PipelineRun policy (templates/30-policy/kyverno-policies/tower-identity-writes.yaml) allows, and for a build
 requires, taskRunSpecs entries for exactly the (Pipeline, task) pairs Glidepath's glidepath-control-plane values name in
-cicdRunAdmission.sourceTasks, pusherTasks and cloudDeployerTasks. A Kyverno policy cannot read a Helm chart's values, so
+cicdRunAdmission.sourceTasks, pusherTasks and cloudDeployerTasks, and (pipeline trust T4) recordWriterTasks, clearanceTasks and
+testRunnerTasks. A Kyverno policy cannot read a Helm chart's values, so
 versions.yaml (glidepathRunTasks) carries the lists next to the Glidepath pin, and this check compares them with the pinned
 Glidepath's values.yaml on every render: a list that differs refuses the render, naming the Pipeline and the tasks.
 
@@ -21,7 +22,7 @@ import tempfile
 
 from apronlib import ApronError, get
 
-KEYS = ("sourceTasks", "pusherTasks", "cloudDeployerTasks")
+KEYS = ("sourceTasks", "pusherTasks", "cloudDeployerTasks", "recordWriterTasks", "clearanceTasks", "testRunnerTasks")
 VALUES_PATH = "charts/glidepath-control-plane/values.yaml"
 
 

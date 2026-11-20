@@ -391,6 +391,9 @@ has "${LAB}/dev/${GW}" 'name: glidepath-api-pipelinerun-source-isolation' "glide
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"clearance-gate-check\": \[\"render\"\], \"policy-validation-check\": \[\"render\"\], \"test\": \[\"run-integration-script\"\], \"values-check\": \[\"render\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidepath-api: the pusher task"
 has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"bypass-merge-check\": \[\"mark-release-merged\", \"itsm-implement\"\], \"clearance-gate-check\": \[\"join-release\"\], \"itsm-check\": \[\"verify-change\", \"verify-change-advisory\"\], \"release\": \[\"open-release-pr\"\]\}'" "glidepath-api: the release-record-writer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"test\": \[\"run-testworkflow\"\]\}'" "glidepath-api: the test-runner task"
+has "${LAB}/dev/${GW}" "s.serviceAccountName == 'clearance-gate' && variables.pipelineName in variables.clearanceTasks" "glidepath-api: clearance-gate is allowed on its own tasks, by exact name"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
@@ -514,6 +517,8 @@ if [ "${HAVE_YAML}" = true ]; then
   gp_drift "a source task Glidepath added" 's/build: \[build-source,/build: [build-source, lint-source,/' 'sourceTasks.build: missing here: lint-source'
   gp_drift "a source task Glidepath dropped" 's/build-go-binary-artifact\]/build-go-binary-artifactx]/' 'not in Glidepath: build-go-binary-artifact'
   gp_drift "a new pusher task" 's/build: \[push-image\]/build: [push-image, push-sbom]/' 'pusherTasks.build: missing here: push-sbom'
+  gp_drift "a new record-writer task" 's/    release: \[open-release-pr\]/    release: [open-release-pr, open-release-x]/' 'recordWriterTasks.release: missing here: open-release-x'
+  gp_drift "a new test-runner task" 's/    test: \[run-testworkflow\]/    test: [run-testworkflow, run-more]/' 'testRunnerTasks.test: missing here: run-more'
   gp_drift "a new cloud deployer Pipeline" 's/    deploy: \[deploy-aws-lambda, deploy-aws-ecs\]/    deploy: [deploy-aws-lambda, deploy-aws-ecs]\n    release: [deploy-aws-ecs]/' 'cloudDeployerTasks.release'
   for bad in 'a: [unclosed' '- a list' 'cicdRunAdmission: [x]'; do
     printf '%s\n' "${bad}" >"${TMP}/gp-badvalues.yaml"

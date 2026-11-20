@@ -86,6 +86,14 @@ spec:
       expression: '@@GLIDEPATH_PUSHER_TASKS@@'
     - name: cloudTasks
       expression: '@@GLIDEPATH_CLOUD_DEPLOYER_TASKS@@'
+    # The three split task accounts (pipeline trust T4; Glidepath's recordWriterTasks / clearanceTasks / testRunnerTasks): a rerun
+    # copies the run's taskRunSpecs, so each account is allowed on exactly its own tasks of the Pipeline, and no other.
+    - name: writerTasks
+      expression: '@@GLIDEPATH_RECORD_WRITER_TASKS@@'
+    - name: clearanceTasks
+      expression: '@@GLIDEPATH_CLEARANCE_TASKS@@'
+    - name: testTasks
+      expression: '@@GLIDEPATH_TEST_RUNNER_TASKS@@'
     - name: storageClasses
       expression: '@@GLIDEPATH_API_STORAGE_CLASSES@@'
   validations:
@@ -128,12 +136,19 @@ spec:
           (s.serviceAccountName == 'image-pusher' && variables.pipelineName in variables.pusherTasks &&
             s.pipelineTaskName in variables.pusherTasks[variables.pipelineName]) ||
           (s.serviceAccountName == 'glidepath-cloud-deployer' && variables.pipelineName in variables.cloudTasks &&
-            s.pipelineTaskName in variables.cloudTasks[variables.pipelineName]))
+            s.pipelineTaskName in variables.cloudTasks[variables.pipelineName]) ||
+          (s.serviceAccountName == 'release-record-writer' && variables.pipelineName in variables.writerTasks &&
+            s.pipelineTaskName in variables.writerTasks[variables.pipelineName]) ||
+          (s.serviceAccountName == 'clearance-gate' && variables.pipelineName in variables.clearanceTasks &&
+            s.pipelineTaskName in variables.clearanceTasks[variables.pipelineName]) ||
+          (s.serviceAccountName == 'test-runner' && variables.pipelineName in variables.testTasks &&
+            s.pipelineTaskName in variables.testTasks[variables.pipelineName]))
       message: >-
         taskRunSpecs entries (pipelineTaskName, serviceAccountName) may be only the platform's own pairs for this Pipeline:
         a task that runs repository code as source-runner, the push task as image-pusher, a cloud deploy task as
-        glidepath-cloud-deployer (Glidepath cicdRunAdmission.sourceTasks, pusherTasks, cloudDeployerTasks); any other task runs as
-        pipeline-runner and needs no entry.
+        glidepath-cloud-deployer, a release-record write as release-record-writer, a Clearance-token task as clearance-gate, the
+        Testkube task as test-runner (Glidepath cicdRunAdmission.sourceTasks, pusherTasks, cloudDeployerTasks, recordWriterTasks,
+        clearanceTasks, testRunnerTasks); any other task runs as pipeline-runner and needs no entry.
     - expression: >-
         !variables.isCreate || (
           has(object.spec.taskRunTemplate) && has(variables.trt.serviceAccountName) &&
