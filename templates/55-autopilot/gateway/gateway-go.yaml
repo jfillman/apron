@@ -131,7 +131,17 @@ spec:
 #@if autopilot.people and components.gatewayRoutes
             - {name: AUTOPILOT_OIDC_ISSUER, value: "@@GATEWAY_SCHEME@@://dex.@@CLUSTER_DOMAIN@@/dex"}
             - {name: AUTOPILOT_OIDC_AUDIENCE, value: clearance}
+#@end
+#@if autopilot.people and components.gatewayRoutes and not autopilot.peopleTls
             - {name: AUTOPILOT_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+            # https on people-dex's internal listener, signed by the in-cluster CA (55-identity/people-dex/tls.yaml): the CA is the
+            # ca.crt of Secret people-dex-tls, mounted below.
+            - {name: AUTOPILOT_OIDC_JWKS_URL, value: "https://people-dex.autopilot-system.svc:5557/dex/keys"}
+            - {name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca.crt}
+#@end
+#@if autopilot.people and components.gatewayRoutes
             - {name: AUTOPILOT_OIDC_USER_CLAIM, value: preferred_username}
             - {name: AUTOPILOT_OIDC_ALLOWED_USERS, value: "@@AUTOPILOT_PEOPLE@@"}
             - {name: AUTOPILOT_ADMINS, value: "@@AUTOPILOT_PEOPLE_PRINCIPALS@@"}
@@ -159,6 +169,9 @@ spec:
             - {name: clearance-tokens, mountPath: /var/run/clearance, readOnly: true}
             - {name: core-token, mountPath: /var/run/secrets/tokens, readOnly: true}
             - {name: model-key, mountPath: /etc/clearance-model, readOnly: true}
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+            - {name: people-dex-ca, mountPath: /etc/people-dex-ca, readOnly: true}
+#@end
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
@@ -174,6 +187,12 @@ spec:
         - name: model-key
           secret:
             secretName: clearance-model-key
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+        - name: people-dex-ca
+          secret:
+            secretName: people-dex-tls
+            items: [{key: ca.crt, path: ca.crt}]
+#@end
 ---
 apiVersion: v1
 kind: Service
