@@ -214,6 +214,14 @@ def violations(v, fleet=None):
             add("autopilot.peopleTls needs components.certManager: the serving certificate and its CA are cert-manager's")
         if (get(v, "autopilot.gateway.implementation") or "python") != "go":
             add("autopilot.peopleTls needs autopilot.gateway.implementation: go: only the Go gateway can trust the CA (AUTOPILOT_JWKS_CA_FILE); the Python gateway keeps the http listener")
+    # people-dex on the cluster CA (A-19, plan step P6)
+    if get(v, "autopilot.peopleTlsClusterCA") is not None and not isinstance(get(v, "autopilot.peopleTlsClusterCA"), bool):
+        add("autopilot.peopleTlsClusterCA is true or false")
+    if on("autopilot.peopleTlsClusterCA"):
+        if not get(v, "autopilot.peopleTls"):
+            add("autopilot.peopleTlsClusterCA needs autopilot.peopleTls: it changes who signs people-dex's https certificate")
+        if not on("components.clusterCA"):
+            add("autopilot.peopleTlsClusterCA needs components.clusterCA: the ClusterIssuer hangar-cluster-ca and its Bundle ConfigMap")
     # trust-manager and the cluster CA (A-19, 10-crds-operators/trust-manager and cluster-ca)
     if on("components.trustManager"):
         if not on("components.certManager"):
