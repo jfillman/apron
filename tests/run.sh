@@ -335,9 +335,9 @@ if hack/build-trust-root.sh "${TMP}/bt" --new-start 2026-11-10T00:00:00Z --legac
 expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
 G="${TMP}/gate"
 mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/warn/cluster.yaml"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/enforce/cluster.yaml"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/dev/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/warn/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/enforce/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/dev/cluster.yaml"
 render_ok "${G}/warn" "prod clearance gate warn"
 render_ok "${G}/enforce" "prod clearance gate enforce"
 render_ok "${G}/dev" "dev clearance gate key"
@@ -590,7 +590,7 @@ python3 hack/render.py --cluster "${TMP}/gp-prov-same/cluster.yaml" >/dev/null 2
 
 echo "== 1b. the Argo CD gate(clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
 GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
-  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=)
 new "${TMP}/gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
 render_ok "${TMP}/gate" "gate on"
@@ -721,7 +721,7 @@ if python3 hack/render.py --cluster "${TMP}/gate-canary-out/cluster.yaml" >/dev/
 # the agent's annotation opt-in and environment, and the core's NetworkPolicies for the repo-server and the agent. All off by default.
 OPT_PROV='clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: [clearance-system/clearance-argocd-agent], protection: ["clearance-system/clearance-argocd-agent=hangar-dev"]}]'
 OPT_SET=(--set clearance.gate.enabled=true --set clearance.gate.lowerZone=true --set clearance.gate.tenantPlugin=false
-  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=
   --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc
   --set clearance.gate.agent.apiURL=http://clearance-api.clearance-system.svc:8080 --set 'clearance.gate.agent.projects=[rehearsal]'
   --set 'clearance.gate.agent.protectedNamespaces=[rehearsal]' --set clearance.gate.agent.environment=dev --set clearance.gate.agent.optIn=true
@@ -1103,7 +1103,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:9c655397' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:2c125bc8' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"
