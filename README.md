@@ -294,6 +294,17 @@ writes it as its own account. Unset renders no key, so the catalog's default sta
 other value. Set `api` only on a cluster whose glidepath-api serves the route (an older one answers 404: the `promotion-ready` step then decides from the check runs alone and shows as failed).
 hangar-dev sets `api`; rolling back is deleting the entry and re-rendering.
 
+## Gate reports (`glidepath.gateReports.transport`)
+
+`cluster.yaml` `glidepath.gateReports.transport` becomes the glidepath-catalog Application's `gateReports.transport` (pipeline trust T4,
+W-8; glidepath [security.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/security.md#pipeline-identities), "Pipeline
+identities"): how api-compat-gate and policy-validation-gate hand their full report to `comment-pr-check-result`. `configmap` (the
+catalog's default) is the gate writing a `gate-report-<run>` ConfigMap as `pipeline-runner`; `log` is the gate printing the report into
+its own step's log, which `comment-pr-check-result` reads back, so no ConfigMap is written. Unset renders no key, so the catalog's default
+stands and the render is unchanged; `apron render` and `apron check` refuse any other value. Set `log` only on a cluster whose catalog
+has the switch (glidepath#286): the reader and the writer are one catalog release, and a run keeps the Tasks it resolved at its start.
+hangar-dev sets `log`; rolling back is deleting the entry and re-rendering.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),
