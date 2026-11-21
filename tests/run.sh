@@ -736,6 +736,17 @@ has "${OA}" '^        optIn:$' "gate.agent.optIn: the agent's chart gets optIn"
 has "${OA}" '^          enabled: true$' "gate.agent.optIn: enabled"
 has "${OA}" '^        environment: "dev"$' "gate.agent.environment: the agent's default environment"
 has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\$" .appName' "gate.tenantPlugin false: no app name matches the plugin regex"
+# W-43: an environment that asks (identity.yaml clearanceGate: true, Airframe ApplicationEnvironment spec.clearanceGate) is annotated for the agent's
+# opt-in, and the one annotation the agent writes is preserved. All of it only with the agent's optIn.
+OAS="${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
+if grep -q '^  ignoreApplicationDifferences:' "${OAS}"; then bad "gate.agent.optIn: ignoreApplicationDifferences rendered (it is ApplicationSet-wide: not shipped, see apron#256)"; else ok "gate.agent.optIn: no ignoreApplicationDifferences (ApplicationSet-wide, would freeze sources for every tenant app)"; fi
+has "${OAS}" '^      - clearance.hangar.io/switched$' "gate.agent.optIn: preservedFields keeps the switched annotation"
+has "${OAS}" '^    \{\{- if dig "clearanceGate" false . \}\}$' "gate.agent.optIn: identity.yaml clearanceGate turns into the annotation"
+has "${OAS}" 'clearance.hangar.io/protect: "true"$' "gate.agent.optIn: the annotation is clearance.hangar.io/protect"
+has "${OAS}" '^    \{\{- if not \(dig "clearanceGate" false \.\) \}\}$' "gate.agent.optIn: an annotated Application with nothing else to patch gets no second {} document"
+for NOOPT in "${TMP}/gate-agent" "${TMP}/gate" "${LAB}/prod"; do
+  if grep -q 'ignoreApplicationDifferences\|preservedFields\|clearanceGate\|clearance.hangar.io/protect' "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; then bad "no optIn (${NOOPT##*/}): the ApplicationSet mentions the gate opt-in"; else ok "no optIn (${NOOPT##*/}): the ApplicationSet is as before (no ignore rule, no preservedFields, no annotation)"; fi
+done
 OC="${TMP}/gate-opt/55-clearance/clearance/application.yaml"
 [ "$(grep -c 'app.kubernetes.io/name: argocd-repo-server' "${OC}")" = 1 ] && ok "gate with the core here: the core admits the repo-server" || bad "gate with the core here: the repo-server rule is missing or doubled"
 [ "$(grep -c 'app.kubernetes.io/name: clearance-argocd-agent' "${OC}")" = 2 ] && ok "gate with the core here: the core and clearance-api admit the agent" || bad "gate with the core here: the agent rules are not exactly two (core, api)"
