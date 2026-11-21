@@ -555,7 +555,10 @@ d["clearance"].setdefault("gate", {})["url"] = "https://clearance-core.clearance
 yaml.safe_dump(d, open(p, "w"), sort_keys=False)
 PYG
 out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
-if grep -qF "target registry publisher" <<<"${out}"; then bad "plainHttp false: the publisher is named although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not named"; fi
+if grep -qF "target registry publisher (clearance.gate.url is plain http)" <<<"${out}"; then bad "plainHttp false: the publisher is named as a plain-http caller although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not a plain-http caller"; fi
+# ...but an https gate.url to the in-cluster core is refused while the publisher (or the audit collector) cannot trust its private CA.
+grep -qF "the target registry publisher (clearance.targets.enabled) has no CA setting" <<<"${out}" \
+  && ok "https gate.url to the in-cluster core: refused while the publisher has no CA setting (CodeRabbit on #270)" || bad "https gate.url, publisher without a CA: ${out}"
 
 echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
 GA="${TMP}/gpapi"

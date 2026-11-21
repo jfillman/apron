@@ -225,6 +225,14 @@ def violations(v, fleet=None):
     if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
         add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
+    # The audit collector and the target registry publisher call clearance.gate.url and have no CA setting (their charts in
+    # clearance 0.54.0): an https URL to the in-cluster core is signed by a private CA they cannot trust (CodeRabbit on #270).
+    gate_host = (urlparse(str(get(v, "clearance.gate.url") or "")).hostname or "") if str(get(v, "clearance.gate.url") or "").startswith("https://") else ""
+    if gate_host.endswith((".svc", ".svc.cluster.local")):
+        for key, who in (("clearance.observe.enabled", "the audit collector"), ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key):
+                add(f"clearance.gate.url is https to the in-cluster core ({gate_host}), whose certificate a private CA signs, and {who} "
+                    f"({key}) has no CA setting to trust it: keep clearance.gate.url on http until it has one")
     for k in ("enabled", "plainHttp", "gatewayBackendTLS"):
         if get(v, f"clearance.tls.{k}") is not None and not isinstance(get(v, f"clearance.tls.{k}"), bool):
             add(f"clearance.tls.{k} is true or false")
