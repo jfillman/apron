@@ -470,6 +470,18 @@ if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${G
 else
   grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
 fi
+# promotion.gateLedger.writer (W-8): who writes the gate ledger. Unset renders no gateLedger key (the catalog's direct stands); api renders it.
+mkdir -p "${GA}/glw-api" "${GA}/glw-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: api}}'; } >"${GA}/glw-api/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: pipeline}}'; } >"${GA}/glw-bad/cluster.yaml"
+render_ok "${GA}/glw-api" "dev promotion.gateLedger.writer api"
+has "${GA}/glw-api/${CATV}" '^          promotion: \{.*"gateLedger": \{"writer": "api"\}' "glidepath catalog: promotion.gateLedger.writer api reaches the catalog values"
+if grep -q 'gateLedger' "${LAB}/dev/${CATV}"; then bad "promotion.gateLedger.writer unset: dev still renders a gateLedger key"; else ok "promotion.gateLedger.writer unset: dev renders no gateLedger key (unchanged)"; fi
+if python3 hack/check.py --cluster "${GA}/glw-bad/cluster.yaml" >/dev/null 2>"${GA}/glw-bad/err"; then
+  bad "promotion.gateLedger.writer: pipeline was accepted"
+else
+  grep -q 'promotion.gateLedger.writer' "${GA}/glw-bad/err" && ok "promotion.gateLedger.writer: an unknown value is refused by apron check" || bad "gateLedger.writer refusal: $(cat "${GA}/glw-bad/err")"
+fi
 # releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
 # clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
 mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"

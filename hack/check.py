@@ -355,6 +355,10 @@ def violations(v, fleet=None):
     if rp is not None and rp is not False and rp not in ("required", "off"):
         add(f"glidepath.refProtection is {rp!r}: required (default) or off (off only for a git host plan without rulesets; "
             "glidepath docs/admin/security.md, Ref protection)")
+    glw = get(v, "promotion.gateLedger.writer", None)
+    if glw not in (None, "", "direct", "api"):
+        add(f"promotion.gateLedger.writer is {glw!r}: direct (the catalog's default) or api (glidepath-api writes the gate "
+            "ledger; glidepath docs/admin/api.md, Gate verdicts)")
     rs = get(v, "glidepath.runShape", None)
     if rs is not None and rs not in ("deny", "warn"):
         add(f"glidepath.runShape is {rs!r}: deny (default) or warn (only while upgrading)")

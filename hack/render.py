@@ -78,6 +78,16 @@ def allowed_chart_repos(g):
     return out
 
 
+def gate_ledger_writer(g):
+    """cluster.yaml promotion.gateLedger.writer: "" when unset, else direct or api (glidepath docs/admin/api.md, Gate verdicts)."""
+    w = g("promotion.gateLedger.writer", None)
+    if w in (None, ""):
+        return ""
+    if w not in ("direct", "api"):
+        raise ApronError(f"promotion.gateLedger.writer is {w!r}: direct (the catalog's default) or api")
+    return w
+
+
 def tokens(v):
     """Every @@TOKEN@@ and where its value comes from (templates/TOKENS.md documents the same list)."""
     lab = lab_networking(v)
@@ -168,6 +178,9 @@ def tokens(v):
             "pinDigest": bool(g("promotion.pinDigest", False)),
             # The Flight promoter's dispatch repo (glidepath ADR-0029 phase 2), only when set.
             **({"promoter": {"repo": g("promotion.promoter.repo")}} if g("promotion.promoter.repo", "") else {}),
+            # Who writes the gate ledger (glidepath promotion.gateLedger.writer, pipeline trust T4, W-8), only when set: unset
+            # renders no key, so the catalog's own default (direct) stands and the render is unchanged.
+            **({"gateLedger": {"writer": gate_ledger_writer(g)}} if gate_ledger_writer(g) else {}),
         }),
         "GLIDEPATH_PROMOTER_REPO": g("promotion.promoter.repo", ""),
         # Glidepath's per-app guardrail overrides ({app: {gate: {required: false}}}), a YAML flow map ("{}" when unset);
