@@ -203,6 +203,18 @@ spec:
                 # defaultChart and the tenant AppProjects' idpServiceCatalogRepoUrl, plus cluster.yaml allowedChartRepos
                 # (which the AppProjects also allow): what Argo CD allowed an app before the gate. Comma-separated.
                 - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+                # clearance.gate.caConfigMap (I-43, A-19): extra roots for an https clearance.gate.url, the cluster CA's ConfigMap
+                # (trust-manager's Bundle target in argocd-apps), read once at start: a missing ConfigMap keeps the pod from starting.
+                - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
+#@end
+#@if clearance.gate.enabled and clearance.gate.waitCAInject
+                # clearance.gate.waitCAInject (plan step 5b): the injected wait Job mounts this ConfigMap (key ca.crt) at /etc/clearance-ca,
+                # which clearance-protected-writes admits only with clearance.gate.waitCAConfigMap (the same name; apron check).
+                - {name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"}
+#@end
+#@if clearance.gate.enabled
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
                 limits: {memory: 512Mi}
@@ -211,6 +223,9 @@ spec:
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
                 - {name: cmp-tmp, mountPath: /tmp}
                 - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+                - {name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true}
 #@end
 #@if clearance.gate.enabled and clearance.gate.canary.image
             # The canary sidecar (clearance.gate.canary; clearance docs/gate.md, "Rolling out a plugin release"): the same
@@ -235,6 +250,14 @@ spec:
                 - {name: CLEARANCE_WAIT_HOST_ALIAS, value: "@@CLEARANCE_GATE_HOST_ALIAS@@"}
                 - {name: CLEARANCE_CMP_CACHE_DIR, value: /tmp/clearance-cmp-cache}
                 - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.caConfigMap
+                - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.waitCAInject
+                - {name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
                 limits: {memory: 512Mi}
@@ -243,6 +266,9 @@ spec:
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
                 - {name: cmp-tmp-canary, mountPath: /tmp}
                 - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.caConfigMap
+                - {name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true}
 #@end
 #@if clearance.gate.enabled
           volumes:
@@ -256,6 +282,14 @@ spec:
               projected:
                 sources:
                   - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance}
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+            - name: clearance-ca
+              configMap:
+                name: "@@CLEARANCE_GATE_CA_CONFIGMAP@@"
+                items: [{key: ca.crt, path: ca.crt}]
+#@end
+#@if clearance.gate.enabled
         # The core on another cluster, for the sidecar (it shares the repo-server pod's hosts). The chart has no
         # repo-server-only key; the other components never use the name.
         global:

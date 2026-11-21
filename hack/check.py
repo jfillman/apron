@@ -224,6 +224,15 @@ def violations(v, fleet=None):
             add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
     if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
         add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
+    # The gate's clients' CA (A-19, plan steps 4 and 5b): the agent chart's tls.caConfigMap and waitJob.caConfigMap are 0.54.0's.
+    if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and (get(v, "clearance.gate.caConfigMap") or on("clearance.gate.waitCAInject")):
+        try:
+            agent_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.argocdAgentChart") or "")).groups())
+        except AttributeError:
+            agent_v = (0, 0, 0)
+        if agent_v < (0, 54, 0):
+            add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
+                "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
     for k in ("enabled", "plainHttp", "gatewayBackendTLS"):
         if get(v, f"clearance.tls.{k}") is not None and not isinstance(get(v, f"clearance.tls.{k}"), bool):

@@ -1151,8 +1151,40 @@ def clearance_admission_tokens(g):
             re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", wait_ca)):
         raise ApronError(f"clearance.gate.waitCAConfigMap is {wait_ca!r}: a ConfigMap name (a DNS subdomain), the trust-manager "
                          "Bundle the wait Job mounts its CA from; unset for none")
+    gate_ca = g("clearance.gate.caConfigMap", None)
+    if gate_ca is not None and gate_ca != "" and not (
+            isinstance(gate_ca, str) and len(gate_ca) <= 253 and
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", gate_ca)):
+        raise ApronError(f"clearance.gate.caConfigMap is {gate_ca!r}: a ConfigMap name (a DNS subdomain), the cluster CA's "
+                         "ConfigMap the plugin and the agent trust; unset for none")
+    inject = g("clearance.gate.waitCAInject", None)
+    if inject is not None and not isinstance(inject, bool):
+        raise ApronError("clearance.gate.waitCAInject is true or false")
+    if inject and not wait_ca:
+        raise ApronError("clearance.gate.waitCAInject needs clearance.gate.waitCAConfigMap: the plugin would inject a CA volume "
+                         "the admission policy refuses (set the policy's key first, plan step 5a)")
+    ns = g("clearance.namespace", None) or "clearance-system"
+    gate_url = g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080"
+    prev_url = g("clearance.gate.previousURL", "") or ""
+    if prev_url:
+        # A CEL string literal: an http(s) URL with no quote, backslash or space can reach the expression.
+        if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?", str(prev_url)):
+            raise ApronError(f"clearance.gate.previousURL is {prev_url!r}: an http(s) URL (scheme, host, optional port and path)")
+        if prev_url == gate_url:
+            raise ApronError("clearance.gate.previousURL equals clearance.gate.url: remove it (it is for the one release after a url change)")
+        if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?", gate_url):
+            raise ApronError(f"clearance.gate.url is {gate_url!r}: with previousURL set it must be an http(s) URL with no quote or space")
     return {
         "CLEARANCE_GATE_WAIT_CA_CONFIGMAP": wait_ca or "",
+        # clearance.gate.caConfigMap (A-19): the ConfigMap (key ca.crt) the plugin sidecar (argocd-apps) and the agent
+        # (clearance-system) trust as extra roots for an https core and API. Only read under `#@if clearance.gate.caConfigMap`.
+        "CLEARANCE_GATE_CA_CONFIGMAP": gate_ca or "",
+        # The CEL test of the wait Job's CLEARANCE_URL. With clearance.gate.previousURL set (one release only) it is a list of the
+        # current and the previous URL, so a wait Job or cached manifest made before a clearance.gate.url change keeps working
+        # where the policy enforces. Unset: the single-URL test, byte for byte as before.
+        "CLEARANCE_GATE_URL_MATCH": (
+            "variables.waitctr.env[0].value in ['%s', '%s']" % (gate_url, prev_url) if prev_url
+            else "variables.waitctr.env[0].value == '%s'" % gate_url),
         "CLEARANCE_GATE_ACTIONS": "[Deny, Audit]" if enforce else "[Warn, Audit]",
         "CLEARANCE_GATE_PARAM_NOT_FOUND": "Deny" if enforce else "Allow",
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
