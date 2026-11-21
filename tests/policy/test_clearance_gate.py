@@ -160,11 +160,13 @@ def run(rendered, agent, deny, ca=None, prev=None):
             # clearance.gate.previousURL (A-19): the previous core URL is admitted beside the current one, and nothing else is.
             ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-prev", WAIT, url, env_url=prev), ARGO)
             check("a wait Job on the previous URL is admitted without a stamp", ok and "Warning" not in out, out)
-            for what, other in (("a third URL", "http://clearance-core.clearance-system.svc:9090"),
-                                ("the previous URL with a path", prev + "/x"),
-                                ("the previous URL as a prefix", prev + "x.invalid")):
-                ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-prev-" + str(abs(hash(what)) % 1000), WAIT, url, env_url=other), ARGO)
-                check(f"a wait Job on {what} is refused", not ok and "clearance-protected-writes" in out, out)
+            for i, (what, other) in enumerate((("a third URL", "http://clearance-core.clearance-system.svc:9090"),
+                                               ("the previous URL with a path", prev + "/x"),
+                                               ("the previous URL as a prefix", prev + "x.invalid"))):
+                ok, out = k.kubectl(["create", "-f", "-"], wait_job(f"wait-prev-bad{i}", WAIT, url, env_url=other), ARGO)
+                # refused by the policy's own message (the Job is not exempt, so it needs a stamp), never by a CEL error
+                check(f"a wait Job on {what} is refused", not ok and "clearance-protected-writes" in out
+                      and "no clearance.hangar.io/rendered annotation on batch/Job/" in out, out)
         ok, out = k.kubectl(["create", "-f", "-"], cm("by-other"), "system:serviceaccount:default:other")
         check("another writer is not matched", ok and "Warning" not in out, out)
         k.kubectl(["delete", "clearancegrant", "g1", "-n", "prot"])
