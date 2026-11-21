@@ -88,6 +88,17 @@ def gate_ledger_writer(g):
     return w
 
 
+def gate_reports_transport(g):
+    """cluster.yaml glidepath.gateReports.transport: "" when unset, else configmap or log (glidepath catalog gateReports.transport,
+    pipeline trust T4, W-8: how api-compat-gate and policy-validation-gate hand their report to comment-pr-check-result)."""
+    t = g("glidepath.gateReports.transport", None)
+    if t in (None, ""):
+        return ""
+    if t not in ("configmap", "log"):
+        raise ApronError(f"glidepath.gateReports.transport is {t!r}: configmap (the catalog's default) or log")
+    return t
+
+
 def tokens(v):
     """Every @@TOKEN@@ and where its value comes from (templates/TOKENS.md documents the same list)."""
     lab = lab_networking(v)
@@ -189,6 +200,9 @@ def tokens(v):
         # Glidepath's per-cluster guardrail overrides ({gate: {required: bool}}), a YAML flow map ("{}" when unset, and the
         # catalog's key is then not rendered at all: a cluster that sets none renders byte-for-byte what it did before).
         "GLIDEPATH_GUARDRAIL_OVERRIDES": json.dumps(g("releaseGuardrailOverrides", None) or {}),
+        # The catalog's gateReports ({transport: configmap|log}), a YAML flow map ("{}" when unset, and the catalog's key is then not
+        # rendered at all: only used under `#@if glidepath.gateReports.transport`, so an unset cluster renders what it did before).
+        "GLIDEPATH_GATE_REPORTS": json.dumps({"transport": gate_reports_transport(g)} if gate_reports_transport(g) else {}),
         # Pipelines-as-Code's application-name (the check runs' name prefix), quoted: PaC's ConfigMap and the
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),

@@ -359,6 +359,10 @@ def violations(v, fleet=None):
     if glw not in (None, "", "direct", "api"):
         add(f"promotion.gateLedger.writer is {glw!r}: direct (the catalog's default) or api (glidepath-api writes the gate "
             "ledger; glidepath docs/admin/api.md, Gate verdicts)")
+    grt = get(v, "glidepath.gateReports.transport", None)
+    if grt not in (None, "", "configmap", "log"):
+        add(f"glidepath.gateReports.transport is {grt!r}: configmap (the catalog's default) or log (api-compat and policy-validation "
+            "hand their report over in the gate's own step log; glidepath docs/admin/security.md)")
     rs = get(v, "glidepath.runShape", None)
     if rs is not None and rs not in ("deny", "warn"):
         add(f"glidepath.runShape is {rs!r}: deny (default) or warn (only while upgrading)")

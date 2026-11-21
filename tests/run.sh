@@ -482,6 +482,25 @@ if python3 hack/check.py --cluster "${GA}/glw-bad/cluster.yaml" >/dev/null 2>"${
 else
   grep -q 'promotion.gateLedger.writer' "${GA}/glw-bad/err" && ok "promotion.gateLedger.writer: an unknown value is refused by apron check" || bad "gateLedger.writer refusal: $(cat "${GA}/glw-bad/err")"
 fi
+# glidepath.gateReports.transport (W-8): how api-compat and policy-validation hand over their report. Unset renders no gateReports key
+# (the catalog's configmap stands); log renders it as one line; an unknown value is refused by both render and check.
+mkdir -p "${GA}/grt-log" "${GA}/grt-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: log}}'; } >"${GA}/grt-log/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: pod}}'; } >"${GA}/grt-bad/cluster.yaml"
+render_ok "${GA}/grt-log" "dev glidepath.gateReports.transport log"
+has "${GA}/grt-log/${CATV}" '^          gateReports: \{"transport": "log"\}' "glidepath catalog: glidepath.gateReports.transport log reaches the catalog values"
+if grep -q 'gateReports' "${LAB}/dev/${CATV}"; then bad "glidepath.gateReports.transport unset: dev still renders a gateReports key"; else ok "glidepath.gateReports.transport unset: dev renders no gateReports key (unchanged)"; fi
+if [ "$(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}" | grep -c '^[<>]')" = 1 ]; then ok "glidepath.gateReports.transport log: the catalog Application differs from unset by one line"; else bad "gateReports log diff: $(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}")"; fi
+if python3 hack/check.py --cluster "${GA}/grt-bad/cluster.yaml" >/dev/null 2>"${GA}/grt-bad/err"; then
+  bad "glidepath.gateReports.transport: pod was accepted by apron check"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/err" && ok "glidepath.gateReports.transport: an unknown value is refused by apron check" || bad "gateReports.transport check refusal: $(cat "${GA}/grt-bad/err")"
+fi
+if python3 hack/render.py --cluster "${GA}/grt-bad/cluster.yaml" --out "${GA}/grt-bad" >/dev/null 2>"${GA}/grt-bad/rerr"; then
+  bad "glidepath.gateReports.transport: pod was rendered"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/rerr" && ok "glidepath.gateReports.transport: an unknown value is refused by apron render" || bad "gateReports.transport render refusal: $(cat "${GA}/grt-bad/rerr")"
+fi
 # releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
 # clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
 mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"
