@@ -1,0 +1,37 @@
+# The cluster CA (components.clusterCA; A-19, hangar specs/plans/a17-clearance-tls-rollout.md step P3): one private CA for the
+# cluster's in-cluster https, made by cert-manager and published by trust-manager. ca.yaml, beside this file:
+#   ClusterIssuer hangar-cluster-ca-bootstrap  self-signed; signs only the CA certificate below
+#   Certificate   hangar-cluster-ca            the CA (cert-manager namespace): ECDSA P-256, 10 years, key never rotated
+#   ClusterIssuer hangar-cluster-ca            signs leaf certificates with that CA (the Clearance core and API, people-dex)
+#   Bundle        hangar-cluster-ca            publishes the CA certificate (only ca.crt, never the key) as the ConfigMap
+#                                              hangar-cluster-ca, key ca.crt, in EVERY namespace (owner decision, A-19: the
+#                                              certificate is public, and a new namespace has it before its first workload)
+# Everything is cert-manager's and trust-manager's: no Secret is made by hand. Needs components.certManager and
+# components.trustManager (apron check says so).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-ca
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 10-crds-operators/cluster-ca
+    directory:
+      exclude: "{application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff: {duration: 30s, factor: 2, maxDuration: 10m}

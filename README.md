@@ -105,6 +105,21 @@ and says, in cluster.yaml, what the Python gateway defaulted or assumed:
 The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
 The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).
 
+## The cluster CA (`components.trustManager`, `components.clusterCA`, off by default)
+
+One private CA for in-cluster https (A-19; hangar `specs/plans/a17-clearance-tls-rollout.md`, steps 1 and 2). cert-manager makes
+it and trust-manager publishes its certificate. Both switches are off by default, and with them off nothing here renders.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `components.trustManager` | `10-crds-operators/trust-manager/`: jetstack's chart `versions.trustManager.chart` in `cert-manager` (also the trust namespace), its image index by digest (`versions.trustManager.imageDigest`, multi-arch: one pin for arm64 and amd64 nodes). No public-CA package image (`defaultPackage` off) and no Secret targets. Needs `components.certManager` | first, alone: check the Deployment is Ready and a dry-run Bundle is accepted |
+| `components.clusterCA` | `10-crds-operators/cluster-ca/`: a self-signed ClusterIssuer `hangar-cluster-ca-bootstrap`, the CA Certificate `hangar-cluster-ca` in `cert-manager` (ECDSA P-256, 10 years, `rotationPolicy: Never`), the CA ClusterIssuer `hangar-cluster-ca`, and the Bundle `hangar-cluster-ca` (`trust.cert-manager.io/v1alpha1`), which writes the ConfigMap `hangar-cluster-ca`, key `ca.crt`, into **every** namespace (only the certificate, never the key; no public CAs). Needs `components.certManager` and `components.trustManager` | trust-manager is Ready |
+
+The ConfigMaps carry a controller ownerReference to the Bundle, so the Clearance agent's exception scan skips them. The
+Kubernetes audit collector (`clearance.observe`) still sees trust-manager write the ConfigMap into each protected namespace it
+watches (once, and again when the CA changes): those writes show as out-of-band until a noise rule covers them. Remove the
+Bundle only after every workload that mounts its ConfigMap is gone, then the CA.
+
 ## Clearance's Argo CD gate (`clearance.gate`, Draft)
 
 `clearance.gate.enabled: true` puts Clearance's Config Management Plugin in front of every protected tenant

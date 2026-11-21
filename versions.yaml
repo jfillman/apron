@@ -55,6 +55,12 @@ versions:
     testRunnerTasks: {test: [run-testworkflow]}
   argocdChart: 10.3.2 # argo-cd chart for the second instance (argocd-apps); the first instance is the
   # vendored 01-argocd-platform/install.yaml (Argo CD v3.5.0)
+  # trust-manager (components.trustManager, 10-crds-operators/trust-manager; A-19): jetstack's chart and its image index by digest
+  # (quay.io/jetstack/trust-manager:<chart>, an OCI index for linux/amd64, arm64, arm, ppc64le and s390x). The image tag is the
+  # chart version (the chart's appVersion). Its Bundle API is trust.cert-manager.io/v1alpha1 (the chart's only CRD).
+  trustManager:
+    chart: v0.26.0
+    imageDigest: sha256:783afe31d39f122a811b96ac3aedab9f358488088df21622ae5b057b4a38b5c2
 infisical:
   nodePort: 31800 # the Infisical host's NodePort, how other clusters reach it
   bootstrapImageTag: "0.43.99-arm64" # autoBootstrap Job image; arm64 nodes need the -arm64 tag (see the template)
