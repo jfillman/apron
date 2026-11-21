@@ -4,12 +4,13 @@ kube-apiserver (envtest binaries). The full matrix lives in clearance's provider
 proves what Apron renders from clearance.gate.enforce: the Warn render warns and admits, the Deny render refuses, and
 the agent account is the configured one.
 
-    KUBEBUILDER_ASSETS=$(setup-envtest use 1.36.2 -p path) python3 tests/policy/test_clearance_gate.py WARN_DIR ENFORCE_DIR [CA_DIR]
+    KUBEBUILDER_ASSETS=$(setup-envtest use 1.36.2 -p path) python3 tests/policy/test_clearance_gate.py WARN_DIR ENFORCE_DIR [CA_DIR [PREV_DIR]]
 
 WARN_DIR / ENFORCE_DIR are rendered cluster repos (tests/run.sh renders them; the enforce one sets
 agentServiceAccount clearance-system:the-agent). CA_DIR is an enforcing render with clearance.gate.waitCAConfigMap
 hangar-cluster-ca (I-43, A-17): the wait Job's optional CA volume is admitted exactly as the plugin builds it, and every
-other volume, path, source or writable mount is refused by the policy's own message, never by a CEL error. Without
+other volume, path, source or writable mount is refused by the policy's own message, never by a CEL error. PREV_DIR is an
+enforcing render with clearance.gate.previousURL (A-19): a wait Job on the previous URL is admitted, any other URL refused. Without
 KUBEBUILDER_ASSETS it prints "skipped" and exits 0; with APRON_REQUIRE_ENVTEST=1 (CI) a missing KUBEBUILDER_ASSETS fails.
 """
 import json
@@ -70,11 +71,12 @@ def wait_job(name, image, url, args=None, env_url=None, alias=False, ctr_extra=N
             "spec": {"template": {"spec": spec}}}
 
 
-def run(rendered, agent, deny, ca=None):
+def run(rendered, agent, deny, ca=None, prev=None):
     res = []
-    mode = ("Deny" if deny else "Warn") + (" +CA" if ca else "")
+    mode = ("Deny" if deny else "Warn") + (" +CA" if ca else "") + (" +previousURL" if prev else "")
     gate = Path(rendered) / "56-clearance-gate"
-    url = re.search(r"value == '(http[^']+)'", (gate / "admission.yaml").read_text()).group(1)  # the pinned core URL
+    # the pinned core URL: `value == '<url>'`, or the first of `value in ['<url>', '<previousURL>']`
+    url = re.search(r"env\[0\]\.value (?:== |in \[)'(http[^']+)'", (gate / "admission.yaml").read_text()).group(1)
     with Apiserver(os.environ["KUBEBUILDER_ASSETS"]) as k:
         def need(args, doc=None, as_user=None):
             ok, out = k.kubectl(args, doc, as_user)
@@ -154,6 +156,17 @@ def run(rendered, agent, deny, ca=None):
                   (not ok and "clearance-protected-writes" in out) if deny else (ok and "Warning" in out), out)
         if ca:
             ca_checks(k, check, url, ca, agent)
+        if prev:
+            # clearance.gate.previousURL (A-19): the previous core URL is admitted beside the current one, and nothing else is.
+            ok, out = k.kubectl(["create", "-f", "-"], wait_job("wait-prev", WAIT, url, env_url=prev), ARGO)
+            check("a wait Job on the previous URL is admitted without a stamp", ok and "Warning" not in out, out)
+            for i, (what, other) in enumerate((("a third URL", "http://clearance-core.clearance-system.svc:9090"),
+                                               ("the previous URL with a path", prev + "/x"),
+                                               ("the previous URL as a prefix", prev + "x.invalid"))):
+                ok, out = k.kubectl(["create", "-f", "-"], wait_job(f"wait-prev-bad{i}", WAIT, url, env_url=other), ARGO)
+                # refused by the policy's own message (the Job is not exempt, so it needs a stamp), never by a CEL error
+                check(f"a wait Job on {what} is refused", not ok and "clearance-protected-writes" in out
+                      and "no clearance.hangar.io/rendered annotation on batch/Job/" in out, out)
         ok, out = k.kubectl(["create", "-f", "-"], cm("by-other"), "system:serviceaccount:default:other")
         check("another writer is not matched", ok and "Warning" not in out, out)
         k.kubectl(["delete", "clearancegrant", "g1", "-n", "prot"])
@@ -282,6 +295,9 @@ def main():
     res += run(enforce_dir, "system:serviceaccount:clearance-system:the-agent", True)
     if len(sys.argv) > 3:
         res += run(sys.argv[3], "system:serviceaccount:clearance-system:clearance-argocd-agent", True, ca="hangar-cluster-ca")
+    if len(sys.argv) > 4:
+        prev = re.search(r"env\[0\]\.value in \['[^']+', '(http[^']+)'\]", (Path(sys.argv[4]) / "56-clearance-gate" / "admission.yaml").read_text()).group(1)
+        res += run(sys.argv[4], "system:serviceaccount:clearance-system:clearance-argocd-agent", True, prev=prev)
     print(f"{sum(res)}/{len(res)} checks passed")
     return 0 if all(res) else 1
 

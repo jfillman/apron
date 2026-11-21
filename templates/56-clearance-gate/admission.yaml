@@ -65,6 +65,11 @@ spec:
     # CLEARANCE_CA_FILE). Both or neither, after the token's; a Job without them (the CMP before its CA is configured) is
     # still exempt. Any other volume, Secret, hostPath, projected or emptyDir source, path, subPath or writable mount is refused.
 #@end
+#@if clearance.gate.previousURL
+    # clearance.gate.previousURL (A-19, one release only, like versions.clearance.previousWaitImage): CLEARANCE_URL may also be
+    # the previous core URL, so a wait Job or cached manifest made before a clearance.gate.url change keeps working on an
+    # enforcing cluster. Exactly those two URLs; remove the key once no wait Job of the old URL is left.
+#@end
     - name: waitjob
       expression: "has(object.spec) ? dyn(object.spec) : dyn({})"
     - name: waitpod
@@ -115,7 +120,7 @@ spec:
         has(variables.waitctr.env) && variables.waitctr.env.size() == 2 &&
         variables.waitctr.env.all(e, e.all(k, k in ['name', 'value'])) &&
         variables.waitctr.env[0].name == 'CLEARANCE_URL' && has(variables.waitctr.env[0].value) &&
-        variables.waitctr.env[0].value == '@@CLEARANCE_GATE_URL@@' &&
+        @@CLEARANCE_GATE_URL_MATCH@@ &&
         variables.waitctr.env[1].name == 'CLEARANCE_TOKEN_FILE' && has(variables.waitctr.env[1].value) &&
         variables.waitctr.env[1].value == '/var/run/secrets/tokens/clearance' &&
         has(variables.waitctr.securityContext) &&

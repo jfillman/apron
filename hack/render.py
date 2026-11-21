@@ -1135,6 +1135,22 @@ def glidepath_run_tokens(g):
     }
 
 
+def _cel_safe_url(key, url):
+    """An http(s) URL that can sit in a single-quoted CEL string literal: parsed with urllib (an IPv6 host in brackets is fine),
+    with a host, a valid port, no user info, query or fragment, and no quote, backslash, space or control character, the only
+    characters that could end the literal or change what it says."""
+    bad = ApronError(f"{key} is {url!r}: an http(s) URL (scheme, host, optional port and path) with no quote, backslash or space")
+    if any(c in url for c in "'\"\\") or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        raise bad
+    try:
+        u = urllib.parse.urlsplit(url)
+        u.port  # noqa: B018 - raises ValueError for a port that is not a number in range
+    except ValueError:
+        raise bad from None
+    if u.scheme not in ("http", "https") or not u.hostname or u.username is not None or u.password is not None or u.query or u.fragment:
+        raise bad
+
+
 def clearance_admission_tokens(g):
     """The Clearance gate on an upper cluster (clearance G-ARGO-2, templates/56-clearance-gate): Warn until
     clearance.gate.enforce, which flips validationActions and parameterNotFoundAction together (an enforcing binding
@@ -1151,8 +1167,37 @@ def clearance_admission_tokens(g):
             re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", wait_ca)):
         raise ApronError(f"clearance.gate.waitCAConfigMap is {wait_ca!r}: a ConfigMap name (a DNS subdomain), the trust-manager "
                          "Bundle the wait Job mounts its CA from; unset for none")
+    gate_ca = g("clearance.gate.caConfigMap", None)
+    if gate_ca is not None and gate_ca != "" and not (
+            isinstance(gate_ca, str) and len(gate_ca) <= 253 and
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", gate_ca)):
+        raise ApronError(f"clearance.gate.caConfigMap is {gate_ca!r}: a ConfigMap name (a DNS subdomain), the cluster CA's "
+                         "ConfigMap the plugin and the agent trust; unset for none")
+    inject = g("clearance.gate.waitCAInject", None)
+    if inject is not None and not isinstance(inject, bool):
+        raise ApronError("clearance.gate.waitCAInject is true or false")
+    if inject and not wait_ca:
+        raise ApronError("clearance.gate.waitCAInject needs clearance.gate.waitCAConfigMap: the plugin would inject a CA volume "
+                         "the admission policy refuses (set the policy's key first, plan step 5a)")
+    ns = g("clearance.namespace", None) or "clearance-system"
+    gate_url = g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080"
+    prev_url = str(g("clearance.gate.previousURL", "") or "")
+    if prev_url:
+        _cel_safe_url("clearance.gate.previousURL", prev_url)
+        if prev_url == gate_url:
+            raise ApronError("clearance.gate.previousURL equals clearance.gate.url: remove it (it is for the one release after a url change)")
+        _cel_safe_url("clearance.gate.url (with previousURL set)", gate_url)
     return {
         "CLEARANCE_GATE_WAIT_CA_CONFIGMAP": wait_ca or "",
+        # clearance.gate.caConfigMap (A-19): the ConfigMap (key ca.crt) the plugin sidecar (argocd-apps) and the agent
+        # (clearance-system) trust as extra roots for an https core and API. Only read under `#@if clearance.gate.caConfigMap`.
+        "CLEARANCE_GATE_CA_CONFIGMAP": gate_ca or "",
+        # The CEL test of the wait Job's CLEARANCE_URL. With clearance.gate.previousURL set (one release only) it is a list of the
+        # current and the previous URL, so a wait Job or cached manifest made before a clearance.gate.url change keeps working
+        # where the policy enforces. Unset: the single-URL test, byte for byte as before.
+        "CLEARANCE_GATE_URL_MATCH": (
+            "variables.waitctr.env[0].value in ['%s', '%s']" % (gate_url, prev_url) if prev_url
+            else "variables.waitctr.env[0].value == '%s'" % gate_url),
         "CLEARANCE_GATE_ACTIONS": "[Deny, Audit]" if enforce else "[Warn, Audit]",
         "CLEARANCE_GATE_PARAM_NOT_FOUND": "Deny" if enforce else "Allow",
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and

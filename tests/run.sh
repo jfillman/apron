@@ -393,7 +393,28 @@ has "${G}/ca/${GP}" "mountPath == '/etc/clearance-ca'" "clearance gate: the CA e
 { cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, waitCAConfigMap: \"x' || true || 'y\"}}"; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-bad/cluster.yaml"
 out="$(python3 hack/render.py --cluster "${G}/ca-bad/cluster.yaml" 2>&1)" && bad "clearance gate: a waitCAConfigMap that is not a ConfigMap name rendered" \
   || { grep -q 'waitCAConfigMap' <<<"${out}" && ok "clearance gate: a waitCAConfigMap that is not a ConfigMap name is refused" || bad "clearance gate: bad waitCAConfigMap refusal text: ${out}"; }
-if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" "${G}/ca" 2>&1)"; then
+# clearance.gate.previousURL (A-19): one release only; off, the URL test is the single == as before; on, exactly the two URLs.
+WIMG='versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'
+mkdir -p "${G}/prev" "${G}/prev-same" "${G}/prev-bad" "${G}/inject-noca"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://clearance-core.clearance-system.svc:8080"}}'; echo "${WIMG}"; } >"${G}/prev/cluster.yaml"
+render_ok "${G}/prev" "prod clearance gate enforce + previousURL"
+has "${G}/prev/${GP}" "variables.waitctr.env\[0\].value in \['https://clearance-core.clearance-system.svc:8443', 'http://clearance-core.clearance-system.svc:8080'\] &&" "previousURL: the exemption admits the current and the previous URL"
+has "${G}/enforce/${GP}" "variables.waitctr.env\[0\].value == '" "no previousURL: the single-URL test as before"
+if grep -q 'env\[0\].value in' "${G}/enforce/${GP}" "${G}/warn/${GP}"; then bad "no previousURL: the URL test renders a list"; else ok "no previousURL: no URL list"; fi
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "http://clearance.hangar-dev.local", previousURL: "http://clearance.hangar-dev.local"}}'; echo "${WIMG}"; } >"${G}/prev-same/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-same/cluster.yaml" 2>&1)" && bad "previousURL equal to gate.url rendered" \
+  || { grep -q 'previousURL equals' <<<"${out}" && ok "previousURL equal to gate.url is refused" || bad "previousURL equal: ${out}"; }
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, previousURL: \"http://x' || true || 'y\"}}"; echo "${WIMG}"; } >"${G}/prev-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-bad/cluster.yaml" 2>&1)" && bad "a previousURL that is not a URL rendered" \
+  || { grep -q 'clearance.gate.previousURL is' <<<"${out}" && ok "a previousURL that could reach the CEL is refused" || bad "bad previousURL: ${out}"; }
+mkdir -p "${G}/prev-v6"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://[2001:db8::1]:8080"}}'; echo "${WIMG}"; } >"${G}/prev-v6/cluster.yaml"
+python3 hack/render.py --cluster "${G}/prev-v6/cluster.yaml" >/dev/null 2>&1 \
+  && has "${G}/prev-v6/${GP}" "'http://\[2001:db8::1\]:8080'\] &&" "previousURL: an IPv6 host renders (CodeRabbit on #271)" || bad "previousURL: an IPv6 URL was refused"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, waitCAInject: true}}'; echo "${WIMG}"; } >"${G}/inject-noca/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/inject-noca/cluster.yaml" 2>&1)" && bad "waitCAInject without waitCAConfigMap rendered" \
+  || { grep -q 'waitCAInject needs clearance.gate.waitCAConfigMap' <<<"${out}" && ok "waitCAInject without waitCAConfigMap is refused" || bad "waitCAInject without the policy key: ${out}"; }
+if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" "${G}/ca" "${G}/prev" 2>&1)"; then
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
@@ -873,6 +894,47 @@ new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/
   --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
   --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
 if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
+# The gate's clients' CA (A-19, plan steps 4 and 5b): off, no CA in the sidecars or the agent; on, each names the ConfigMap.
+AGA="${TMP}/gate-agent/56-clearance-gate/agent/application.yaml"
+RSA="${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml"
+if grep -q 'clearance-ca\|CLEARANCE_CA_FILE\|CLEARANCE_WAIT_CA_CONFIGMAP' "${RSA}" || grep -q 'caConfigMap' "${AGA}"; then
+  bad "gate CA off: a CA setting rendered"; else ok "gate CA off: no CA in the sidecar or the agent"; fi
+new "${TMP}/gate-ca" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=https://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=https://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.54.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca --set clearance.gate.waitCAConfigMap=hangar-cluster-ca --set clearance.gate.waitCAInject=true \
+  --set clearance.gate.canary.image=ghcr.io/acme/clearance-cmp@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-ca" "gate on with the clients' CA"
+RSC="${TMP}/gate-ca/01-argocd-platform/argocd-apps-install/application.yaml"
+AGC="${TMP}/gate-ca/56-clearance-gate/agent/application.yaml"
+[ "$(grep -c 'name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars read the CA file" || bad "caConfigMap: CLEARANCE_CA_FILE is not on both sidecars"
+[ "$(grep -c 'name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars mount the CA read-only" || bad "caConfigMap: the CA mount is not on both sidecars"
+[ "$(grep -c 'name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "hangar-cluster-ca"' "${RSC}")" = 2 ] && ok "waitCAInject: both sidecars inject the wait Job's CA" || bad "waitCAInject: CLEARANCE_WAIT_CA_CONFIGMAP is not on both sidecars"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${RSC}" "${AGC}" <<'PY' && ok "gate CA: the repo-server volume is the ConfigMap's ca.crt only; the agent's tls.caConfigMap and waitJob.caConfigMap name it" || bad "gate CA: the rendered values are wrong"
+import sys, yaml
+app = yaml.safe_load(open(sys.argv[1]))
+vols = app["spec"]["source"]["helm"]["valuesObject"]["repoServer"]["volumes"]
+ca = [x for x in vols if x["name"] == "clearance-ca"]
+assert ca == [{"name": "clearance-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], ca
+ag = yaml.safe_load(open(sys.argv[2]))["spec"]["source"]["helm"]["valuesObject"]
+assert ag["tls"] == {"caConfigMap": "hangar-cluster-ca"}, ag.get("tls")
+assert ag["waitJob"]["caConfigMap"] == "hangar-cluster-ca", ag["waitJob"]
+PY
+fi
+new "${TMP}/gate-ca-old" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.53.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-old/cluster.yaml" 2>&1)" && bad "gate CA on an agent chart before 0.54.0 rendered" \
+  || { grep -q 'argocdAgentChart 0.54.0 or later' <<<"${out}" && ok "gate CA on an agent chart before 0.54.0 is refused" || bad "gate CA, old agent chart: ${out}"; }
+new "${TMP}/gate-ca-bad" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'clearance.gate.caConfigMap=Not_A_Name'
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-bad/cluster.yaml" 2>&1)" && bad "a caConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'clearance.gate.caConfigMap is' <<<"${out}" && ok "a caConfigMap that is not a ConfigMap name is refused" || bad "bad caConfigMap: ${out}"; }
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
