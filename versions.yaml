@@ -18,6 +18,9 @@ versions:
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
     cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:e0151425513a087c9f08626c0134a7f9d765bf086b10f8283211bce21e900efb
     waitImage: ghcr.io/jfillman/clearance-wait@sha256:1c9697e18620b199c473eec11daf481e4923186e9bc4abbd9da01a0bff9fcad7
+    # One release only (remove at the next wait-image change): the v0.51.0-era wait image, admitted beside waitImage by the gate policy's
+    # wait-Job exemption and Flight admission's allow-list, so a held release whose wait Job still runs it stays admitted.
+    previousWaitImage: ghcr.io/jfillman/clearance-wait@sha256:67474750e6043c2a24065afc286987461c0f1be4045ff804bd3f5eb866bfff90
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
     argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:128ac5eda36528bb183e8ae16d783b8173efaa50190ffbdabf319da84f9e81d2
     argocdAgentChart: 0.54.0
