@@ -1758,6 +1758,54 @@ has "${K}/gotls/55-identity/people-dex/dex.yaml" 'port: 5557, targetPort: https'
 has "${K}/gotls/55-identity/people-dex/tls.yaml" 'issuerRef: \{name: people-dex-ca, kind: Issuer' "tls on: the serving certificate is signed by the in-cluster CA Issuer"
 has "${K}/gotls/55-identity/people-dex/tls.yaml" 'people-dex\.autopilot-system\.svc$' "tls on: the certificate names the Service host the gateway dials"
 if grep -q 'kind: Secret' "${K}/gotls/55-identity/people-dex/tls.yaml"; then bad "tls on: a Secret is hand-made"; else ok "tls on: no Secret is written, cert-manager fills it"; fi
+# autopilot.peopleTlsClusterCA (A-19, plan step P6): the cluster CA signs people-dex's certificate (90 days, renewed 30 early) and the
+# gateway and read API trust the Bundle's ConfigMap; off (the gotls render above), the namespace's own CA as before.
+has "${K}/gotls/55-identity/people-dex/tls.yaml" '^  duration: 8760h$' "peopleTls without the cluster CA: the 1-year leaf as before"
+if grep -q 'hangar-cluster-ca' "${K}/gotls/55-identity/people-dex/tls.yaml" "${T}/gateway-go.yaml" "${T}/autopilot-api-go.yaml"; then
+  bad "peopleTlsClusterCA off: the cluster CA rendered"; else ok "peopleTlsClusterCA off: nothing of the cluster CA"; fi
+mkdir -p "${K}/gotlsca"
+python3 - "${K}/gotls/cluster.yaml" "${K}/gotlsca/cluster.yaml" <<'PYCA'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+d["autopilot"]["peopleTlsClusterCA"] = True
+d.setdefault("components", {}).update({"trustManager": True, "clusterCA": True})
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA
+render_ok "${K}/gotlsca" "eks-dev (people), go, peopleTls on the cluster CA"
+TC="${K}/gotlsca/55-identity/people-dex/tls.yaml"
+has "${TC}" 'issuerRef: \{name: hangar-cluster-ca, kind: ClusterIssuer, group: cert-manager.io\}' "peopleTlsClusterCA: the cluster CA's ClusterIssuer signs people-dex"
+has "${TC}" '^  duration: 2160h$' "peopleTlsClusterCA: 90-day leaf (owner decision 3)"
+has "${TC}" '^  renewBefore: 720h$' "peopleTlsClusterCA: renewed 30 days early"
+if grep -q 'people-dex-selfsigned\|name: people-dex-ca' "${TC}"; then bad "peopleTlsClusterCA: the namespace's own CA still renders"; else ok "peopleTlsClusterCA: no namespace CA, Issuer or bootstrap Issuer"; fi
+[ "$(grep -c '^kind: Certificate$' "${TC}")" = 1 ] && ok "peopleTlsClusterCA: one Certificate, the serving one" || bad "peopleTlsClusterCA: want exactly one Certificate"
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  FC="${K}/gotlsca/55-autopilot/gateway/${f}"
+  if [ "${HAVE_YAML}" = true ]; then
+    python3 - "${FC}" <<'PYCA2' && ok "peopleTlsClusterCA: ${f} mounts ca.crt of ConfigMap hangar-cluster-ca, not the Secret" || bad "peopleTlsClusterCA: ${f} volume is wrong"
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get("kind") == "Deployment":
+        v = [x for x in d["spec"]["template"]["spec"]["volumes"] if x["name"] == "people-dex-ca"]
+        assert v == [{"name": "people-dex-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], v
+        break
+else:
+    raise SystemExit("no Deployment")
+PYCA2
+  fi
+  has "${FC}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "peopleTlsClusterCA: ${f} still reads the CA at the same path"
+done
+for c in "autopilot.peopleTls=false:autopilot.peopleTlsClusterCA needs autopilot.peopleTls" "components.clusterCA=false:autopilot.peopleTlsClusterCA needs components.clusterCA"; do
+  python3 - "${K}/gotlsca/cluster.yaml" "${K}/gotlsca-bad.yaml" "${c%%:*}" <<'PYCA3'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+k, _, val = sys.argv[3].partition("=")
+a, b = k.split(".")
+d[a][b] = yaml.safe_load(val)
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA3
+  out="$(python3 hack/check.py --cluster "${K}/gotlsca-bad.yaml" 2>&1)" && bad "peopleTlsClusterCA with ${c%%:*}: check passed" \
+    || { grep -qF "${c#*:}" <<<"${out}" && ok "peopleTlsClusterCA with ${c%%:*}: refused" || bad "peopleTlsClusterCA with ${c%%:*}: ${out}"; }
+done
 # with TLS the jwks plain-http switch is not needed (and stays harmless on): check passes without it
 mkdir -p "${K}/gotls-nojwks"
 sed 's/jwks: true, //' "${K}/gotls/cluster.yaml" >"${K}/gotls-nojwks/cluster.yaml"

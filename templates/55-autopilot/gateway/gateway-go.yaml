@@ -135,9 +135,15 @@ spec:
 #@if autopilot.people and components.gatewayRoutes and not autopilot.peopleTls
             - {name: AUTOPILOT_OIDC_JWKS_URL, value: "http://people-dex.autopilot-system.svc:5556/dex/keys"}
 #@end
-#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls and not autopilot.peopleTlsClusterCA
             # https on people-dex's internal listener, signed by the in-cluster CA (55-identity/people-dex/tls.yaml): the CA is the
             # ca.crt of Secret people-dex-tls, mounted below.
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls and autopilot.peopleTlsClusterCA
+            # https on people-dex's internal listener, signed by the cluster CA (autopilot.peopleTlsClusterCA): the CA is the ca.crt
+            # of trust-manager's ConfigMap hangar-cluster-ca, mounted below.
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
             - {name: AUTOPILOT_OIDC_JWKS_URL, value: "https://people-dex.autopilot-system.svc:5557/dex/keys"}
             - {name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca.crt}
 #@end
@@ -187,10 +193,17 @@ spec:
         - name: model-key
           secret:
             secretName: clearance-model-key
-#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls and not autopilot.peopleTlsClusterCA
         - name: people-dex-ca
           secret:
             secretName: people-dex-tls
+            items: [{key: ca.crt, path: ca.crt}]
+#@end
+#@if autopilot.people and components.gatewayRoutes and autopilot.peopleTls and autopilot.peopleTlsClusterCA
+        # autopilot.peopleTlsClusterCA (A-19): the cluster CA, from trust-manager's Bundle ConfigMap in this namespace.
+        - name: people-dex-ca
+          configMap:
+            name: hangar-cluster-ca
             items: [{key: ca.crt, path: ca.crt}]
 #@end
 ---

@@ -4,6 +4,13 @@
 # built on that signs the serving certificate. The Secret people-dex-tls holds tls.crt, tls.key and ca.crt; people-dex mounts it
 # whole, the gateway and read API mount only its ca.crt (all three run in this namespace).
 # Dex reads the certificate once, at start: after cert-manager renews it (renewBefore, below) restart the people-dex Deployment.
+#@if autopilot.peopleTlsClusterCA
+# autopilot.peopleTlsClusterCA (A-19, plan step P6): the cluster CA (ClusterIssuer hangar-cluster-ca, components.clusterCA) signs the
+# serving certificate instead, for 90 days, renewed 30 days early (owner decision 3 on A-19: the core's life, so a people-dex
+# restart about every 60 days), and the gateway and read API trust the Bundle's ConfigMap hangar-cluster-ca. The namespace's own
+# bootstrap Issuer, CA and CA Issuer are not rendered; the people-dex-ca Secret they made stays until it is deleted by hand.
+#@end
+#@if not autopilot.peopleTlsClusterCA
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -46,6 +53,7 @@ metadata:
 spec:
   ca: {secretName: people-dex-ca}
 ---
+#@end
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -63,7 +71,18 @@ spec:
     - people-dex.autopilot-system.svc
     - people-dex.autopilot-system.svc.cluster.local
   usages: [digital signature, key encipherment, server auth]
+#@if not autopilot.peopleTlsClusterCA
   duration: 8760h
   renewBefore: 1440h
+#@end
+#@if autopilot.peopleTlsClusterCA
+  duration: 2160h
+  renewBefore: 720h
+#@end
   privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Always}
+#@if not autopilot.peopleTlsClusterCA
   issuerRef: {name: people-dex-ca, kind: Issuer, group: cert-manager.io}
+#@end
+#@if autopilot.peopleTlsClusterCA
+  issuerRef: {name: hangar-cluster-ca, kind: ClusterIssuer, group: cert-manager.io}
+#@end
