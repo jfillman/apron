@@ -332,13 +332,18 @@ grants. Both match one service account, so no other writer is touched. The polic
 as the plugin builds it: the image **exactly** `versions.clearance.waitImage` (required with `clearance.gate.enabled`),
 args `--change <id> --timeout <d>` only, `CLEARANCE_URL` pinned to `clearance.gate.url`, `hostAliases` pinned to
 `clearance.gate.hostAlias`, no command, `envFrom`, host namespace, privileged container or volume besides the
-audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable).
+audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable). With `clearance.gate.waitCAConfigMap` set, the
+exemption also admits the plugin's optional CA for an https core (clearance I-43): one more volume, `clearance-ca`, that is
+exactly a ConfigMap volume of that ConfigMap with the single item `ca.crt`, mounted read-only at `/etc/clearance-ca` (both
+or neither, after the token). Any other volume, path, Secret, hostPath, projected source, `subPath` or writable mount is
+still refused, and a wait Job without the CA is still exempt.
 
 | Key | Renders | Turn it on when |
 |---|---|---|
 | `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
 | `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
 | `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`); `agentServiceAccount` is also the agent chart's `serviceAccount.name` and, with `gate.agent`, must be in `clearance-system` | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
+| `waitCAConfigMap` | unset by default: the policy renders byte for byte as without it. A ConfigMap name (the trust-manager `Bundle` that publishes the cluster CA as `ca.crt` in every destination namespace): the wait Job's optional `clearance-ca` volume may name it, nothing else. It only widens the policy; the plugin's `CLEARANCE_WAIT_CA_CONFIGMAP` and the agent's `waitJob.caConfigMap` are set to the same name in a later step | the Bundle's ConfigMap exists in every protected namespace, before the plugin is told to mount it (hangar `specs/plans/a17-clearance-tls-rollout.md`) |
 
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's
 `providers/argocd/crd/test_admission.py` carries the full matrix. The two copies of the manifests are kept in step by hand.

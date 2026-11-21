@@ -336,10 +336,12 @@ if hack/build-trust-root.sh "${TMP}/bt" --new-start 2026-11-10T00:00:00Z --legac
 # Clearance gate (clearance G-ARGO-2, 56-clearance-gate): upper clusters only, off by default; Warn, then Deny + Allow->Deny.
 expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
 G="${TMP}/gate"
-mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
+mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev" "${G}/ca" "${G}/ca-empty" "${G}/ca-bad"
 { cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/warn/cluster.yaml"
 { cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/enforce/cluster.yaml"
 { cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/dev/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: hangar-cluster-ca}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: ""}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-empty/cluster.yaml"
 render_ok "${G}/warn" "prod clearance gate warn"
 render_ok "${G}/enforce" "prod clearance gate enforce"
 render_ok "${G}/dev" "dev clearance gate key"
@@ -376,7 +378,22 @@ has "${G}/warn/${GP}" "== 'system:serviceaccount:clearance-system:clearance-argo
 has "${G}/enforce/${GP}" 'validationActions: \[Deny, Audit\]' "clearance gate: enforce denies"
 has "${G}/enforce/${GP}" 'parameterNotFoundAction: Deny' "clearance gate: enforce flips parameterNotFoundAction too"
 has "${G}/enforce/${GP}" "clearance-system:the-agent'" "clearance gate: the agent account is configurable"
-if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" 2>&1)"; then
+# clearance.gate.waitCAConfigMap (I-43, A-17): off (unset or empty) the policy is byte for byte the one without the key; on, it
+# admits only the plugin's CA volume of that ConfigMap; a name that is not a ConfigMap name is refused before it reaches the CEL.
+render_ok "${G}/ca" "prod clearance gate enforce + waitCAConfigMap"
+render_ok "${G}/ca-empty" "prod clearance gate enforce + empty waitCAConfigMap"
+sed 's/clearance-system:the-agent/clearance-system:clearance-argocd-agent/' "${G}/enforce/${GP}" | cmp -s - "${G}/ca-empty/${GP}" \
+  && ok "clearance gate: the waitCAConfigMap-off policy is the enforce policy byte for byte (bar the agent account)" \
+  || bad "clearance gate: the waitCAConfigMap-off policy differs from the enforce policy"
+nca() { grep -c "$1" "$2" 2>/dev/null || true; }
+[ "$(nca 'clearance-ca' "${G}/warn/${GP}")" = 0 ] && [ "$(nca 'clearance-ca' "${G}/enforce/${GP}")" = 0 ] \
+  && ok "clearance gate: no CA volume is admitted without waitCAConfigMap" || bad "clearance gate: the CA exemption renders without waitCAConfigMap"
+has "${G}/ca/${GP}" "configMap.name == 'hangar-cluster-ca'" "clearance gate: the CA exemption pins the ConfigMap from waitCAConfigMap"
+has "${G}/ca/${GP}" "mountPath == '/etc/clearance-ca'" "clearance gate: the CA exemption pins the mount path"
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, waitCAConfigMap: \"x' || true || 'y\"}}"; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/ca-bad/cluster.yaml" 2>&1)" && bad "clearance gate: a waitCAConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'waitCAConfigMap' <<<"${out}" && ok "clearance gate: a waitCAConfigMap that is not a ConfigMap name is refused" || bad "clearance gate: bad waitCAConfigMap refusal text: ${out}"; }
+if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" "${G}/ca" 2>&1)"; then
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"

@@ -57,6 +57,14 @@ spec:
     # it never sets one); hostAliases exactly the pinned one (none when the pin is empty); the one mount and the one projected
     # service-account token (audience 'clearance'), BOTH required: a Job with neither is not the CMP's and is not exempt. The waiter mounts a clearance token, so anything that could
     # redirect it is refused. Only the change id and the timeout vary.
+#@if clearance.gate.waitCAConfigMap
+    # clearance.gate.waitCAConfigMap (I-43, A-17): the CMP's optional CA for an https core (cmp/job.go, CLEARANCE_WAIT_CA_CONFIGMAP)
+    # is admitted too, and nothing else: a SECOND volume named clearance-ca that is exactly a ConfigMap volume of the pinned
+    # ConfigMap (the trust-manager Bundle's target) with the one item ca.crt -> ca.crt (defaultMode, when present, the API
+    # server's 420), and a SECOND mount of it named clearance-ca at /etc/clearance-ca, readOnly (the wait binary's default
+    # CLEARANCE_CA_FILE). Both or neither, after the token's; a Job without them (the CMP before its CA is configured) is
+    # still exempt. Any other volume, Secret, hostPath, projected or emptyDir source, path, subPath or writable mount is refused.
+#@end
     - name: waitjob
       expression: "has(object.spec) ? dyn(object.spec) : dyn({})"
     - name: waitpod
@@ -122,18 +130,39 @@ spec:
         variables.waitctr.securityContext.capabilities.drop == ['ALL'] &&
         (!has(variables.waitctr.imagePullPolicy) || variables.waitctr.imagePullPolicy == 'IfNotPresent') &&
         (has(variables.waitctr.volumeMounts) &&
+#@if not clearance.gate.waitCAConfigMap
          (variables.waitctr.volumeMounts.size() == 1 &&
+#@end
+#@if clearance.gate.waitCAConfigMap
+         (variables.waitctr.volumeMounts.size() in [1, 2] &&
+#@end
           variables.waitctr.volumeMounts[0].all(k, k in ['name', 'mountPath', 'readOnly']) &&
           variables.waitctr.volumeMounts[0].name == 'clearance-token' &&
           variables.waitctr.volumeMounts[0].mountPath == '/var/run/secrets/tokens' &&
+#@if not clearance.gate.waitCAConfigMap
           has(variables.waitctr.volumeMounts[0].readOnly) && variables.waitctr.volumeMounts[0].readOnly)) &&
+#@end
+#@if clearance.gate.waitCAConfigMap
+          has(variables.waitctr.volumeMounts[0].readOnly) && variables.waitctr.volumeMounts[0].readOnly &&
+          (variables.waitctr.volumeMounts.size() == 1 ||
+           (variables.waitctr.volumeMounts[1].all(k, k in ['name', 'mountPath', 'readOnly']) &&
+            has(variables.waitctr.volumeMounts[1].name) && variables.waitctr.volumeMounts[1].name == 'clearance-ca' &&
+            has(variables.waitctr.volumeMounts[1].mountPath) && variables.waitctr.volumeMounts[1].mountPath == '/etc/clearance-ca' &&
+            has(variables.waitctr.volumeMounts[1].readOnly) && variables.waitctr.volumeMounts[1].readOnly == true)))) &&
+#@end
         ('@@CLEARANCE_GATE_HOST_ALIAS@@' == '' ? !has(variables.waitpod.hostAliases) :
          (has(variables.waitpod.hostAliases) && variables.waitpod.hostAliases.size() == 1 &&
           variables.waitpod.hostAliases[0].all(k, k in ['ip', 'hostnames']) &&
           has(variables.waitpod.hostAliases[0].ip) && has(variables.waitpod.hostAliases[0].hostnames) &&
           variables.waitpod.hostAliases[0].ip + '=' + variables.waitpod.hostAliases[0].hostnames.join(',') == '@@CLEARANCE_GATE_HOST_ALIAS@@')) &&
         (has(variables.waitpod.volumes) &&
+#@if not clearance.gate.waitCAConfigMap
          (variables.waitpod.volumes.size() == 1 && variables.waitpod.volumes[0].all(k, k in ['name', 'projected']) &&
+#@end
+#@if clearance.gate.waitCAConfigMap
+         (has(variables.waitctr.volumeMounts) && variables.waitpod.volumes.size() == variables.waitctr.volumeMounts.size() &&
+          variables.waitpod.volumes.size() in [1, 2] && variables.waitpod.volumes[0].all(k, k in ['name', 'projected']) &&
+#@end
           variables.waitpod.volumes[0].name == 'clearance-token' && has(variables.waitpod.volumes[0].projected) &&
           variables.waitpod.volumes[0].projected.all(k, k in ['sources', 'defaultMode']) &&
           (!has(variables.waitpod.volumes[0].projected.defaultMode) || variables.waitpod.volumes[0].projected.defaultMode == 420) &&
@@ -145,7 +174,22 @@ spec:
           has(variables.waitpod.volumes[0].projected.sources[0].serviceAccountToken.audience) &&
           variables.waitpod.volumes[0].projected.sources[0].serviceAccountToken.audience == 'clearance' &&
           (!has(variables.waitpod.volumes[0].projected.sources[0].serviceAccountToken.path) ||
+#@if not clearance.gate.waitCAConfigMap
            variables.waitpod.volumes[0].projected.sources[0].serviceAccountToken.path == 'clearance')))
+#@end
+#@if clearance.gate.waitCAConfigMap
+           variables.waitpod.volumes[0].projected.sources[0].serviceAccountToken.path == 'clearance') &&
+          (variables.waitpod.volumes.size() == 1 ||
+           (variables.waitpod.volumes[1].all(k, k in ['name', 'configMap']) &&
+            has(variables.waitpod.volumes[1].name) && variables.waitpod.volumes[1].name == 'clearance-ca' &&
+            has(variables.waitpod.volumes[1].configMap) && variables.waitpod.volumes[1].configMap.all(k, k in ['name', 'items', 'defaultMode']) &&
+            has(variables.waitpod.volumes[1].configMap.name) && variables.waitpod.volumes[1].configMap.name == '@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@' &&
+            (!has(variables.waitpod.volumes[1].configMap.defaultMode) || variables.waitpod.volumes[1].configMap.defaultMode == 420) &&
+            has(variables.waitpod.volumes[1].configMap.items) && variables.waitpod.volumes[1].configMap.items.size() == 1 &&
+            variables.waitpod.volumes[1].configMap.items[0].all(k, k in ['key', 'path']) &&
+            has(variables.waitpod.volumes[1].configMap.items[0].key) && variables.waitpod.volumes[1].configMap.items[0].key == 'ca.crt' &&
+            has(variables.waitpod.volumes[1].configMap.items[0].path) && variables.waitpod.volumes[1].configMap.items[0].path == 'ca.crt'))))
+#@end
     - name: key
       expression: >-
         (has(object.apiVersion) && object.apiVersion.contains('/') ? object.apiVersion.split('/')[0] : '') + '/' +

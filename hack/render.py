@@ -1119,7 +1119,18 @@ def clearance_admission_tokens(g):
     with no active grant refuses every matched write in a protected namespace)."""
     enforce = bool(g("clearance.gate.enforce", False))
     sa = lambda key, d: "system:serviceaccount:" + (g(f"clearance.gate.{key}", None) or d)  # noqa: E731
+    # clearance.gate.waitCAConfigMap (I-43, A-17): the ConfigMap (key ca.crt) the wait Job may mount as its CA, the
+    # trust-manager Bundle's target in each destination namespace. Unset: the policy renders byte for byte as before and
+    # refuses any second volume. Only read under `#@if clearance.gate.waitCAConfigMap`; it is a CEL string literal there, so
+    # it must be a ConfigMap name (a DNS subdomain: no quote can reach the expression).
+    wait_ca = g("clearance.gate.waitCAConfigMap", None)
+    if wait_ca is not None and wait_ca != "" and not (
+            isinstance(wait_ca, str) and len(wait_ca) <= 253 and
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", wait_ca)):
+        raise ApronError(f"clearance.gate.waitCAConfigMap is {wait_ca!r}: a ConfigMap name (a DNS subdomain), the trust-manager "
+                         "Bundle the wait Job mounts its CA from; unset for none")
     return {
+        "CLEARANCE_GATE_WAIT_CA_CONFIGMAP": wait_ca or "",
         "CLEARANCE_GATE_ACTIONS": "[Deny, Audit]" if enforce else "[Warn, Audit]",
         "CLEARANCE_GATE_PARAM_NOT_FOUND": "Deny" if enforce else "Allow",
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
