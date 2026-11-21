@@ -541,6 +541,21 @@ tls_refused "plainHttp false with plain-http routes" "the Gateway's routes (set 
 tls_refused "plainHttp false with Autopilot" "the Autopilot gateway and read API" --set components.trustManager=true --set components.clusterCA=true \
   --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
 tls_refused "plainHttp false without tls" "clearance.tls.plainHttp false needs clearance.tls.enabled" --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Glidepath" "Glidepath's agent gates and deployment gate" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+# The callers of clearance.gate.url are refused only while that URL is plain http (CodeRabbit on #270).
+new "${TLSDIR}/gurl" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false --set clearance.targets.enabled=true
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+grep -qF "the target registry publisher (clearance.gate.url is plain http)" <<<"${out}" && ok "plainHttp false: the publisher on a plain-http gate.url is named" || bad "plainHttp false, publisher on http: ${out}"
+python3 - "${TLSDIR}/gurl/cluster.yaml" <<'PYG'
+import sys, yaml
+p = sys.argv[1]; d = yaml.safe_load(open(p))
+d["clearance"].setdefault("gate", {})["url"] = "https://clearance-core.clearance-system.svc:8443"
+yaml.safe_dump(d, open(p, "w"), sort_keys=False)
+PYG
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+if grep -qF "target registry publisher" <<<"${out}"; then bad "plainHttp false: the publisher is named although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not named"; fi
 
 echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
 GA="${TMP}/gpapi"
