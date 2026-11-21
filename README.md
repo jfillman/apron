@@ -284,6 +284,16 @@ but a map of gate names to `{required: <bool>}`. hangar-dev sets `clearance-gate
 until it is cleared in Tower (glidepath [clearance-gate.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/clearance-gate.md),
 G-ARGO-8). Turn it back to advisory by deleting the entry (or `required: false`) and re-rendering.
 
+## Gate-ledger writer (`promotion.gateLedger.writer`)
+
+`cluster.yaml` `promotion.gateLedger.writer` becomes the glidepath-catalog Application's `promotion.gateLedger.writer` (pipeline trust T4,
+W-8; glidepath [api.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/api.md#gate-verdicts), "Gate verdicts"): who writes
+each gate's verdict into the release record's gate ledger. `direct` (the catalog's default) is the `comment-pr-check-result` task patching
+the record as `pipeline-runner`; `api` is the task asking glidepath-api's `gate-verdict` endpoint, which derives the verdict from the run and
+writes it as its own account. Unset renders no key, so the catalog's default stands and the render is unchanged; `apron check` refuses any
+other value. Set `api` only on a cluster whose glidepath-api serves the route (an older one answers 404: the `promotion-ready` step then decides from the check runs alone and shows as failed).
+hangar-dev sets `api`; rolling back is deleting the entry and re-rendering.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),
