@@ -109,6 +109,8 @@
 55-clearance/                           components.clearance
 55-clearance/clearance-config/routes.yaml      components.clearance and components.gatewayRoutes
 55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
+# The Gateway re-encrypts to the core's and the API's https port (clearance.tls.gatewayBackendTLS, A-19): off by default
+55-clearance/clearance-config/backend-tls.yaml  components.clearance and clearance.tls.gatewayBackendTLS and components.gatewayRoutes
 55-clearance/clearance-config/web-secret.yaml  components.clearance and clearance.web.enabled
 55-identity/people-dex/clearance-web-secret.yaml  clearance.web.enabled
 55-identity/people-dex/tls.yaml  autopilot.peopleTls

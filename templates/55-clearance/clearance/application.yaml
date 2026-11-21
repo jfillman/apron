@@ -207,6 +207,19 @@ spec:
           routes: @@CLEARANCE_SLACK_ROUTES@@
           hostAliases: @@CLEARANCE_SLACK_HOST_ALIASES@@
 #@end
+#@if clearance.tls.enabled
+        # TLS (clearance I-43, docs/tls.md; A-19): the core and the API also serve https on 8443, with cert-manager
+        # certificates signed by @@CLEARANCE_TLS_ISSUER_DESC@@, 90 days each, renewed 30 days
+        # before they end (the servers reload a renewed pair without a restart). plainHttp keeps the 8080 listener; the chart's
+        # NetworkPolicies admit 8443 from the same peers as 8080. Turning this on restarts the core once (Recreate).
+        tls:
+          enabled: true
+          plainHttp: @@CLEARANCE_TLS_PLAIN_HTTP@@
+          certManager:
+            issuerRef: @@CLEARANCE_TLS_ISSUER_REF@@
+            duration: 2160h
+            renewBefore: 720h
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri

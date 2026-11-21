@@ -18,7 +18,14 @@ rules:
     resources: [gatewayclasses, gateways, httproutes, grpcroutes, tlsroutes, referencegrants, backendtlspolicies]
     verbs: [get, list, watch]
   - apiGroups: [gateway.networking.k8s.io]
+#@if not (components.clearance and clearance.tls.gatewayBackendTLS)
     resources: [gatewayclasses/status, gateways/status, httproutes/status, grpcroutes/status, tlsroutes/status]
+#@end
+#@if components.clearance and clearance.tls.gatewayBackendTLS
+    # clearance.tls.gatewayBackendTLS renders BackendTLSPolicies (55-clearance/clearance-config/backend-tls.yaml): Traefik reports
+    # each one's status (Accepted, ResolvedRefs) as upstream's RBAC lets it.
+    resources: [gatewayclasses/status, gateways/status, httproutes/status, grpcroutes/status, tlsroutes/status, backendtlspolicies/status]
+#@end
     verbs: [update, patch]
   - apiGroups: [traefik.io]
     resources: ["*"]

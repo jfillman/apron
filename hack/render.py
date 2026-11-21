@@ -214,6 +214,7 @@ def tokens(v):
         "AGENTRUN_REAPER_SCHEDULE": cron_schedule(g("autopilot.reaperSchedule", "") or "7-59/10 * * * *", "autopilot.reaperSchedule"),
         **signing_tokens(v, g),
         **clearance_tokens(g),
+        **clearance_tls_tokens(g),
         **clearance_slack_tokens(v, g),
         **clearance_gate_tokens(g),
         **clearance_ledger_tokens(g),
@@ -433,6 +434,24 @@ def clearance_tokens(g):
         "CLEARANCE_API_COVERAGE_CACHE_SECONDS": str(int((c("api", {}) or {}).get("coverageCacheSeconds", 0) or 0)),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
+    }
+
+
+def clearance_tls_tokens(g):
+    """The core's and the API's https listener (clearance chart tls.*, I-43; A-19): clearance.tls.enabled, .plainHttp and
+    .gatewayBackendTLS. Only used under `#@if clearance.tls.enabled`, except the routes' backend port, which is 8080 unless the
+    Gateway re-encrypts (gatewayBackendTLS), so a cluster that sets none of them renders what it did before. apron check holds
+    the combinations (hack/check.py)."""
+    cluster_ca = bool(g("components.clusterCA", False))
+    plain = g("clearance.tls.plainHttp", None)
+    return {
+        "CLEARANCE_TLS_PLAIN_HTTP": "false" if plain is False else "true",
+        # The cluster CA's ClusterIssuer (components.clusterCA) or, without it, the chart's own namespaced CA (an empty name).
+        "CLEARANCE_TLS_ISSUER_REF": json.dumps({"name": "hangar-cluster-ca", "kind": "ClusterIssuer"} if cluster_ca
+                                               else {"name": "", "kind": "Issuer"}),
+        "CLEARANCE_TLS_ISSUER_DESC": ("the cluster CA (ClusterIssuer hangar-cluster-ca, components.clusterCA)" if cluster_ca
+                                      else "the chart's own namespaced CA (no components.clusterCA)"),
+        "CLEARANCE_BACKEND_PORT": "8443" if (g("clearance.tls.enabled", False) and g("clearance.tls.gatewayBackendTLS", False)) else "8080",
     }
 
 
