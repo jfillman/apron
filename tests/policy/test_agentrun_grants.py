@@ -271,6 +271,9 @@ def main():
     a = ap.parse_args()
     assets = os.environ.get("KUBEBUILDER_ASSETS")
     if not assets or not (Path(assets) / "kube-apiserver").exists():
+        if os.environ.get("APRON_REQUIRE_ENVTEST") == "1":  # CI: a skip is not a pass
+            print("FAIL: APRON_REQUIRE_ENVTEST=1 but KUBEBUILDER_ASSETS has no kube-apiserver")
+            return 1
         print("skipped: set KUBEBUILDER_ASSETS to envtest binaries (setup-envtest use 1.36.2 -p path)")
         return 0
     results = []
