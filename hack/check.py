@@ -214,6 +214,16 @@ def violations(v, fleet=None):
             add("autopilot.peopleTls needs components.certManager: the serving certificate and its CA are cert-manager's")
         if (get(v, "autopilot.gateway.implementation") or "python") != "go":
             add("autopilot.peopleTls needs autopilot.gateway.implementation: go: only the Go gateway can trust the CA (AUTOPILOT_JWKS_CA_FILE); the Python gateway keeps the http listener")
+    # trust-manager and the cluster CA (A-19, 10-crds-operators/trust-manager and cluster-ca)
+    if on("components.trustManager"):
+        if not on("components.certManager"):
+            add("components.trustManager needs components.certManager: its webhook's certificate is cert-manager's")
+        if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", str(get(v, "versions.trustManager.chart") or "")):
+            add("components.trustManager needs versions.trustManager.chart, a chart version (vX.Y.Z)")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, "versions.trustManager.imageDigest") or "")):
+            add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
+    if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
+        add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

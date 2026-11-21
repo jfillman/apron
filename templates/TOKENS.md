@@ -88,6 +88,8 @@ the render with `file:line`.
 | `@@AIRFRAME_ANALYSIS_VERSION@@` | `versions.airframe.analysisCatalog` |
 | `@@AIRFRAME_CHART_VERSION@@` | `versions.airframe.defaultChart` (cluster-defaults.yaml) |
 | `@@GLIDEPATH_VERSION@@` | `versions.glidepath` |
+| `@@TRUST_MANAGER_CHART_VERSION@@` | `versions.trustManager.chart`: jetstack's trust-manager chart, and the image's tag (components.trustManager) |
+| `@@TRUST_MANAGER_IMAGE_DIGEST@@` | `versions.trustManager.imageDigest`: the trust-manager image index, by digest |
 | `@@ARGOCD_CHART_VERSION@@` | `versions.argocdChart` (the second Argo CD instance) |
 | `@@INFISICAL_BOOTSTRAP_IMAGE_TAG@@` | `infisical.bootstrapImageTag` |
 

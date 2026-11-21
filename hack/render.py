@@ -228,6 +228,9 @@ def tokens(v):
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
         "AIRFRAME_CHART_VERSION": g("versions.airframe.defaultChart"),
         "GLIDEPATH_VERSION": g("versions.glidepath"),
+        # trust-manager's chart (and its image's tag) and image index digest (components.trustManager; versions.yaml).
+        "TRUST_MANAGER_CHART_VERSION": g("versions.trustManager.chart", ""),
+        "TRUST_MANAGER_IMAGE_DIGEST": g("versions.trustManager.imageDigest", ""),
         "ARGOCD_CHART_VERSION": g("versions.argocdChart"),
         "CNPG_REPLICAS": g("cnpg.replicas"),
         "OBSERVABILITY_FULL": "true" if g("observability.full") else "false",
