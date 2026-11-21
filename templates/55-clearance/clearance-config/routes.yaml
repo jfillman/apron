@@ -16,7 +16,7 @@ spec:
         - path: {type: PathPrefix, value: /}
       backendRefs:
         - name: clearance-api
-          port: 8080
+          port: @@CLEARANCE_BACKEND_PORT@@
 ---
 # The deployment gate's people actions on clearance.<domain>: a person, or Tower's backend as the delegate, clears or
 # denies a held change (backstage plugins/clearance-backend proxy.ts WRITE_ROUTES). The Autopilot gateway's routes on
@@ -46,7 +46,7 @@ spec:
           method: POST
       backendRefs:
         - name: clearance-core
-          port: 8080
+          port: @@CLEARANCE_BACKEND_PORT@@
 #@if clearance.targets.publishers
     # Another cluster's Map target publisher (59-clearance-targets): its own source only. The core checks the provider's
     # `targets` right; this route only lets the PUT reach it (it 404'd at the Gateway before, 2026-11-13).
@@ -55,7 +55,7 @@ spec:
           method: PUT
       backendRefs:
         - name: clearance-core
-          port: 8080
+          port: @@CLEARANCE_BACKEND_PORT@@
 #@end
 #@if clearance.feedReaders
     # A protected cluster's Argo CD agent: its deploy.outcome and deploy.exception records, and the break-glass windows.
@@ -67,7 +67,7 @@ spec:
           method: GET
       backendRefs:
         - name: clearance-core
-          port: 8080
+          port: @@CLEARANCE_BACKEND_PORT@@
 #@end
 #@if clearance.web.enabled
 ---

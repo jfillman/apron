@@ -61,4 +61,4 @@ spec:
 #@end
       backendRefs:
         - name: clearance-core
-          port: 8080
+          port: @@CLEARANCE_BACKEND_PORT@@

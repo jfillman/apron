@@ -224,6 +224,62 @@ def violations(v, fleet=None):
             add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
     if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
         add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
+    # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
+    # The audit collector and the target registry publisher call clearance.gate.url and have no CA setting (their charts in
+    # clearance 0.54.0): an https URL to the in-cluster core is signed by a private CA they cannot trust (CodeRabbit on #270).
+    gate_host = (urlparse(str(get(v, "clearance.gate.url") or "")).hostname or "") if str(get(v, "clearance.gate.url") or "").startswith("https://") else ""
+    if gate_host.endswith((".svc", ".svc.cluster.local")):
+        for key, who in (("clearance.observe.enabled", "the audit collector"), ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key):
+                add(f"clearance.gate.url is https to the in-cluster core ({gate_host}), whose certificate a private CA signs, and {who} "
+                    f"({key}) has no CA setting to trust it: keep clearance.gate.url on http until it has one")
+    for k in ("enabled", "plainHttp", "gatewayBackendTLS"):
+        if get(v, f"clearance.tls.{k}") is not None and not isinstance(get(v, f"clearance.tls.{k}"), bool):
+            add(f"clearance.tls.{k} is true or false")
+    if on("clearance.tls.enabled"):
+        if not on("components.clearance"):
+            add("clearance.tls.enabled needs components.clearance: it is the core's and the API's own listener")
+        if not on("components.certManager"):
+            add("clearance.tls.enabled needs components.certManager: the chart's certificates are cert-manager's")
+        try:
+            chart_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.chart") or "")).groups())
+        except AttributeError:
+            chart_v = (0, 0, 0)
+        if chart_v < (0, 54, 0):
+            add("clearance.tls.enabled needs versions.clearance.chart 0.54.0 or later (the chart's tls.*, clearance I-43)")
+    if on("clearance.tls.gatewayBackendTLS"):
+        if not on("clearance.tls.enabled"):
+            add("clearance.tls.gatewayBackendTLS needs clearance.tls.enabled: the routes move to the https port it opens")
+        if not on("components.clusterCA"):
+            add("clearance.tls.gatewayBackendTLS needs components.clusterCA: the Gateway verifies the core against the Bundle's ConfigMap hangar-cluster-ca")
+        if not on("components.gatewayRoutes"):
+            add("clearance.tls.gatewayBackendTLS needs components.gatewayRoutes: there is no route to re-encrypt")
+    if get(v, "clearance.tls.plainHttp") is False:
+        if not on("clearance.tls.enabled"):
+            add("clearance.tls.plainHttp false needs clearance.tls.enabled (the https listener is then the only one)")
+        # Every caller Apron renders that still calls the core or the API on plain 8080 (step 7 of hangar
+        # specs/plans/a17-clearance-tls-rollout.md: verify, then turn plain http off).
+        still = []
+        if on("components.gatewayRoutes") and not on("clearance.tls.gatewayBackendTLS"):
+            still.append("the Gateway's routes (set clearance.tls.gatewayBackendTLS)")
+        for key, who in (("clearance.web.enabled", "the web UI"), ("clearance.slack.enabled", "clearance-slack"),
+                         ("components.autopilot", "the Autopilot gateway and read API"),
+                         # its apiURL is the in-cluster http clearance-api (58-clearance-observe-aws)
+                         ("clearance.observeAWS.enabled", "the AWS collector")):
+            if on(key):
+                still.append(who)
+        if on("components.glidepath") and on("components.clearance"):
+            still.append("Glidepath's agent gates and deployment gate (the glidepath-catalog's clearanceUrl is plain http)")
+        # The plugin, the wait Job, the audit collector and the target registry publisher all call clearance.gate.url.
+        gate_url_plain = not str(get(v, "clearance.gate.url") or "").startswith("https://")
+        for key, who in (("clearance.gate.enabled", "the gate's plugin and wait Job"), ("clearance.observe.enabled", "the audit collector"),
+                         ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key) and gate_url_plain:
+                still.append(f"{who} (clearance.gate.url is plain http)")
+        if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and not str(get(v, "clearance.gate.agent.apiURL") or "").startswith("https://"):
+            still.append("the gate's agent (clearance.gate.agent.apiURL is plain http)")
+        if still:
+            add("clearance.tls.plainHttp false would cut off callers that still use plain http: " + ", ".join(still))
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")

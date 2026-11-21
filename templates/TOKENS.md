@@ -236,6 +236,10 @@ the render with `file:line`.
 | `@@CLEARANCE_SLACK_HOST_ALIASES@@` | `clearance.slack.idp.hostAlias` as the chart's `slack.hostAliases` for `dex.<domain>` (`[]` when unset: the name resolves by DNS) |
 | `@@CLEARANCE_SLACK_ACME_EMAIL@@`, `@@CLEARANCE_SLACK_ACME_SERVER@@` | `clearance.slack.tls.dns01.email` (required) and `.server` (default Let's Encrypt production) - only under `tls.mode: dns01-route53` |
 | `@@CLEARANCE_SLACK_DNS01_ZONE_ID@@`, `@@CLEARANCE_SLACK_DNS01_REGION@@` (default `us-east-1`), `@@CLEARANCE_SLACK_DNS01_ROLE_ARN@@` | `clearance.slack.tls.dns01.hostedZoneID`, `region`, `roleARN` (the role is only used with `auth: serviceAccount`, the default) |
+| `@@CLEARANCE_TLS_PLAIN_HTTP@@` | `clearance.tls.plainHttp` (default true): the chart's `tls.plainHttp`, whether the 8080 listener stays beside 8443. Only under `#@if clearance.tls.enabled` |
+| `@@CLEARANCE_TLS_ISSUER_REF@@` | the chart's `tls.certManager.issuerRef`: ClusterIssuer `hangar-cluster-ca` with `components.clusterCA`, else an empty name (the chart's own namespaced CA). Only under `#@if clearance.tls.enabled` |
+| `@@CLEARANCE_TLS_ISSUER_DESC@@` | the same issuer in words, for the comment beside it |
+| `@@CLEARANCE_BACKEND_PORT@@` | the port the Gateway's routes send to on `clearance-core` and `clearance-api` (`routes.yaml`, `github-app.yaml`): `8443` with `clearance.tls.enabled` and `clearance.tls.gatewayBackendTLS` (the Gateway re-encrypts, `backend-tls.yaml`), else `8080` as before |
 | `@@CLEARANCE_API_COVERAGE_CACHE_SECONDS@@` | `clearance.api.coverageCacheSeconds` (default 0, 0 to 300): how long clearance-api reuses a coverage answer (chart `api.coverageCacheSeconds`, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`, Clearance 0.51.0+). Rendered only under `#@if clearance.api.coverageCacheSeconds`, so a cluster that does not set it renders byte for byte as before |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 
