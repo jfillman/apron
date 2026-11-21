@@ -17,6 +17,8 @@ cicdRunAdmission:
     clearance-gate-check: [join-release]
     itsm-check: [verify-change, verify-change-advisory]
     release: [open-release-pr]
+    release-outcome-notify: [itsm-close]
+    release-rollback-notify: [itsm-close-rolled-back]
   clearanceTasks:
     agent-definitions-check: [review]
     agent-gates-check: [agent-gates]

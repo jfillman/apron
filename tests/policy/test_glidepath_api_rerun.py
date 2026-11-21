@@ -139,6 +139,7 @@ class Shape(unittest.TestCase):
         W, C, T = "release-record-writer", "clearance-gate", "test-runner"
         for o in [run("release", ("open-release-pr", W)),
                   run("bypass-merge-check", ("mark-release-merged", W), ("itsm-implement", W)),
+                  run("release-outcome-notify", ("itsm-close", W)), run("release-rollback-notify", ("itsm-close-rolled-back", W)),
                   run("itsm-check", ("verify-change", W)), run("itsm-check", ("verify-change-advisory", W)),
                   run("clearance-gate-check", ("join-release", W), ("fetch", C), ("register", C)),
                   run("clearance-gate-check", ("register-advisory", C), ("render-check", C), ("render", "source-runner")),
@@ -152,6 +153,8 @@ class Shape(unittest.TestCase):
                                    ("test", "run-testworkflow", W), ("test", "run-testworkflow", C), ("test", "open-release-pr", T),
                                    ("clearance-gate-check", "join-release", C), ("clearance-gate-check", "fetch", W),
                                    ("clearance-gate-check", "comment-pr-check-result", W), ("itsm-check", "itsm-close", W),
+                                   ("release-outcome-notify", "itsm-close-rolled-back", W), ("release-rollback-notify", "itsm-close", W),
+                                   ("release-outcome-notify", "itsm-close", C),
                                    ("agent-release", "agent-gates", C), ("agent-gates-check", "review", C),
                                    ("release", "open-release-pr", "release-record-writer-x"), ("release", "open-release-pr", "Release-Record-Writer"),
                                    ("release", "open-release-pr", "pipeline-runner"), ("test", "run-testworkflow", "testrunner"),
