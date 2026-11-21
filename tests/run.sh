@@ -215,7 +215,9 @@ has "${LAB}/dev/55-clearance/clearance/application.yaml" 'principals": \["autopi
 # clearance-api headroom: 512Mi limit, 128Mi request, GOMEMLIMIT below the limit (the chart default OOMKilled in a loop)
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'limits: \{memory: 512Mi\}' "lab: clearance-api memory limit is 512Mi"
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'requests: \{cpu: 25m, memory: 128Mi\}' "lab: clearance-api memory request is 128Mi"
-has "${LAB}/dev/55-clearance/clearance/application.yaml" 'name: GOMEMLIMIT, value: 400MiB' "lab: clearance-api sets GOMEMLIMIT"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" '^          goMemLimit: 400MiB$' "lab: clearance-api sets GOMEMLIMIT with the chart's goMemLimit"
+# Chart 0.54.0 adds its own GOMEMLIMIT: one from extraEnv too makes the env name repeat, and Argo CD's dry run refuses the patch.
+if grep -rqE 'name: GOMEMLIMIT' "${LAB}/dev/55-clearance/clearance/application.yaml"; then bad "lab: clearance sets GOMEMLIMIT in extraEnv (duplicate env name with the chart's)"; else ok "lab: clearance has no extraEnv GOMEMLIMIT"; fi
 has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9' "lab: function-agentrun v0.4.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
