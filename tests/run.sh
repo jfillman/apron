@@ -407,6 +407,10 @@ out="$(python3 hack/render.py --cluster "${G}/prev-same/cluster.yaml" 2>&1)" && 
 { cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, previousURL: \"http://x' || true || 'y\"}}"; echo "${WIMG}"; } >"${G}/prev-bad/cluster.yaml"
 out="$(python3 hack/render.py --cluster "${G}/prev-bad/cluster.yaml" 2>&1)" && bad "a previousURL that is not a URL rendered" \
   || { grep -q 'clearance.gate.previousURL is' <<<"${out}" && ok "a previousURL that could reach the CEL is refused" || bad "bad previousURL: ${out}"; }
+mkdir -p "${G}/prev-v6"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://[2001:db8::1]:8080"}}'; echo "${WIMG}"; } >"${G}/prev-v6/cluster.yaml"
+python3 hack/render.py --cluster "${G}/prev-v6/cluster.yaml" >/dev/null 2>&1 \
+  && has "${G}/prev-v6/${GP}" "'http://\[2001:db8::1\]:8080'\] &&" "previousURL: an IPv6 host renders (CodeRabbit on #271)" || bad "previousURL: an IPv6 URL was refused"
 { cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, waitCAInject: true}}'; echo "${WIMG}"; } >"${G}/inject-noca/cluster.yaml"
 out="$(python3 hack/render.py --cluster "${G}/inject-noca/cluster.yaml" 2>&1)" && bad "waitCAInject without waitCAConfigMap rendered" \
   || { grep -q 'waitCAInject needs clearance.gate.waitCAConfigMap' <<<"${out}" && ok "waitCAInject without waitCAConfigMap is refused" || bad "waitCAInject without the policy key: ${out}"; }
@@ -558,6 +562,21 @@ tls_refused "plainHttp false with plain-http routes" "the Gateway's routes (set 
 tls_refused "plainHttp false with Autopilot" "the Autopilot gateway and read API" --set components.trustManager=true --set components.clusterCA=true \
   --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
 tls_refused "plainHttp false without tls" "clearance.tls.plainHttp false needs clearance.tls.enabled" --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Glidepath" "Glidepath's agent gates and deployment gate" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+# The callers of clearance.gate.url are refused only while that URL is plain http (CodeRabbit on #270).
+new "${TLSDIR}/gurl" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false --set clearance.targets.enabled=true
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+grep -qF "the target registry publisher (clearance.gate.url is plain http)" <<<"${out}" && ok "plainHttp false: the publisher on a plain-http gate.url is named" || bad "plainHttp false, publisher on http: ${out}"
+python3 - "${TLSDIR}/gurl/cluster.yaml" <<'PYG'
+import sys, yaml
+p = sys.argv[1]; d = yaml.safe_load(open(p))
+d["clearance"].setdefault("gate", {})["url"] = "https://clearance-core.clearance-system.svc:8443"
+yaml.safe_dump(d, open(p, "w"), sort_keys=False)
+PYG
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+if grep -qF "target registry publisher" <<<"${out}"; then bad "plainHttp false: the publisher is named although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not named"; fi
 
 echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
 GA="${TMP}/gpapi"

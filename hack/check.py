@@ -273,12 +273,18 @@ def violations(v, fleet=None):
             still.append("the Gateway's routes (set clearance.tls.gatewayBackendTLS)")
         for key, who in (("clearance.web.enabled", "the web UI"), ("clearance.slack.enabled", "clearance-slack"),
                          ("components.autopilot", "the Autopilot gateway and read API"),
-                         ("clearance.observe.enabled", "the audit collector"), ("clearance.observeAWS.enabled", "the AWS collector"),
-                         ("clearance.targets.enabled", "the target registry publisher")):
+                         # its apiURL is the in-cluster http clearance-api (58-clearance-observe-aws)
+                         ("clearance.observeAWS.enabled", "the AWS collector")):
             if on(key):
                 still.append(who)
-        if on("clearance.gate.enabled") and not str(get(v, "clearance.gate.url") or "").startswith("https://"):
-            still.append("the gate's plugin and wait Job (clearance.gate.url is plain http)")
+        if on("components.glidepath") and on("components.clearance"):
+            still.append("Glidepath's agent gates and deployment gate (the glidepath-catalog's clearanceUrl is plain http)")
+        # The plugin, the wait Job, the audit collector and the target registry publisher all call clearance.gate.url.
+        gate_url_plain = not str(get(v, "clearance.gate.url") or "").startswith("https://")
+        for key, who in (("clearance.gate.enabled", "the gate's plugin and wait Job"), ("clearance.observe.enabled", "the audit collector"),
+                         ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key) and gate_url_plain:
+                still.append(f"{who} (clearance.gate.url is plain http)")
         if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and not str(get(v, "clearance.gate.agent.apiURL") or "").startswith("https://"):
             still.append("the gate's agent (clearance.gate.agent.apiURL is plain http)")
         if still:
