@@ -234,6 +234,14 @@ def violations(v, fleet=None):
             add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
                 "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
+    # The audit collector and the target registry publisher call clearance.gate.url and have no CA setting (their charts in
+    # clearance 0.54.0): an https URL to the in-cluster core is signed by a private CA they cannot trust (CodeRabbit on #270).
+    gate_host = (urlparse(str(get(v, "clearance.gate.url") or "")).hostname or "") if str(get(v, "clearance.gate.url") or "").startswith("https://") else ""
+    if gate_host.endswith((".svc", ".svc.cluster.local")):
+        for key, who in (("clearance.observe.enabled", "the audit collector"), ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key):
+                add(f"clearance.gate.url is https to the in-cluster core ({gate_host}), whose certificate a private CA signs, and {who} "
+                    f"({key}) has no CA setting to trust it: keep clearance.gate.url on http until it has one")
     for k in ("enabled", "plainHttp", "gatewayBackendTLS"):
         if get(v, f"clearance.tls.{k}") is not None and not isinstance(get(v, f"clearance.tls.{k}"), bool):
             add(f"clearance.tls.{k} is true or false")
