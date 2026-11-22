@@ -44,6 +44,10 @@ spec:
         # The same, in bulk (up to 200 items; one resolution record per item, one batch id).
         - path: {type: Exact, value: /v1/observations/resolutions}
           method: POST
+        # The core's health, for a remote `clearance-cmp doctor` reachability check (I-58). Reveals nothing. Unconditional,
+        # so it holds without feedReaders, and an Exact match beats the web UI's PathPrefix / when that is on.
+        - path: {type: Exact, value: /healthz}
+          method: GET
       backendRefs:
         - name: clearance-core
           port: @@CLEARANCE_BACKEND_PORT@@
