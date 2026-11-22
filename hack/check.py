@@ -22,6 +22,73 @@ ROLES = ("control-plane", "workloads", "platform-services")
 EKS_ISSUER = re.compile(r"^https://oidc\.eks\.[a-z0-9-]+\.amazonaws\.com/id/[0-9A-Fa-f]+$")
 
 
+HEARTBEAT = re.compile(r"^[1-9][0-9]*[smh]$")
+# The agent chart's alerts.checkedAtStaleAfter (Apron keeps the chart's default): a heartbeat must stay below it.
+CHECKED_AT_STALE_AFTER_S = 15 * 60
+
+
+def _agent_chart(v):
+    try:
+        return tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.argocdAgentChart") or "")).groups())
+    except AttributeError:
+        return (0, 0, 0)
+
+
+def gate_agent_i44_problems(v):
+    """clearance.gate.agent.{grantExpiry, ha, statusHeartbeat, alerts} and the chart's gate.enforce rule (clearance
+    docs/gate.md, "The grant-expiry webhook"). Called only with the gate and its agent on this cluster."""
+    out = []
+    add = out.append
+    on = lambda key: get(v, key) is True  # noqa: E731
+    ge, ha, hb, al = (get(v, f"clearance.gate.agent.{k}") for k in ("grantExpiry", "ha", "statusHeartbeat", "alerts"))
+    for key, val, keys in (("grantExpiry", ge, ("enabled", "mode", "acceptResidualRisk")), ("ha", ha, ("enabled",)), ("alerts", al, ("enabled",))):
+        if val is None:
+            continue
+        if not isinstance(val, dict):
+            add(f"clearance.gate.agent.{key} is a mapping ({{{', '.join(keys)}}})")
+            continue
+        for k in sorted(set(val) - set(keys)):
+            add(f"clearance.gate.agent.{key}.{k} is not a setting (only {', '.join(keys)})")
+        for k in keys:
+            if k != "mode" and val.get(k) is not None and not isinstance(val.get(k), bool):
+                add(f"clearance.gate.agent.{key}.{k} is true or false")
+    ge = ge if isinstance(ge, dict) else {}
+    if ge.get("mode") is not None and ge.get("mode") not in ("audit", "enforce"):
+        add(f"clearance.gate.agent.grantExpiry.mode is {ge.get('mode')!r}: audit (allow, warn and record; failurePolicy Ignore) or enforce (refuse; Fail)")
+    if hb is not None and not (isinstance(hb, str) and HEARTBEAT.match(hb)):
+        add(f"clearance.gate.agent.statusHeartbeat is {hb!r}: a positive duration of one unit (90s, 5m, 1h)")
+    ge_on = ge.get("enabled") is True
+    enforce = ge_on and ge.get("mode") == "enforce"
+    used = [k for k, val in (("grantExpiry", ge), ("ha", ha), ("statusHeartbeat", hb), ("alerts", al)) if val not in (None, {}, "")]
+    if used and _agent_chart(v) < (0, 55, 0):
+        add(f"clearance.gate.agent.{', '.join(used)} need versions.clearance.argocdAgentChart 0.55.0 or later (the grant-expiry webhook, "
+            "agent HA and the staleness alerts, I-44): an older chart ignores them")
+    if ge.get("mode") == "enforce" and not ge_on:
+        add("clearance.gate.agent.grantExpiry.mode: enforce needs grantExpiry.enabled: true")
+    if ge_on and not on("components.certManager"):
+        add("clearance.gate.agent.grantExpiry needs components.certManager: the webhook's serving certificate and its CA are cert-manager's "
+            "(the CA injector writes the configuration's caBundle)")
+    alerts_on = isinstance(al, dict) and al.get("enabled") is True
+    if alerts_on:
+        if not ge_on:
+            add("clearance.gate.agent.alerts needs grantExpiry.enabled: the grant-expiry pods export the grant times the alerts read")
+        if not hb:
+            add("clearance.gate.agent.alerts needs statusHeartbeat (e.g. 5m): without it status.checkedAt says nothing about a stalled agent")
+        elif isinstance(hb, str) and HEARTBEAT.match(hb) and int(hb[:-1]) * {"s": 1, "m": 60, "h": 3600}[hb[-1]] >= CHECKED_AT_STALE_AFTER_S:
+            add(f"clearance.gate.agent.statusHeartbeat {hb} must be below 15m with alerts (the chart's alerts.checkedAtStaleAfter)")
+        if not on("components.observability"):
+            add("clearance.gate.agent.alerts needs components.observability: kube-prometheus-stack (40-observability) provides the "
+                "PrometheusRule and PodMonitor CRDs and the Prometheus that reads them")
+    # The chart's rule, refused here first so a render never leaves the agent's Application failing in Argo CD: the policy may deny
+    # only with the webhook enabled and enforcing (turn it to enforce first, the policy to Deny after; leave in reverse order).
+    if on("clearance.gate.enforce") and not enforce and ge.get("acceptResidualRisk") is not True and _agent_chart(v) >= (0, 55, 0):
+        add("clearance.gate.enforce needs clearance.gate.agent.grantExpiry {enabled: true, mode: enforce} (agent chart 0.55.0+ refuses it otherwise): "
+            "the admission policy has no clock, so without an enforcing grant-expiry webhook an expired grant admits writes while the agent is "
+            "stalled (I-44). Turn the webhook to enforce first and the policy to Deny in a later change; leave in reverse order. The only "
+            "override is grantExpiry.acceptResidualRisk: true")
+    return out
+
+
 def violations(v, fleet=None):
     out = []
     add = out.append
@@ -241,6 +308,9 @@ def violations(v, fleet=None):
         if agent_v < (0, 54, 0):
             add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
                 "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
+    # The grant-expiry webhook, agent HA, the status heartbeat and the staleness alerts (I-44; agent chart 0.55.0). Unset: nothing renders.
+    if on("clearance.gate.enabled") and get(v, "clearance.gate.agent"):
+        out.extend(gate_agent_i44_problems(v))
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
     if get(v, "clearance.gate.fsSandbox") is not None and get(v, "clearance.gate.fsSandbox") not in ("try", "require", "off"):
         add(f"clearance.gate.fsSandbox is {get(v, 'clearance.gate.fsSandbox')!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
