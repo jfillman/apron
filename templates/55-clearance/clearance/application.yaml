@@ -227,6 +227,11 @@ spec:
             existingSecret: clearance-pg-reader
             key: uri
         core:
+#@if clearance.core.startupSeconds
+          # How long the core may take to start (chart core.startupSeconds, default 300): it verifies the whole chain from
+          # genesis before it listens, so a long chain on a slow node needs more. Only where cluster.yaml sets it.
+          startupSeconds: @@CLEARANCE_CORE_STARTUP_SECONDS@@
+#@end
 #@if runtime.labNetworking and tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"@@CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE@@]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
 #@end

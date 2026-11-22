@@ -432,6 +432,8 @@ def clearance_tokens(g):
         # clearance-api's coverage result cache (clearance chart api.coverageCacheSeconds, 0.51.0+; 0 to 300): off unless
         # clearance.api.coverageCacheSeconds is set above 0; the template renders the key only then (see TOKENS.md).
         "CLEARANCE_API_COVERAGE_CACHE_SECONDS": str(int((c("api", {}) or {}).get("coverageCacheSeconds", 0) or 0)),
+        # The core's startup probe budget (chart core.startupSeconds, default 300): rendered only when clearance.core.startupSeconds is set.
+        "CLEARANCE_CORE_STARTUP_SECONDS": str(int((c("core", {}) or {}).get("startupSeconds", 0) or 0)),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
     }

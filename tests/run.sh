@@ -1521,11 +1521,21 @@ refuse() { # refuse LABEL BASE-DIR YAML-TO-APPEND...
   fi
 }
 python3 hack/check.py --cluster "${LAB}/dev/cluster.yaml" >/dev/null && ok "lab dev passes" || bad "lab dev fails check"
+echo "== 1c-4c. clearance core's startup budget (clearance.core.startupSeconds, chart default when unset)"
+new "${TMP}/sus-on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set clearance.core.startupSeconds=900
+render_ok "${TMP}/sus-on" "core startupSeconds on"
+python3 hack/check.py --cluster "${TMP}/sus-on/cluster.yaml" >/dev/null && ok "core startupSeconds on passes check" || bad "core startupSeconds on fails check"
+has "${TMP}/sus-on/${CA}" '^          startupSeconds: 900$' "core startupSeconds on: the chart's core.startupSeconds is 900"
+if grep -rq 'startupSeconds' "${LAB}/dev" "${LAB}/prod"; then bad "core startupSeconds default: rendered"; else ok "core startupSeconds default: not rendered (chart default)"; fi
+
 python3 hack/check.py --cluster "${LAB}/prod/cluster.yaml" >/dev/null && ok "lab prod passes" || bad "lab prod fails check"
 P="${LAB}/prod"
 D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
 refuse "a coverage cache over 300 seconds" "${D}" 'clearance: {api: {coverageCacheSeconds: 301}}'
+refuse "a core startupSeconds over 3600" "${D}" 'clearance: {core: {startupSeconds: 3601}}'
+refuse "a core startupSeconds that is not a whole number" "${D}" 'clearance: {core: {startupSeconds: "15m"}}'
 refuse "a coverage cache that is not a whole number" "${D}" 'clearance: {api: {coverageCacheSeconds: "30s"}}'
 # Slack refusals: each case is built from the working Slack cluster with one --set changed (the keys sit in a block cluster.yaml
 # already has, so refuse() above, which appends a second top-level key, cannot reach them), and must be refused for the stated reason.

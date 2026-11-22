@@ -242,6 +242,7 @@ the render with `file:line`.
 | `@@CLEARANCE_TLS_ISSUER_REF@@` | the chart's `tls.certManager.issuerRef`: ClusterIssuer `hangar-cluster-ca` with `components.clusterCA`, else an empty name (the chart's own namespaced CA). Only under `#@if clearance.tls.enabled` |
 | `@@CLEARANCE_TLS_ISSUER_DESC@@` | the same issuer in words, for the comment beside it |
 | `@@CLEARANCE_BACKEND_PORT@@` | the port the Gateway's routes send to on `clearance-core` and `clearance-api` (`routes.yaml`, `github-app.yaml`): `8443` with `clearance.tls.enabled` and `clearance.tls.gatewayBackendTLS` (the Gateway re-encrypts, `backend-tls.yaml`), else `8080` as before |
+| `@@CLEARANCE_CORE_STARTUP_SECONDS@@` | `clearance.core.startupSeconds` (whole seconds, 1 to 3600; unset is the chart default 300): how long the core may take to start, since it verifies the whole chain from genesis before it listens (chart `core.startupSeconds`). Rendered only under `#@if clearance.core.startupSeconds`, so a cluster that does not set it renders byte for byte as before |
 | `@@CLEARANCE_API_COVERAGE_CACHE_SECONDS@@` | `clearance.api.coverageCacheSeconds` (default 0, 0 to 300): how long clearance-api reuses a coverage answer (chart `api.coverageCacheSeconds`, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`, Clearance 0.51.0+). Rendered only under `#@if clearance.api.coverageCacheSeconds`, so a cluster that does not set it renders byte for byte as before |
 | `@@CLEARANCE_GITHUB_APP_ID@@` | `clearance.githubAppId`, the Clearance GitHub App's id (public; optional, used with `clearance.githubApp`) |
 

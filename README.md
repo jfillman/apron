@@ -313,6 +313,11 @@ coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`
 coverage statement shown to a person can be up to that many seconds old (the response carries `Age`). Setting or changing it
 restarts clearance-api once. Only the cluster whose `cluster.yaml` sets it gets the cache; nothing is decided by cluster name.
 
+`clearance.core.startupSeconds` (whole seconds, 1 to 3600; unset is the chart's default, 300) sets how long the core may take to
+start (chart `core.startupSeconds`, the startup probe's budget). The core verifies the whole chain from genesis before it
+listens, so a long chain on a slow node needs more than the default or the probe restarts it in a loop. Setting or changing it
+restarts the core once. Only the cluster whose `cluster.yaml` sets it gets the value.
+
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 
 Clearance C-3 (clearance `docs/core.md`, "The evidence ledger (C-3)") keeps a transparency log of the evidence chain's
