@@ -239,14 +239,19 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
    carried on the gitops repository.
 4. Repeat step 1's refresh-annotation wait on both sets once more, then check the Application's controller is
-   `tenant-onboarding-gated`, its `$appsrc` source is first, and neither set reports an error; then turn the window off.
+   `tenant-onboarding-gated`, neither set reports an error, and its carrier is the gitops repository: not yet switched,
+   `spec.sources[0]` is the `ref: appsrc` source; switched, the one plugin source's `repoURL` is the gitops repository
+   and the `ref: appsrc` source is first in its `sources` parameter (the agent keeps the originals there). Then turn the
+   window off.
 
 Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`, and
 once tenant-onboarding reports `already owned`, wait again on the gated set only (as in step 2); the gated set keeps the Application (nothing
 reconciles it now), so remove its `clearance.hangar.io/protect` annotation by hand and wait for the agent's opt-out to
 finish (sources restored, `switched` gone, namespace unlabelled); then remove the gated set's owner reference the same
-way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it (Helm sources in its order, resources finalizer back); wait once more
-and check as in step 4; close the window. Closing the window with an
+way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it; wait once more on both sets, then check
+that its controller is `tenant-onboarding`, the chart source is first and `ref: appsrc` second (tenant-onboarding's
+order), the resources finalizer is back, no `clearance.hangar.io/*` annotation is left and neither set reports an
+error; close the window. Closing the window with an
 Application still owned by a set that no longer generates it deletes that Application: step 4 is the check.
 
 Needs the ApplicationSet controller to honour `applicationsSync`: it does while no controller-wide
