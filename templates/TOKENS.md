@@ -197,6 +197,7 @@ the render with `file:line`.
 | `@@CLEARANCE_GATE_CHART_REPOS@@` | the plugin's chart allow list: the cluster's airframe repository plus `allowedChartRepos`, comma-separated - only under `#@if clearance.gate.enabled` |
 | `@@CLEARANCE_GATE_URL@@` | `clearance.gate.url`, default `http://clearance-core.<clearance namespace>.svc:8080`: the core as the plugin sidecar and the PreSync wait Job reach it |
 | `@@CLEARANCE_GATE_HOST_ALIAS@@` | `clearance.gate.hostAlias` (`ip=host[,host]`, may be empty): a hostAlias for the wait Job's pod when the core is on another cluster (hangar-prod to hangar-dev) |
+| `@@CLEARANCE_GATE_FS_SANDBOX@@` | `clearance.gate.fsSandbox` (`try`, `require` or `off`): the plugin sidecars' `CLEARANCE_CMP_FS_SANDBOX` - only under `#@if clearance.gate.enabled and clearance.gate.fsSandbox`; unset, no env is rendered and the plugin default (`try`) applies |
 | `@@CLEARANCE_CMP_IMAGE@@` | `versions.clearance.cmpImage`: the plugin sidecar image (`clearance-cmp`, by digest); required with `clearance.gate.enabled` |
 | `@@CLEARANCE_CMP_CANARY_IMAGE@@` | `clearance.gate.canary.image`: the canary sidecar's image (`clearance-cmp`, by digest) - only under `#@if clearance.gate.enabled and clearance.gate.canary.image` |
 | `@@CLEARANCE_PLUGIN_NAME@@` | the ApplicationSet's `plugin.name`: `clearance`, or with `clearance.gate.canary` a template expression that gives `clearance-canary` to the apps in `clearance.gate.canary.apps` and `clearance` to the rest |
