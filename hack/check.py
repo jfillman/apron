@@ -22,7 +22,7 @@ ROLES = ("control-plane", "workloads", "platform-services")
 EKS_ISSUER = re.compile(r"^https://oidc\.eks\.[a-z0-9-]+\.amazonaws\.com/id/[0-9A-Fa-f]+$")
 
 
-HEARTBEAT = re.compile(r"^[1-9][0-9]*[smh]$")
+HEARTBEAT = re.compile(r"[1-9][0-9]*[smh]")
 # The agent chart's alerts.checkedAtStaleAfter (Apron keeps the chart's default): a heartbeat must stay below it.
 CHECKED_AT_STALE_AFTER_S = 15 * 60
 
@@ -55,7 +55,7 @@ def gate_agent_i44_problems(v):
     ge = ge if isinstance(ge, dict) else {}
     if ge.get("mode") is not None and ge.get("mode") not in ("audit", "enforce"):
         add(f"clearance.gate.agent.grantExpiry.mode is {ge.get('mode')!r}: audit (allow, warn and record; failurePolicy Ignore) or enforce (refuse; Fail)")
-    if hb is not None and not (isinstance(hb, str) and HEARTBEAT.match(hb)):
+    if hb is not None and not (isinstance(hb, str) and HEARTBEAT.fullmatch(hb)):
         add(f"clearance.gate.agent.statusHeartbeat is {hb!r}: a positive duration of one unit (90s, 5m, 1h)")
     ge_on = ge.get("enabled") is True
     enforce = ge_on and ge.get("mode") == "enforce"
@@ -74,7 +74,7 @@ def gate_agent_i44_problems(v):
             add("clearance.gate.agent.alerts needs grantExpiry.enabled: the grant-expiry pods export the grant times the alerts read")
         if not hb:
             add("clearance.gate.agent.alerts needs statusHeartbeat (e.g. 5m): without it status.checkedAt says nothing about a stalled agent")
-        elif isinstance(hb, str) and HEARTBEAT.match(hb) and int(hb[:-1]) * {"s": 1, "m": 60, "h": 3600}[hb[-1]] >= CHECKED_AT_STALE_AFTER_S:
+        elif isinstance(hb, str) and HEARTBEAT.fullmatch(hb) and int(hb[:-1]) * {"s": 1, "m": 60, "h": 3600}[hb[-1]] >= CHECKED_AT_STALE_AFTER_S:
             add(f"clearance.gate.agent.statusHeartbeat {hb} must be below 15m with alerts (the chart's alerts.checkedAtStaleAfter)")
         if not on("components.observability"):
             add("clearance.gate.agent.alerts needs components.observability: kube-prometheus-stack (40-observability) provides the "
