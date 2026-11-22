@@ -377,10 +377,11 @@ func (w *world) setCondition(set string) string {
 }
 
 // observed is the handover's "the window is in force" check (README "Gated environments", step 1): it sets the set's refresh
-// annotation and waits for the controller to remove it. Only a reconcile that read the set WITH the annotation removes it (the
-// RefreshRequired branch at the end of Reconcile, an Update at the resourceVersion that reconcile read: a reconcile that read
-// an older version gets a conflict), and the workqueue never runs two reconciles of one set at once. So once the annotation is
-// gone, every reconcile that read the set before the window opened, with its deleting sync policy, has finished.
+// annotation and waits for the controller to remove it. The annotation is removed only at the very end of a reconcile, past its
+// create, update and delete steps (the RefreshRequired branch; updateResourcesStatus re-reads the set just before, so the
+// remover may be a reconcile that started earlier), and the workqueue never runs two reconciles of one set at once. So once the
+// annotation is gone, no reconcile that read the set before the window opened can still reach its delete step. (The in-memory
+// tenants repo has no revision cache; on a cluster the README's step 2 also waits out the repo-server's.)
 func (w *world) observed(set string) {
 	w.t.Helper()
 	p := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:"true"}}}`, common.AnnotationApplicationSetRefresh))

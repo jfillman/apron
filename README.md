@@ -213,18 +213,25 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    `applicationset/controllers/applicationset_controller.go`, `Reconcile`: one `Get`, then `deleteInCluster` under that
    object's policy). The stored value does not show that it has finished. Set the refresh annotation on both sets,
    `kubectl -n argocd-apps annotate applicationset tenant-onboarding tenant-onboarding-gated argocd.argoproj.io/application-set-refresh=true --overwrite`,
-   and wait until it is gone from both. Only a reconcile that read the set with the annotation removes it (the
-   `RefreshRequired` branch at the end of `Reconcile`, an `Update` at the resourceVersion that reconcile read, so one that read
-   an older version gets a conflict), and the workqueue never runs two reconciles of one set at once: once it is gone, every
-   reconcile that read the old policy has finished. An annotation that does not clear means the set's reconcile is failing
+   and wait until it is gone from both. The annotation is removed only at the very end of a reconcile, after its
+   create, update and delete steps (the `RefreshRequired` branch; the reconcile may be one that started before the
+   annotation was set, because `updateResourcesStatus` re-reads the set first), and the workqueue never runs two
+   reconciles of one set at once. So when it is gone, no reconcile is past its `Get` and short of its delete step, and every
+   later one reads the set as it is now: none that read the old policy can still delete. An annotation that does not clear means the set's reconcile is failing
    before its end: stop and read its conditions. (ApplicationSet status has no observedGeneration in v3.5.0.)
 2. Set `spec.clearanceGate: true` on the `ApplicationEnvironment` (identity.yaml gains `clearanceGate: true`). tenant-onboarding stops
    generating the Application and keeps it; tenant-onboarding-gated reports `already owned by another ApplicationSet controller tenant-onboarding`.
-   Once it does, repeat step 1's refresh-annotation wait on tenant-onboarding before step 3 (not on the gated set: its
-   reconcile now fails at that error, before it clears the annotation). A tenant-onboarding reconcile that
-   read the identities before the flip still generates the Application, and its `CreateOrUpdate` writes a merge patch
-   with no resourceVersion precondition (`applicationset/utils/createOrUpdate.go`): run during or after step 3, it puts
-   tenant-onboarding's controller reference (and its source order) back. After the wait, every such reconcile has finished.
+   A tenant-onboarding reconcile that generates from the identities as they were before the flip still generates the
+   Application, and its `CreateOrUpdate` writes a merge patch with no resourceVersion precondition
+   (`applicationset/utils/createOrUpdate.go`): run during or after step 3, it puts tenant-onboarding's controller reference
+   (and its source order) back. Two such reconciles exist: one already running, and a later one whose git generator
+   resolves `main` from the repo-server's revision cache (only a reconcile that read the refresh annotation bypasses it,
+   `applicationset/generators/git.go` `noRevisionCache`). So before step 3: wait until the repo-server's revision cache
+   expiry has passed since the gated set first reported `already owned` (that report is a read of the new commit). The
+   expiry is `--revision-cache-expiration`, which defaults to `ARGOCD_RECONCILIATION_TIMEOUT`, else 3m; argocd-apps sets
+   `timeout.reconciliation: 600s`, so 10 minutes there. Then repeat step 1's refresh-annotation wait on tenant-onboarding
+   only (the gated set's reconcile now fails at the `already owned` error before it clears the annotation).
+   After both, every reconcile still to come resolves the new commit, and none that started earlier is still running.
 3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
    `$appsrc` source first (the gated set's order; its ignore rule keeps the live sources on adoption, so the move is not
    made for you):
