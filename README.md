@@ -226,10 +226,21 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    (`applicationset/utils/createOrUpdate.go`): run during or after step 3, it puts tenant-onboarding's controller reference
    (and its source order) back. Two such reconciles exist: one already running, and a later one whose git generator
    resolves `main` from the repo-server's revision cache (only a reconcile that read the refresh annotation bypasses it,
-   `applicationset/generators/git.go` `noRevisionCache`). So before step 3: wait until the repo-server's revision cache
-   expiry has passed since the gated set first reported `already owned` (that report is a read of the new commit). The
-   expiry is `--revision-cache-expiration`, which defaults to `ARGOCD_RECONCILIATION_TIMEOUT`, else 3m; argocd-apps sets
-   `timeout.reconciliation: 600s`, so 10 minutes there. Then repeat step 1's refresh-annotation wait on tenant-onboarding
+   `applicationset/generators/git.go` `noRevisionCache`). That cache can take the old revision *after* the flip: `getRefs`
+   (`util/git/client.go`) writes whatever its `ls-remote` returned, unconditionally and with a fresh expiry
+   (`reposerver/cache/cache.go` `SetGitReferences`, a Redis `SET` with a TTL that no read refreshes), so a lookup that
+   read the refs just before the push can write them after the gated set has reported the new commit. Time the wait from
+   the push, not from that report. Such a lookup started before the push, and its one HTTP request is cut off by the
+   repo-server's git client timeout (`ARGOCD_GIT_REQUEST_TIMEOUT`, argocd-cmd-params-cm `reposerver.git.request.timeout`,
+   default 15s; an `http.Client` timeout, so https repositories only: over ssh there is no such bound), so its write
+   lands before push + that timeout and expires one revision cache expiry later (`--revision-cache-expiration`, default
+   `ARGOCD_RECONCILIATION_TIMEOUT`, which the chart takes from argocd-cm `timeout.reconciliation`, else 3m). The
+   ApplicationSet controller's call timeout to the repo-server (`--repo-server-timeout-seconds`, 60s) does not bound it:
+   the repo-server finishes the lookup after its caller gives up. So before step 3: wait git timeout + revision cache
+   expiry, rounded up to the next whole minute (which covers the cache write itself), from the moment `git ls-remote`
+   first shows the flip commit as `main` (at or after the push). On argocd-apps as apron renders it: no git timeout (15s),
+   and `timeout.reconciliation` is the chart's `120s`, or `600s` with `argocd.light` (hangar-prod): 3 minutes, or 11
+   minutes with `argocd.light`. Then repeat step 1's refresh-annotation wait on tenant-onboarding
    only (the gated set's reconcile now fails at the `already owned` error before it clears the annotation).
    After both, every reconcile still to come resolves the new commit, and none that started earlier is still running.
 3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
@@ -238,18 +249,24 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
    The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
    carried on the gitops repository.
-4. Repeat step 1's refresh-annotation wait on both sets once more, then check the Application's controller is
-   `tenant-onboarding-gated`, neither set reports an error, and its carrier is the gitops repository: not yet switched,
+4. Wait step 2's time again, now from the patch, then repeat step 1's refresh-annotation wait on both sets, then check
+   the Application's controller is `tenant-onboarding-gated` (by the set's uid, and the Application's uid unchanged).
+   This is the second guard: if an old-revision entry outlived step 2's wait (a value read wrong), it has expired by
+   then and every tenant-onboarding reconcile that could have used it has finished, so a controller reference it put back
+   shows here. Fail closed: on anything else, keep the window open (nothing is deleted while it is open) and find out
+   why before redoing steps 2 and 3 (hangar's rehearsal plan has both waits and this check as scripts, C.3 and C.5).
+   Also check that neither set reports an error, and its carrier is the gitops repository: not yet switched,
    `spec.sources[0]` is the `ref: appsrc` source; switched, the one plugin source's `repoURL` is the gitops repository
    and the `ref: appsrc` source is first in its `sources` parameter (the agent keeps the originals there). Then turn the
    window off.
 
 Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`, and
-once tenant-onboarding reports `already owned`, wait again on the gated set only (as in step 2); the gated set keeps the Application (nothing
+once tenant-onboarding reports `already owned`, wait out the revision cache from the push of that commit and then on the gated set only (as in step 2); the gated set keeps the Application (nothing
 reconciles it now), so remove its `clearance.hangar.io/protect` annotation by hand and wait for the agent's opt-out to
 finish (sources restored, `switched` gone, namespace unlabelled); then remove the gated set's owner reference the same
-way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it; wait once more on both sets, then check
-that its controller is `tenant-onboarding`, the chart source is first and `ref: appsrc` second (tenant-onboarding's
+way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it; as in step 4, wait step 2's time from
+the patch and once more on both sets, then check, failing closed with the window open,
+that its controller is `tenant-onboarding` (a stale gated-set reconcile would take it back), the chart source is first and `ref: appsrc` second (tenant-onboarding's
 order), the resources finalizer is back, no `clearance.hangar.io/*` annotation is left and neither set reports an
 error; close the window. Closing the window with an
 Application still owned by a set that no longer generates it deletes that Application: step 4 is the check.
