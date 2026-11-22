@@ -65,6 +65,9 @@ spec:
           method: POST
         - path: {type: Exact, value: /v1/breakglass}
           method: GET
+        # The core's health, for the remote plugin's `clearance-cmp doctor` reachability check (I-58). Reveals nothing.
+        - path: {type: Exact, value: /healthz}
+          method: GET
       backendRefs:
         - name: clearance-core
           port: @@CLEARANCE_BACKEND_PORT@@
