@@ -1327,6 +1327,8 @@ python3 - "${TMP}/tgt-prod/cluster.yaml" "${TMP}/tgt-prod-enf/cluster.yaml" <<'P
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1]))
 c["clearance"]["gate"]["enforce"] = True
+# Deny needs an enforcing grant-expiry webhook (I-44; the agent chart and check refuse it otherwise).
+c["clearance"]["gate"]["agent"]["grantExpiry"] = {"enabled": True, "mode": "enforce"}
 c["clearance"]["protectedEnvironments"] = ["hangar-prod/staging"]
 yaml.safe_dump(c, open(sys.argv[2], "w"))
 PY
