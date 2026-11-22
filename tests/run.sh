@@ -1007,17 +1007,48 @@ has "${OA}" '^        optIn:$' "gate.agent.optIn: the agent's chart gets optIn"
 has "${OA}" '^          enabled: true$' "gate.agent.optIn: enabled"
 has "${OA}" '^        environment: "dev"$' "gate.agent.environment: the agent's default environment"
 has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\$" .appName' "gate.tenantPlugin false: no app name matches the plugin regex"
-# W-43: an environment that asks (identity.yaml clearanceGate: true, Airframe ApplicationEnvironment spec.clearanceGate) is annotated for the agent's
-# opt-in, and the one annotation the agent writes is preserved. All of it only with the agent's optIn.
-OAS="${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
-if grep -q '^  ignoreApplicationDifferences:' "${OAS}"; then bad "gate.agent.optIn: ignoreApplicationDifferences rendered (it is ApplicationSet-wide: not shipped, see apron#256)"; else ok "gate.agent.optIn: no ignoreApplicationDifferences (ApplicationSet-wide, would freeze sources for every tenant app)"; fi
-has "${OAS}" '^      - clearance.hangar.io/switched$' "gate.agent.optIn: preservedFields keeps the switched annotation"
-has "${OAS}" '^    \{\{- if dig "clearanceGate" false . \}\}$' "gate.agent.optIn: identity.yaml clearanceGate turns into the annotation"
-has "${OAS}" 'clearance.hangar.io/protect: "true"$' "gate.agent.optIn: the annotation is clearance.hangar.io/protect"
-has "${OAS}" '^    \{\{- if not \(dig "clearanceGate" false \.\) \}\}$' "gate.agent.optIn: an annotated Application with nothing else to patch gets no second {} document"
-for NOOPT in "${TMP}/gate-agent" "${TMP}/gate" "${LAB}/prod"; do
-  if grep -q 'ignoreApplicationDifferences\|preservedFields\|clearanceGate\|clearance.hangar.io/protect' "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; then bad "no optIn (${NOOPT##*/}): the ApplicationSet mentions the gate opt-in"; else ok "no optIn (${NOOPT##*/}): the ApplicationSet is as before (no ignore rule, no preservedFields, no annotation)"; fi
+# W-43 (clearance.gate.agent.gatedSet, default off): with it off the tenant-onboarding chart is what it was, even with optIn on;
+# with it on the chart renders two ApplicationSets (tenant-onboarding, tenant-onboarding-gated) from one template. What the
+# controller does with them is tested against the real Argo CD ApplicationSet controller in tests/appset (section 5).
+for NOOPT in "${TMP}/gate-opt" "${TMP}/gate-agent" "${TMP}/gate" "${LAB}/prod"; do
+  if grep -q 'ignoreApplicationDifferences\|preservedFields\|clearanceGate\|clearance.hangar.io/protect\|__SET_\|_SET_ONLY__\|tenant-onboarding-gated\|applicationsSync' \
+      "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml"; then
+    bad "no gatedSet (${NOOPT##*/}): the tenant-onboarding chart mentions the gated set"
+  else ok "no gatedSet (${NOOPT##*/}): the tenant-onboarding chart is as before (one ApplicationSet, no selector, no ignore rule)"; fi
 done
+has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml" '^\{\{- \.Files\.Get "applicationset\.tmpl\.yaml"$' "gatedSet off: render.yaml emits the template once, as before"
+GS="${TMP}/gate-set"
+new "${GS}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" --set clearance.gate.agent.gatedSet=true
+render_ok "${GS}" "gate opt-in with the gated set"
+GSA="${GS}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; GSR="${GS}/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml"
+has "${GSA}" '^  name: __SET_NAME__$' "gatedSet: the ApplicationSet's name is the set's"
+has "${GSA}" '^            operator: __SET_SELECTOR_OPERATOR__$' "gatedSet: the generator selects on clearanceGate"
+has "${GSA}" '^  __GATED_SET_ONLY__  - jsonPointers: \[/spec/source, /spec/sources\]$' "gatedSet: the source ignore rule is marked gated-set-only"
+has "${GSA}" '^  __GATED_SET_ONLY__  annotations: \[clearance.hangar.io/switched\]$' "gatedSet: preservedFields keeps the agent's switched marker (gated set only)"
+has "${GSA}" '^      __TENANT_SET_ONLY__  - resources-finalizer.argocd.argoproj.io$' "gatedSet: the resources finalizer is tenant-onboarding's only"
+has "${GSA}" '^    \{\{- if and __SET_STATIC_PLUGIN__ \(regexMatch' "gatedSet: the static plugin source is switched per set"
+has "${GSR}" '"__SET_NAME__" "tenant-onboarding-gated"' "gatedSet: render.yaml emits tenant-onboarding-gated"
+has "${GSR}" '"__SET_SELECTOR_OPERATOR__" "NotIn"' "gatedSet: tenant-onboarding excludes the gated environments"
+if grep -q 'applicationsSync' "${GSA}"; then bad "gatedSet without gatedSetHandover: applicationsSync rendered"; else ok "gatedSet without gatedSetHandover: no applicationsSync (both sets delete what they stop generating, as before)"; fi
+GSH="${TMP}/gate-set-handover"
+new "${GSH}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agent.gatedSet=true --set clearance.gate.agent.gatedSetHandover=true
+render_ok "${GSH}" "gate opt-in with the gated set and the handover window"
+has "${GSH}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" '^    applicationsSync: create-update$' "gatedSetHandover: both sets create-update (no deletion)"
+# The handover window relies on the controller honouring applicationsSync: no controller-wide policy on argocd-apps' ApplicationSet controller.
+if grep -q 'applicationsetcontroller.policy' templates/01-argocd-platform/argocd-apps-install/application.yaml; then bad "argocd-apps-install sets applicationsetcontroller.policy: an ApplicationSet's applicationsSync would be ignored"; else ok "argocd-apps-install sets no controller-wide applicationsetcontroller.policy (applicationsSync is honoured)"; fi
+for BADP in "clearance.gate.agent.gatedSet=maybe|agent.gatedSet is true or false" "clearance.gate.agent.gatedSetHandover=yes|gatedSetHandover is true or false" \
+            "clearance.gate.agent.optIn=false|gatedSet needs the gate and its agent" "clearance.gate.lowerZone=false|gatedSet needs the gate and its agent"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/gate-set-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+    --set clearance.gate.agent.gatedSet=true --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-set-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "gated set ${BAD}: refused (${WANT})"; else bad "gated set ${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
+new "${TMP}/gate-set-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agent.gatedSetHandover=true
+BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-set-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -qF -- "gatedSetHandover is the handover window" <<<"${BADERR}"; then ok "gatedSetHandover without gatedSet: refused"; else bad "gatedSetHandover without gatedSet: rc=${BADRC} ${BADERR}"; fi
 OC="${TMP}/gate-opt/55-clearance/clearance/application.yaml"
 [ "$(grep -c 'app.kubernetes.io/name: argocd-repo-server' "${OC}")" = 1 ] && ok "gate with the core here: the core admits the repo-server" || bad "gate with the core here: the repo-server rule is missing or doubled"
 [ "$(grep -c 'app.kubernetes.io/name: clearance-argocd-agent' "${OC}")" = 2 ] && ok "gate with the core here: the core and clearance-api admit the agent" || bad "gate with the core here: the agent rules are not exactly two (core, api)"
@@ -2263,6 +2294,18 @@ if out="$(python3 tests/policy/test_argo_sync.py 2>&1)"; then
   ok "clearance argo-sync: $(tail -1 <<<"${out}")"
 else
   bad "clearance argo-sync: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+
+# W-43: the gated set's two ApplicationSets (rendered above as gate-set and gate-set-handover) run by the real Argo CD
+# ApplicationSet controller (tests/appset, the Argo CD Go module argocd-apps runs) against envtest: one set per environment,
+# the ignore rule and preservedFields only in the gated set, and the handover in both directions keeping the Application.
+if ! command -v go >/dev/null 2>&1; then
+  if [ "${APRON_REQUIRE_ENVTEST:-}" = 1 ]; then bad "tenant-onboarding gated set: go is not installed"; else echo "  skip tenant-onboarding gated set (tests/appset): go is not installed"; fi
+elif out="$(cd tests/appset && APRON_GATED_RENDER="${TMP}/gate-set" APRON_GATED_HANDOVER_RENDER="${TMP}/gate-set-handover" go test -count=1 -v -run TestGatedSet ./... 2>&1)"; then
+  if grep -q -- '--- SKIP' <<<"${out}"; then echo "  skip tenant-onboarding gated set (tests/appset): $(grep -m1 -A1 -- '--- SKIP' <<<"${out}" | tail -1 | sed 's/^ *//')"
+  else ok "tenant-onboarding gated set against Argo CD's ApplicationSet controller: $(grep -c -- '^    --- PASS' <<<"${out}") cases"; fi
+else
+  bad "tenant-onboarding gated set: $(grep -E -- '--- FAIL|gatedset_test.go:[0-9]+:' <<<"${out}" | head -8)"
 fi
 
 echo "== 6. agentrun-reaper (the script in its ConfigMap, against a fake API)"
