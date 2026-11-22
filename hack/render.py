@@ -1285,11 +1285,41 @@ def render_text(text, rel, v, toks, errors):
     return "\n".join(out)
 
 
+def tenant_gated_set_flags(g):
+    """clearance.gate.agent.gatedSet (W-43): the tenant-onboarding chart renders a second ApplicationSet,
+    tenant-onboarding-gated, for the environments whose identity.yaml says `clearanceGate: true` (Airframe
+    ApplicationEnvironment spec.clearanceGate), and tenant-onboarding stops generating them. clearance.gate.agent.gatedSetHandover
+    opens the handover window (both sets applicationsSync: create-update). Both default off; off, the chart is what it was.
+    Returned as the `_tenantGatedSet` / `_tenantGatedHandover` values the templates' #@if lines read."""
+    gated, handover = g("clearance.gate.agent.gatedSet", None), g("clearance.gate.agent.gatedSetHandover", None)
+    for key, val in (("gatedSet", gated), ("gatedSetHandover", handover)):
+        if val is not None and not isinstance(val, bool):
+            raise ApronError(f"clearance.gate.agent.{key} is true or false")
+    if gated:
+        # Only where the agent runs the annotation opt-in: the gated set exists for the agent, and without it the set's
+        # Applications would sit annotated with nothing to switch them (and nothing to un-switch them).
+        gate_here = g("zone", "") == "upper" or bool(g("clearance.gate.lowerZone", False))
+        if not (gate_here and g("clearance.gate.enabled", False) and g("clearance.gate.agent", None) and g("clearance.gate.agent.optIn", False)):
+            raise ApronError("clearance.gate.agent.gatedSet needs the gate and its agent on this cluster (clearance.gate.enabled, clearance.gate.agent, "
+                             "clearance.gate.agent.optIn: true, and zone: upper or clearance.gate.lowerZone: true)")
+        # Not with tenantPlugin (default true): tenant-onboarding would give an environment the static plugin source, and a
+        # handover into the gated set keeps that source (its ignore rule preserves /spec/sources), so the agent refuses the
+        # Application ("on the plugin and the agent did not put it there") and it stays on a static plugin source the gated set
+        # never updates. Which environments are gated is data (identity.yaml), not known here, so the combination is refused.
+        if g("clearance.gate.tenantPlugin", None) is not False:
+            raise ApronError("clearance.gate.agent.gatedSet needs clearance.gate.tenantPlugin: false: an Application tenant-onboarding put on the "
+                             "static plugin keeps that source when it is handed over to tenant-onboarding-gated, and the agent refuses to switch it "
+                             "(apron README, \"Gated environments\")")
+    if handover and not gated:
+        raise ApronError("clearance.gate.agent.gatedSetHandover is the handover window between tenant-onboarding and tenant-onboarding-gated: it needs clearance.gate.agent.gatedSet")
+    return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover)}
+
+
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
     signing_dir_check(out_dir)
-    v = dict(v, _dir=os.path.abspath(out_dir))
+    v = dict(v, _dir=os.path.abspath(out_dir), **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):
