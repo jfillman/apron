@@ -26,17 +26,33 @@ data:
     """Publish this cluster's declared targets to the Clearance core (PUT /v1/targets/<source>).
 
     Standard library only. The token is the pod's projected service-account token (audience clearance), read fresh. Exits 1
-    when the core refuses or cannot be reached, so a failed Job is visible; a retry is safe (an unchanged set is a no-op).
+    when the core refuses or cannot be reached, so a failed Job is visible. A retry is safe (an unchanged set is a no-op),
+    so a connection the core or the proxy in front of it dropped (RemoteDisconnected, reset, timeout) and a 502/503/504
+    are retried in-process on a fresh connection, with a short backoff, before the Job gives up. Any other HTTP status
+    (a refusal: 400/401/403/409...) is final and never retried.
     """
 
+    import http.client
     import json
     import os
     import sys
+    import time
     import urllib.error
     import urllib.request
 
     URL = os.environ["CLEARANCE_URL"].rstrip("/")
     SOURCE = os.environ["TARGETS_SOURCE"]
+    BACKOFF = (2, 5, 10)  # seconds before attempts 2, 3 and 4
+    RETRY_STATUS = (502, 503, 504)
+
+
+    def put(body, token):
+        # A new Request and opener per attempt: nothing is reused from a connection that just failed.
+        req = urllib.request.Request(f"{URL}/v1/targets/{SOURCE}", method="PUT", data=body.encode(),
+                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                                              "Connection": "close"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
 
 
     def main():
@@ -45,17 +61,27 @@ data:
         n = len(json.loads(body)["targets"])
         with open("/var/run/secrets/tokens/clearance") as f:
             token = f.read().strip()
-        req = urllib.request.Request(f"{URL}/v1/targets/{SOURCE}", method="PUT", data=body.encode(),
-                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                answer = json.load(r)
-        except urllib.error.HTTPError as e:
-            print(f"FAILED PUT /v1/targets/{SOURCE}: HTTP {e.code} {e.read()[:300]!r}", file=sys.stderr)
-            return 1
-        except OSError as e:
-            print(f"FAILED PUT /v1/targets/{SOURCE}: {e}", file=sys.stderr)
-            return 1
+        answer = None
+        for attempt in range(len(BACKOFF) + 1):
+            try:
+                answer = put(body, token)
+                break
+            except urllib.error.HTTPError as e:
+                try:  # the body is only for the log: a read that fails (IncompleteRead, reset) must not end the retry flow
+                    body_text = e.read(300)
+                except Exception as read_err:  # noqa: BLE001
+                    body_text = f"<unreadable: {type(read_err).__name__}>"
+                detail = f"HTTP {e.code} {body_text!r}"
+                if e.code not in RETRY_STATUS:
+                    print(f"FAILED PUT /v1/targets/{SOURCE}: {detail}", file=sys.stderr)
+                    return 1
+            except (OSError, http.client.HTTPException, ValueError) as e:  # URLError, reset, timeout; RemoteDisconnected and IncompleteRead (a response cut off mid-body) are HTTPExceptions; ValueError: an unparsable body
+                detail = f"{type(e).__name__}: {e}"
+            if attempt == len(BACKOFF):
+                print(f"FAILED PUT /v1/targets/{SOURCE}: {detail} (after {attempt + 1} attempts)", file=sys.stderr)
+                return 1
+            print(f"attempt {attempt + 1} failed ({detail}); retrying in {BACKOFF[attempt]}s", file=sys.stderr)
+            time.sleep(BACKOFF[attempt])
         print(f"published {n} targets for {SOURCE}: changed={answer.get('changed')} digest={answer.get('digest')} seq={answer.get('seq')}")
         return 0
 

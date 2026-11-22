@@ -48,6 +48,9 @@ def app(name, project, ns="argocd-apps"):
 def main():
     assets = os.environ.get("KUBEBUILDER_ASSETS")
     if not assets or not (Path(assets) / "kube-apiserver").exists():
+        if os.environ.get("APRON_REQUIRE_ENVTEST") == "1":  # CI: a skip is not a pass
+            print("FAIL: APRON_REQUIRE_ENVTEST=1 but KUBEBUILDER_ASSETS has no kube-apiserver")
+            return 1
         print("skipped: set KUBEBUILDER_ASSETS to envtest binaries (setup-envtest use 1.36.2 -p path)")
         return 0
     results = []
@@ -87,6 +90,8 @@ def main():
         print("-- denied")
         check("the retired name (clearance) cannot sync (R-10e)", False,
               patch("gate-api-dev", {"operation": OP}, who=CLEARANCE_OLD), "forbidden")
+        # R-10e dropped the old name's sync that used to leave an operation in flight here: start one, so the next is the second.
+        check("the adapter's sync of a lower app, again (now in flight)", True, patch("gate-api-dev", {"operation": OP}))
         check("a second sync while one is in flight", False, patch("gate-api-dev", {"operation": OP}), "in flight")
         clear("gate-api-dev")
         check("a sync of an upper app", False, patch("gate-api-prod", {"operation": OP}), "-lower project")

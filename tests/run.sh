@@ -215,7 +215,9 @@ has "${LAB}/dev/55-clearance/clearance/application.yaml" 'principals": \["autopi
 # clearance-api headroom: 512Mi limit, 128Mi request, GOMEMLIMIT below the limit (the chart default OOMKilled in a loop)
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'limits: \{memory: 512Mi\}' "lab: clearance-api memory limit is 512Mi"
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'requests: \{cpu: 25m, memory: 128Mi\}' "lab: clearance-api memory request is 128Mi"
-has "${LAB}/dev/55-clearance/clearance/application.yaml" 'name: GOMEMLIMIT, value: 400MiB' "lab: clearance-api sets GOMEMLIMIT"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" '^          goMemLimit: 400MiB$' "lab: clearance-api sets GOMEMLIMIT with the chart's goMemLimit"
+# Chart 0.54.0 adds its own GOMEMLIMIT: one from extraEnv too makes the env name repeat, and Argo CD's dry run refuses the patch.
+if grep -rqE 'name: GOMEMLIMIT' "${LAB}/dev/55-clearance/clearance/application.yaml"; then bad "lab: clearance sets GOMEMLIMIT in extraEnv (duplicate env name with the chart's)"; else ok "lab: clearance has no extraEnv GOMEMLIMIT"; fi
 has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9' "lab: function-agentrun v0.4.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
@@ -334,10 +336,12 @@ if hack/build-trust-root.sh "${TMP}/bt" --new-start 2026-11-10T00:00:00Z --legac
 # Clearance gate (clearance G-ARGO-2, 56-clearance-gate): upper clusters only, off by default; Warn, then Deny + Allow->Deny.
 expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
 G="${TMP}/gate"
-mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/warn/cluster.yaml"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/enforce/cluster.yaml"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/dev/cluster.yaml"
+mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev" "${G}/ca" "${G}/ca-empty" "${G}/ca-bad"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/warn/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/enforce/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/dev/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: hangar-cluster-ca}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: ""}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-empty/cluster.yaml"
 render_ok "${G}/warn" "prod clearance gate warn"
 render_ok "${G}/enforce" "prod clearance gate enforce"
 render_ok "${G}/dev" "dev clearance gate key"
@@ -374,11 +378,208 @@ has "${G}/warn/${GP}" "== 'system:serviceaccount:clearance-system:clearance-argo
 has "${G}/enforce/${GP}" 'validationActions: \[Deny, Audit\]' "clearance gate: enforce denies"
 has "${G}/enforce/${GP}" 'parameterNotFoundAction: Deny' "clearance gate: enforce flips parameterNotFoundAction too"
 has "${G}/enforce/${GP}" "clearance-system:the-agent'" "clearance gate: the agent account is configurable"
-if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" 2>&1)"; then
+# clearance.gate.waitCAConfigMap (I-43, A-17): off (unset or empty) the policy is byte for byte the one without the key; on, it
+# admits only the plugin's CA volume of that ConfigMap; a name that is not a ConfigMap name is refused before it reaches the CEL.
+render_ok "${G}/ca" "prod clearance gate enforce + waitCAConfigMap"
+render_ok "${G}/ca-empty" "prod clearance gate enforce + empty waitCAConfigMap"
+sed 's/clearance-system:the-agent/clearance-system:clearance-argocd-agent/' "${G}/enforce/${GP}" | cmp -s - "${G}/ca-empty/${GP}" \
+  && ok "clearance gate: the waitCAConfigMap-off policy is the enforce policy byte for byte (bar the agent account)" \
+  || bad "clearance gate: the waitCAConfigMap-off policy differs from the enforce policy"
+nca() { grep -c "$1" "$2" 2>/dev/null || true; }
+[ "$(nca 'clearance-ca' "${G}/warn/${GP}")" = 0 ] && [ "$(nca 'clearance-ca' "${G}/enforce/${GP}")" = 0 ] \
+  && ok "clearance gate: no CA volume is admitted without waitCAConfigMap" || bad "clearance gate: the CA exemption renders without waitCAConfigMap"
+has "${G}/ca/${GP}" "configMap.name == 'hangar-cluster-ca'" "clearance gate: the CA exemption pins the ConfigMap from waitCAConfigMap"
+has "${G}/ca/${GP}" "mountPath == '/etc/clearance-ca'" "clearance gate: the CA exemption pins the mount path"
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, waitCAConfigMap: \"x' || true || 'y\"}}"; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/ca-bad/cluster.yaml" 2>&1)" && bad "clearance gate: a waitCAConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'waitCAConfigMap' <<<"${out}" && ok "clearance gate: a waitCAConfigMap that is not a ConfigMap name is refused" || bad "clearance gate: bad waitCAConfigMap refusal text: ${out}"; }
+# clearance.gate.previousURL (A-19): one release only; off, the URL test is the single == as before; on, exactly the two URLs.
+WIMG='versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'
+mkdir -p "${G}/prev" "${G}/prev-same" "${G}/prev-bad" "${G}/inject-noca"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://clearance-core.clearance-system.svc:8080"}}'; echo "${WIMG}"; } >"${G}/prev/cluster.yaml"
+render_ok "${G}/prev" "prod clearance gate enforce + previousURL"
+has "${G}/prev/${GP}" "variables.waitctr.env\[0\].value in \['https://clearance-core.clearance-system.svc:8443', 'http://clearance-core.clearance-system.svc:8080'\] &&" "previousURL: the exemption admits the current and the previous URL"
+has "${G}/enforce/${GP}" "variables.waitctr.env\[0\].value == '" "no previousURL: the single-URL test as before"
+if grep -q 'env\[0\].value in' "${G}/enforce/${GP}" "${G}/warn/${GP}"; then bad "no previousURL: the URL test renders a list"; else ok "no previousURL: no URL list"; fi
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "http://clearance.hangar-dev.local", previousURL: "http://clearance.hangar-dev.local"}}'; echo "${WIMG}"; } >"${G}/prev-same/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-same/cluster.yaml" 2>&1)" && bad "previousURL equal to gate.url rendered" \
+  || { grep -q 'previousURL equals' <<<"${out}" && ok "previousURL equal to gate.url is refused" || bad "previousURL equal: ${out}"; }
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, previousURL: \"http://x' || true || 'y\"}}"; echo "${WIMG}"; } >"${G}/prev-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-bad/cluster.yaml" 2>&1)" && bad "a previousURL that is not a URL rendered" \
+  || { grep -q 'clearance.gate.previousURL is' <<<"${out}" && ok "a previousURL that could reach the CEL is refused" || bad "bad previousURL: ${out}"; }
+mkdir -p "${G}/prev-v6"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://[2001:db8::1]:8080"}}'; echo "${WIMG}"; } >"${G}/prev-v6/cluster.yaml"
+python3 hack/render.py --cluster "${G}/prev-v6/cluster.yaml" >/dev/null 2>&1 \
+  && has "${G}/prev-v6/${GP}" "'http://\[2001:db8::1\]:8080'\] &&" "previousURL: an IPv6 host renders (CodeRabbit on #271)" || bad "previousURL: an IPv6 URL was refused"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, waitCAInject: true}}'; echo "${WIMG}"; } >"${G}/inject-noca/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/inject-noca/cluster.yaml" 2>&1)" && bad "waitCAInject without waitCAConfigMap rendered" \
+  || { grep -q 'waitCAInject needs clearance.gate.waitCAConfigMap' <<<"${out}" && ok "waitCAInject without waitCAConfigMap is refused" || bad "waitCAInject without the policy key: ${out}"; }
+if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" "${G}/ca" "${G}/prev" 2>&1)"; then
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
 fi
+
+echo "== 1-ca. trust-manager and the cluster CA (A-19)"
+# Off by default: neither renders. On: the chart and its image are pinned (the image by digest), no public-CA package image runs,
+# the CA is ECDSA P-256 with its key never rotated, and the Bundle writes ConfigMap hangar-cluster-ca (key ca.crt) to every namespace.
+expect "${LAB}/dev" "dev/kiac default" '!10-crds-operators/trust-manager/application.yaml' '!10-crds-operators/cluster-ca/ca.yaml'
+expect "${LAB}/prod" "prod/kind default" '!10-crds-operators/trust-manager/application.yaml' '!10-crds-operators/cluster-ca/ca.yaml'
+CAD="${TMP}/cluster-ca"
+new "${CAD}/on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.trustManager=true --set components.clusterCA=true
+render_ok "${CAD}/on" "dev trustManager + clusterCA"
+TMA="${CAD}/on/10-crds-operators/trust-manager/application.yaml"
+CAY="${CAD}/on/10-crds-operators/cluster-ca/ca.yaml"
+TMV="$(sed -n 's/^    chart: \(v[0-9.]*\)$/\1/p' <(sed -n '/^  trustManager:/,/imageDigest/p' versions.yaml))"
+TMD="$(sed -n 's/^    imageDigest: \(sha256:[0-9a-f]*\)$/\1/p' <(sed -n '/^  trustManager:/,/imageDigest/p' versions.yaml))"
+[ -n "${TMV}" ] && [ -n "${TMD}" ] && ok "versions.trustManager: chart ${TMV}, image ${TMD:0:19}..." || bad "versions.trustManager: no chart or digest read"
+has "${TMA}" "targetRevision: ${TMV}$" "trust-manager: the chart is pinned from versions.trustManager.chart"
+has "${TMA}" "tag: \"${TMV}\"" "trust-manager: the image tag is the chart version"
+has "${TMA}" "digest: \"${TMD}\"" "trust-manager: the image index is pinned by digest"
+has "${TMA}" 'namespace: cert-manager$' "trust-manager: installs into cert-manager, its trust namespace"
+grep -A1 'defaultPackage:' "${TMA}" | grep -q 'enabled: false' && ok "trust-manager: no public-CA package image" || bad "trust-manager: defaultPackage is not off"
+grep -A1 'secretTargets:' "${TMA}" | grep -q 'enabled: false' && ok "trust-manager: no Secret targets" || bad "trust-manager: secretTargets is not off"
+has "${CAD}/on/10-crds-operators/cluster-ca/application.yaml" 'path: 10-crds-operators/cluster-ca$' "cluster CA: its own Application"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${CAY}" <<'PY' 2>&1
+import sys, yaml
+docs = {(d["kind"], d["metadata"]["name"]): d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+bad = []
+ca = docs[("Certificate", "hangar-cluster-ca")]
+s = ca["spec"]
+if not (s.get("isCA") is True and s.get("secretName") == "hangar-cluster-ca" and ca["metadata"].get("namespace") == "cert-manager"):
+    bad.append("the CA Certificate is not isCA hangar-cluster-ca in cert-manager")
+if s.get("privateKey") != {"algorithm": "ECDSA", "size": 256, "rotationPolicy": "Never"}:
+    bad.append(f"CA key {s.get('privateKey')}")
+if s.get("duration") != "87600h":
+    bad.append("CA duration is not 10 years")
+if s.get("issuerRef", {}).get("name") != "hangar-cluster-ca-bootstrap" or s["issuerRef"].get("kind") != "ClusterIssuer":
+    bad.append("the CA is not signed by the bootstrap ClusterIssuer")
+if docs[("ClusterIssuer", "hangar-cluster-ca-bootstrap")]["spec"] != {"selfSigned": {}}:
+    bad.append("the bootstrap issuer is not self-signed")
+if docs[("ClusterIssuer", "hangar-cluster-ca")]["spec"] != {"ca": {"secretName": "hangar-cluster-ca"}}:
+    bad.append("the CA ClusterIssuer does not sign with hangar-cluster-ca")
+b = docs[("Bundle", "hangar-cluster-ca")]
+if b["apiVersion"] != "trust.cert-manager.io/v1alpha1":
+    bad.append("Bundle apiVersion " + b["apiVersion"])
+if b["spec"].get("sources") != [{"secret": {"name": "hangar-cluster-ca", "key": "ca.crt"}}]:
+    bad.append(f"Bundle sources {b['spec'].get('sources')} (want only the CA Secret's ca.crt)")
+if b["spec"].get("target") != {"configMap": {"key": "ca.crt"}}:
+    bad.append(f"Bundle target {b['spec'].get('target')} (want a ConfigMap, key ca.crt, every namespace: no namespaceSelector)")
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "cluster CA: self-signed bootstrap -> CA (P-256, 10y, key kept) -> CA ClusterIssuer; the Bundle publishes only ca.crt to every namespace"
+  else
+    bad "cluster CA: ${out}"
+  fi
+fi
+for c in "components.clusterCA=true:components.clusterCA needs components.certManager" \
+         "components.trustManager=true:components.trustManager needs components.certManager"; do
+  new "${CAD}/bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+    --set components.certManager=false --set "${c%%:*}" --set components.trustManager=true
+  out="$(python3 hack/render.py --cluster "${CAD}/bad/cluster.yaml" 2>&1)" && bad "${c%%:*} without cert-manager rendered" \
+    || { grep -qF "${c#*:}" <<<"${out}" && ok "${c%%:*} without cert-manager is refused" || bad "${c%%:*} without cert-manager: ${out}"; }
+done
+new "${CAD}/notm" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.clusterCA=true
+out="$(python3 hack/render.py --cluster "${CAD}/notm/cluster.yaml" 2>&1)" && bad "clusterCA without trustManager rendered" \
+  || { grep -qF "components.clusterCA needs" <<<"${out}" && ok "clusterCA without trustManager is refused" || bad "clusterCA without trustManager: ${out}"; }
+new "${CAD}/nodig" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.trustManager=true --set versions.trustManager.imageDigest=latest
+out="$(python3 hack/render.py --cluster "${CAD}/nodig/cluster.yaml" 2>&1)" && bad "trustManager with no image digest rendered" \
+  || { grep -qF "versions.trustManager.imageDigest" <<<"${out}" && ok "trustManager without an image digest is refused" || bad "trustManager without a digest: ${out}"; }
+
+echo "== 1-tls. the Clearance core's and API's https (clearance.tls, A-19)"
+# Off: no tls block, the routes on 8080, no BackendTLSPolicy, Traefik's status rule as before. On: the chart's tls.* with the cluster
+# CA's ClusterIssuer and 90/30 days; gatewayBackendTLS moves exactly the core's and the API's routes to 8443 behind a v1 policy.
+CLR="55-clearance/clearance/application.yaml"
+TLSDIR="${TMP}/ctls"
+TLS_BASE=(--repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set components.clearance=true)
+new "${TLSDIR}/off" dev hangar-dev kiac "${TLS_BASE[@]}"
+render_ok "${TLSDIR}/off" "dev clearance, tls off"
+if grep -q '^        tls:' "${TLSDIR}/off/${CLR}"; then bad "tls off: the Clearance Application has a tls block"; else ok "tls off: no tls block"; fi
+[ "$(grep -c 'port: 8080' "${TLSDIR}/off/55-clearance/clearance-config/routes.yaml")" -ge 2 ] && ok "tls off: the routes send to 8080" || bad "tls off: the routes do not send to 8080"
+expect "${TLSDIR}/off" "tls off" '!55-clearance/clearance-config/backend-tls.yaml'
+if grep -q 'backendtlspolicies/status' "${TLSDIR}/off/10-crds-operators/traefik/gateway.yaml"; then bad "tls off: Traefik's status rule changed"; else ok "tls off: Traefik's status rule as before"; fi
+new "${TLSDIR}/on" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true
+render_ok "${TLSDIR}/on" "dev clearance tls + gatewayBackendTLS"
+has "${TLSDIR}/on/${CLR}" '^          plainHttp: true$' "tls on: plain http stays by default"
+has "${TLSDIR}/on/${CLR}" 'issuerRef: \{"name": "hangar-cluster-ca", "kind": "ClusterIssuer"\}' "tls on: the cluster CA's ClusterIssuer signs the leaves"
+has "${TLSDIR}/on/${CLR}" '^            duration: 2160h$' "tls on: 90-day leaves"
+has "${TLSDIR}/on/${CLR}" '^            renewBefore: 720h$' "tls on: renewed 30 days early"
+[ "$(grep -c 'port: 8080' "${TLSDIR}/on/55-clearance/clearance-config/routes.yaml")" = 0 ] && [ "$(grep -c 'port: 8443' "${TLSDIR}/on/55-clearance/clearance-config/routes.yaml")" -ge 2 ] \
+  && ok "gatewayBackendTLS: every core and API route sends to 8443" || bad "gatewayBackendTLS: a route still sends to 8080"
+has "${TLSDIR}/on/10-crds-operators/traefik/gateway.yaml" 'tlsroutes/status, backendtlspolicies/status\]' "gatewayBackendTLS: Traefik may report the policies' status"
+BTP="${TLSDIR}/on/55-clearance/clearance-config/backend-tls.yaml"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${BTP}" <<'PY' 2>&1
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+bad = []
+if sorted(d["metadata"]["name"] for d in docs) != ["clearance-api", "clearance-core"]:
+    bad.append("want two policies, clearance-core and clearance-api")
+for d in docs:
+    n = d["metadata"]["name"]
+    if d["apiVersion"] != "gateway.networking.k8s.io/v1" or d["kind"] != "BackendTLSPolicy":
+        bad.append(f"{n}: {d['apiVersion']} {d['kind']}")
+    if d["spec"]["targetRefs"] != [{"group": "", "kind": "Service", "name": n, "sectionName": "https"}]:
+        bad.append(f"{n}: targetRefs {d['spec']['targetRefs']}")
+    want = {"caCertificateRefs": [{"group": "", "kind": "ConfigMap", "name": "hangar-cluster-ca"}], "hostname": f"{n}.clearance-system.svc"}
+    if d["spec"]["validation"] != want:
+        bad.append(f"{n}: validation {d['spec']['validation']}")
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "gatewayBackendTLS: a v1 BackendTLSPolicy per Service, section https, verified against hangar-cluster-ca for <service>.<ns>.svc"
+  else
+    bad "gatewayBackendTLS: ${out}"
+  fi
+fi
+new "${TLSDIR}/own" dev hangar-dev kiac "${TLS_BASE[@]}" --set clearance.tls.enabled=true
+render_ok "${TLSDIR}/own" "dev clearance tls without the cluster CA"
+has "${TLSDIR}/own/${CLR}" 'issuerRef: \{"name": "", "kind": "Issuer"\}' "tls without components.clusterCA: the chart's own CA"
+[ "$(grep -c 'port: 8443' "${TLSDIR}/own/55-clearance/clearance-config/routes.yaml")" = 0 ] && ok "tls without gatewayBackendTLS: the routes stay on 8080" || bad "tls without gatewayBackendTLS moved a route"
+tls_refused() { # tls_refused LABEL WANT --set ...
+  local label="$1" want="$2"; shift 2
+  new "${TLSDIR}/bad" dev hangar-dev kiac "${TLS_BASE[@]}" "$@"
+  local out
+  out="$(python3 hack/render.py --cluster "${TLSDIR}/bad/cluster.yaml" 2>&1)" && { bad "${label}: rendered"; return; }
+  grep -qF "${want}" <<<"${out}" && ok "${label}: refused" || bad "${label}: refusal text: ${out}"
+}
+tls_refused "gatewayBackendTLS without tls" "clearance.tls.gatewayBackendTLS needs clearance.tls.enabled" --set components.trustManager=true --set components.clusterCA=true --set clearance.tls.gatewayBackendTLS=true
+tls_refused "gatewayBackendTLS without the cluster CA" "needs components.clusterCA" --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true
+tls_refused "tls on an older chart" "versions.clearance.chart 0.54.0 or later" --set clearance.tls.enabled=true --set versions.clearance.chart=0.53.0
+tls_refused "tls without cert-manager" "clearance.tls.enabled needs components.certManager" --set clearance.tls.enabled=true --set components.certManager=false
+tls_refused "tls.enabled not a bool" "clearance.tls.enabled is true or false" --set clearance.tls.enabled=yes-please
+tls_refused "plainHttp false with plain-http routes" "the Gateway's routes (set clearance.tls.gatewayBackendTLS)" --set clearance.tls.enabled=true --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Autopilot" "the Autopilot gateway and read API" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false without tls" "clearance.tls.plainHttp false needs clearance.tls.enabled" --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Glidepath" "Glidepath's agent gates and deployment gate" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+# The callers of clearance.gate.url are refused only while that URL is plain http (CodeRabbit on #270).
+new "${TLSDIR}/gurl" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false --set clearance.targets.enabled=true
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+grep -qF "the target registry publisher (clearance.gate.url is plain http)" <<<"${out}" && ok "plainHttp false: the publisher on a plain-http gate.url is named" || bad "plainHttp false, publisher on http: ${out}"
+python3 - "${TLSDIR}/gurl/cluster.yaml" <<'PYG'
+import sys, yaml
+p = sys.argv[1]; d = yaml.safe_load(open(p))
+d["clearance"].setdefault("gate", {})["url"] = "https://clearance-core.clearance-system.svc:8443"
+yaml.safe_dump(d, open(p, "w"), sort_keys=False)
+PYG
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+if grep -qF "target registry publisher (clearance.gate.url is plain http)" <<<"${out}"; then bad "plainHttp false: the publisher is named as a plain-http caller although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not a plain-http caller"; fi
+# ...but an https gate.url to the in-cluster core is refused while the publisher (or the audit collector) cannot trust its private CA.
+grep -qF "the target registry publisher (clearance.targets.enabled) has no CA setting" <<<"${out}" \
+  && ok "https gate.url to the in-cluster core: refused while the publisher has no CA setting (CodeRabbit on #270)" || bad "https gate.url, publisher without a CA: ${out}"
 
 echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
 GA="${TMP}/gpapi"
@@ -391,8 +592,20 @@ has "${LAB}/dev/${GW}" 'name: glidepath-api-pipelinerun-source-isolation' "glide
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"clearance-gate-check\": \[\"render\"\], \"policy-validation-check\": \[\"render\"\], \"test\": \[\"run-integration-script\"\], \"values-check\": \[\"render\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidepath-api: the pusher task"
 has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"bypass-merge-check\": \[\"mark-release-merged\", \"itsm-implement\"\], \"clearance-gate-check\": \[\"join-release\"\], \"itsm-check\": \[\"verify-change\", \"verify-change-advisory\"\], \"release\": \[\"open-release-pr\"\], \"release-outcome-notify\": \[\"itsm-close\"\], \"release-rollback-notify\": \[\"itsm-close-rolled-back\"\]\}'" "glidepath-api: the release-record-writer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"test\": \[\"run-testworkflow\"\]\}'" "glidepath-api: the test-runner task"
+has "${LAB}/dev/${GW}" "s.serviceAccountName == 'clearance-gate' && variables.pipelineName in variables.clearanceTasks" "glidepath-api: clearance-gate is allowed on its own tasks, by exact name"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
+# itsm.enabled (glidepath-app, pipeline trust T4 step 3) follows itsm.provider: true with the webhook provider (hangar-dev's mock), absent without.
+mkdir -p "${GA}/itsm" "${GA}/noitsm"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: webhook, webhookUrl: "http://itsm-mock.platform-system.svc.cluster.local:8080/webhook"}'; } >"${GA}/itsm/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: null, webhookUrl: null}'; } >"${GA}/noitsm/cluster.yaml"
+render_ok "${GA}/itsm" "dev with the webhook ITSM provider"
+render_ok "${GA}/noitsm" "dev with no ITSM provider"
+for d in itsm noitsm; do [ -f "${GA}/${d}/${CPV}" ] || bad "glidepath control plane: the ${d} render has no ${CPV} to check"; done
+if awk '/^itsm:$/{f=1;next} f&&/^  enabled: true$/{ok=1} f&&/^[^ #]/{f=0} END{exit !ok}' "${GA}/itsm/${CPV}"; then ok "glidepath control plane: the webhook ITSM provider renders itsm.enabled: true"; else bad "glidepath control plane: the webhook ITSM provider does not render itsm.enabled: true"; fi
+if grep -q '^itsm:' "${GA}/noitsm/${CPV}"; then bad "glidepath control plane: no ITSM provider still renders itsm.enabled"; else ok "glidepath control plane: no ITSM provider leaves itsm.enabled out (false)"; fi
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
 mkdir -p "${GA}/nogate"
 { cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsRepoProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
@@ -456,6 +669,37 @@ if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${G
 else
   grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
 fi
+# promotion.gateLedger.writer (W-8): who writes the gate ledger. Unset renders no gateLedger key (the catalog's direct stands); api renders it.
+mkdir -p "${GA}/glw-api" "${GA}/glw-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: api}}'; } >"${GA}/glw-api/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: pipeline}}'; } >"${GA}/glw-bad/cluster.yaml"
+render_ok "${GA}/glw-api" "dev promotion.gateLedger.writer api"
+has "${GA}/glw-api/${CATV}" '^          promotion: \{.*"gateLedger": \{"writer": "api"\}' "glidepath catalog: promotion.gateLedger.writer api reaches the catalog values"
+if grep -q 'gateLedger' "${LAB}/dev/${CATV}"; then bad "promotion.gateLedger.writer unset: dev still renders a gateLedger key"; else ok "promotion.gateLedger.writer unset: dev renders no gateLedger key (unchanged)"; fi
+if python3 hack/check.py --cluster "${GA}/glw-bad/cluster.yaml" >/dev/null 2>"${GA}/glw-bad/err"; then
+  bad "promotion.gateLedger.writer: pipeline was accepted"
+else
+  grep -q 'promotion.gateLedger.writer' "${GA}/glw-bad/err" && ok "promotion.gateLedger.writer: an unknown value is refused by apron check" || bad "gateLedger.writer refusal: $(cat "${GA}/glw-bad/err")"
+fi
+# glidepath.gateReports.transport (W-8): how api-compat and policy-validation hand over their report. Unset renders no gateReports key
+# (the catalog's configmap stands); log renders it as one line; an unknown value is refused by both render and check.
+mkdir -p "${GA}/grt-log" "${GA}/grt-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: log}}'; } >"${GA}/grt-log/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: pod}}'; } >"${GA}/grt-bad/cluster.yaml"
+render_ok "${GA}/grt-log" "dev glidepath.gateReports.transport log"
+has "${GA}/grt-log/${CATV}" '^          gateReports: \{"transport": "log"\}' "glidepath catalog: glidepath.gateReports.transport log reaches the catalog values"
+if grep -q 'gateReports' "${LAB}/dev/${CATV}"; then bad "glidepath.gateReports.transport unset: dev still renders a gateReports key"; else ok "glidepath.gateReports.transport unset: dev renders no gateReports key (unchanged)"; fi
+if [ "$(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}" | grep -c '^[<>]')" = 1 ]; then ok "glidepath.gateReports.transport log: the catalog Application differs from unset by one line"; else bad "gateReports log diff: $(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}")"; fi
+if python3 hack/check.py --cluster "${GA}/grt-bad/cluster.yaml" >/dev/null 2>"${GA}/grt-bad/err"; then
+  bad "glidepath.gateReports.transport: pod was accepted by apron check"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/err" && ok "glidepath.gateReports.transport: an unknown value is refused by apron check" || bad "gateReports.transport check refusal: $(cat "${GA}/grt-bad/err")"
+fi
+if python3 hack/render.py --cluster "${GA}/grt-bad/cluster.yaml" --out "${GA}/grt-bad" >/dev/null 2>"${GA}/grt-bad/rerr"; then
+  bad "glidepath.gateReports.transport: pod was rendered"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/rerr" && ok "glidepath.gateReports.transport: an unknown value is refused by apron render" || bad "gateReports.transport render refusal: $(cat "${GA}/grt-bad/rerr")"
+fi
 # releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
 # clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
 mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"
@@ -514,6 +758,8 @@ if [ "${HAVE_YAML}" = true ]; then
   gp_drift "a source task Glidepath added" 's/build: \[build-source,/build: [build-source, lint-source,/' 'sourceTasks.build: missing here: lint-source'
   gp_drift "a source task Glidepath dropped" 's/build-go-binary-artifact\]/build-go-binary-artifactx]/' 'not in Glidepath: build-go-binary-artifact'
   gp_drift "a new pusher task" 's/build: \[push-image\]/build: [push-image, push-sbom]/' 'pusherTasks.build: missing here: push-sbom'
+  gp_drift "a new record-writer task" 's/    release: \[open-release-pr\]/    release: [open-release-pr, open-release-x]/' 'recordWriterTasks.release: missing here: open-release-x'
+  gp_drift "a new test-runner task" 's/    test: \[run-testworkflow\]/    test: [run-testworkflow, run-more]/' 'testRunnerTasks.test: missing here: run-more'
   gp_drift "a new cloud deployer Pipeline" 's/    deploy: \[deploy-aws-lambda, deploy-aws-ecs\]/    deploy: [deploy-aws-lambda, deploy-aws-ecs]\n    release: [deploy-aws-ecs]/' 'cloudDeployerTasks.release'
   for bad in 'a: [unclosed' '- a list' 'cicdRunAdmission: [x]'; do
     printf '%s\n' "${bad}" >"${TMP}/gp-badvalues.yaml"
@@ -576,7 +822,7 @@ python3 hack/render.py --cluster "${TMP}/gp-prov-same/cluster.yaml" >/dev/null 2
 
 echo "== 1b. the Argo CD gate(clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
 GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
-  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=)
 new "${TMP}/gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
 render_ok "${TMP}/gate" "gate on"
@@ -648,6 +894,47 @@ new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/
   --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
   --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
 if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
+# The gate's clients' CA (A-19, plan steps 4 and 5b): off, no CA in the sidecars or the agent; on, each names the ConfigMap.
+AGA="${TMP}/gate-agent/56-clearance-gate/agent/application.yaml"
+RSA="${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml"
+if grep -q 'clearance-ca\|CLEARANCE_CA_FILE\|CLEARANCE_WAIT_CA_CONFIGMAP' "${RSA}" || grep -q 'caConfigMap' "${AGA}"; then
+  bad "gate CA off: a CA setting rendered"; else ok "gate CA off: no CA in the sidecar or the agent"; fi
+new "${TMP}/gate-ca" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=https://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=https://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.54.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca --set clearance.gate.waitCAConfigMap=hangar-cluster-ca --set clearance.gate.waitCAInject=true \
+  --set clearance.gate.canary.image=ghcr.io/acme/clearance-cmp@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-ca" "gate on with the clients' CA"
+RSC="${TMP}/gate-ca/01-argocd-platform/argocd-apps-install/application.yaml"
+AGC="${TMP}/gate-ca/56-clearance-gate/agent/application.yaml"
+[ "$(grep -c 'name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars read the CA file" || bad "caConfigMap: CLEARANCE_CA_FILE is not on both sidecars"
+[ "$(grep -c 'name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars mount the CA read-only" || bad "caConfigMap: the CA mount is not on both sidecars"
+[ "$(grep -c 'name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "hangar-cluster-ca"' "${RSC}")" = 2 ] && ok "waitCAInject: both sidecars inject the wait Job's CA" || bad "waitCAInject: CLEARANCE_WAIT_CA_CONFIGMAP is not on both sidecars"
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${RSC}" "${AGC}" <<'PY' && ok "gate CA: the repo-server volume is the ConfigMap's ca.crt only; the agent's tls.caConfigMap and waitJob.caConfigMap name it" || bad "gate CA: the rendered values are wrong"
+import sys, yaml
+app = yaml.safe_load(open(sys.argv[1]))
+vols = app["spec"]["source"]["helm"]["valuesObject"]["repoServer"]["volumes"]
+ca = [x for x in vols if x["name"] == "clearance-ca"]
+assert ca == [{"name": "clearance-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], ca
+ag = yaml.safe_load(open(sys.argv[2]))["spec"]["source"]["helm"]["valuesObject"]
+assert ag["tls"] == {"caConfigMap": "hangar-cluster-ca"}, ag.get("tls")
+assert ag["waitJob"]["caConfigMap"] == "hangar-cluster-ca", ag["waitJob"]
+PY
+fi
+new "${TMP}/gate-ca-old" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.53.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-old/cluster.yaml" 2>&1)" && bad "gate CA on an agent chart before 0.54.0 rendered" \
+  || { grep -q 'argocdAgentChart 0.54.0 or later' <<<"${out}" && ok "gate CA on an agent chart before 0.54.0 is refused" || bad "gate CA, old agent chart: ${out}"; }
+new "${TMP}/gate-ca-bad" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'clearance.gate.caConfigMap=Not_A_Name'
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-bad/cluster.yaml" 2>&1)" && bad "a caConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'clearance.gate.caConfigMap is' <<<"${out}" && ok "a caConfigMap that is not a ConfigMap name is refused" || bad "bad caConfigMap: ${out}"; }
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
@@ -707,7 +994,7 @@ if python3 hack/render.py --cluster "${TMP}/gate-canary-out/cluster.yaml" >/dev/
 # the agent's annotation opt-in and environment, and the core's NetworkPolicies for the repo-server and the agent. All off by default.
 OPT_PROV='clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: [clearance-system/clearance-argocd-agent], protection: ["clearance-system/clearance-argocd-agent=hangar-dev"]}]'
 OPT_SET=(--set clearance.gate.enabled=true --set clearance.gate.lowerZone=true --set clearance.gate.tenantPlugin=false
-  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=
   --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc
   --set clearance.gate.agent.apiURL=http://clearance-api.clearance-system.svc:8080 --set 'clearance.gate.agent.projects=[rehearsal]'
   --set 'clearance.gate.agent.protectedNamespaces=[rehearsal]' --set clearance.gate.agent.environment=dev --set clearance.gate.agent.optIn=true
@@ -897,7 +1184,7 @@ new "${TMP}/tgt-prod" prod hangar-prod kind --repo-url https://github.com/acme/g
   "${OBS_SET[@]}" --set 'clearance.observe.protectedNamespaces=[app-gate-api-prod]' "${TGT_COMMON[@]}"
 render_ok "${TMP}/tgt-prod" "targets on (prod)"
 TP="${TMP}/tgt-prod/59-clearance-targets/publisher.yaml"
-EXPECT_PROD='{"targets": [{"app": "gate-api", "env": "prod", "gates": [{"instance": "app-gate-api-cicd/pipeline-runner", "mode": "enforce", "type": "glidepath"}, {"instance": "argocd-agent", "mode": "flag", "type": "g-argo"}], "group": "hangar-prod", "id": "hangar-prod.app-gate-api-prod", "kind": "k8s-namespace", "name": "app-gate-api-prod", "observers": [{"provider": "observe-k8s", "source": "k8s-audit-webhook"}], "owner": "group:default/team-gate", "registry": "flight", "scope": "hangar-prod"}]}'
+EXPECT_PROD='{"targets": [{"app": "gate-api", "env": "prod", "gates": [{"instance": "app-gate-api-cicd/pipeline-runner", "mode": "enforce", "type": "glidepath"}, {"instance": "app-gate-api-cicd/clearance-gate", "mode": "enforce", "type": "glidepath"}, {"instance": "argocd-agent", "mode": "flag", "type": "g-argo"}], "group": "hangar-prod", "id": "hangar-prod.app-gate-api-prod", "kind": "k8s-namespace", "name": "app-gate-api-prod", "observers": [{"provider": "observe-k8s", "source": "k8s-audit-webhook"}], "owner": "group:default/team-gate", "registry": "flight", "scope": "hangar-prod"}]}'
 [ "$(targets_json "${TMP}/tgt-prod")" = "${EXPECT_PROD}" ] && ok "targets (prod): the protected namespace, its Glidepath and Argo CD gates (warn mode: flag), the audit collector, Flight, scope = the cluster" || bad "targets (prod): unexpected set: $(targets_json "${TMP}/tgt-prod")"
 has "${TP}" 'value: "http://clearance.hangar-dev.local"' "targets (prod): publishes to the core as the gate reaches it"
 has "${TP}" 'value: "hangar-prod"' "targets (prod): the source is the cluster"
@@ -1100,7 +1387,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:9c655397' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:2c125bc8' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"
@@ -1413,7 +1700,7 @@ GO_SETTINGS='  gateway:
       airframeUpperClusters: [eks-prod]
       agentXRs: {namespaces: [app-gate-api-cicd], names: {gate-reader: app-gate-api-cicd}}
       egress: {apiServerCIDRs: [203.0.113.10/32]}
-      plainHttp: {glidepath: true, logs: true, jwks: true}'
+      plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true}'
 # unset and `python` render the same bytes (the default is the Python gateway and read API, as before)
 mkdir -p "${K}/gopy" "${K}/go" "${K}/pyx"
 cp "${K}/dev/cluster.yaml" "${K}/pyx/cluster.yaml"
@@ -1475,6 +1762,89 @@ has "${G}/gateway-go-egress.yaml" 'cidr: 203\.0\.113\.10/32|203\.0\.113\.10/32' 
 has "${G}/gateway-go-egress.yaml" 'port: 4318' "go: egress admits the OTLP collector"
 has "${G}/gateway-go-egress.yaml" 'cnpg\.io/cluster: autopilot-pg' "go: egress admits the database"
 has "${G}/gateway-go-egress.yaml" 'app.kubernetes.io/name: people-dex' "go: port 5556 is admitted to the people-dex pods only"
+# autopilot.peopleTls (I-28): people-dex serves its keys over https from a cert-manager certificate; the Go gateway and read API fetch them
+# over https and trust the in-cluster CA (AUTOPILOT_JWKS_CA_FILE); off, none of it renders (the go/ render above is the byte-for-byte baseline)
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  if grep -q 'JWKS_CA_FILE\|people-dex-ca\|5557' "${G}/${f}"; then bad "tls off: ${f} renders something of people-dex TLS"; else ok "tls off: ${f} renders nothing of people-dex TLS"; fi
+done
+if grep -rq 'https: 0.0.0.0:5557\|people-dex-tls' "${K}/go/55-identity" "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml"; then bad "tls off: people-dex TLS rendered"; else ok "tls off: people-dex renders without TLS"; fi
+mkdir -p "${K}/gotls"
+sed 's/^  gateway:/  peopleTls: true\n  gateway:/' "${K}/go/cluster.yaml" >"${K}/gotls/cluster.yaml"
+render_ok "${K}/gotls" "eks-dev (people), go, autopilot.peopleTls"
+python3 hack/check.py --cluster "${K}/gotls/cluster.yaml" >/dev/null && ok "tls on: check passes" || bad "tls on: check fails"
+T="${K}/gotls/55-autopilot/gateway"
+expect "${K}/gotls" "peopleTls" 55-identity/people-dex/tls.yaml
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  has "${T}/${f}" 'name: AUTOPILOT_OIDC_JWKS_URL, value: "https://people-dex\.autopilot-system\.svc:5557/dex/keys"' "tls on: ${f} fetches the keys over https"
+  has "${T}/${f}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "tls on: ${f} trusts the in-cluster CA file"
+  has "${T}/${f}" 'secretName: people-dex-tls' "tls on: ${f} mounts the cert-manager Secret"
+  has "${T}/${f}" 'items: \[\{key: ca\.crt, path: ca\.crt\}\]' "tls on: ${f} mounts only the CA certificate, never the key"
+  if grep -q 'http://people-dex' "${T}/${f}"; then bad "tls on: ${f} still names the http keys URL"; else ok "tls on: ${f} names no http keys URL"; fi
+done
+has "${T}/gateway-go-egress.yaml" 'port: 5557' "tls on: egress admits people-dex's https port"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'https: 0\.0\.0\.0:5557' "tls on: dex serves https on 5557"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'http: 0\.0\.0\.0:5556' "tls on: dex keeps the http listener (Clearance and glidepath-api still use it)"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'tlsKey: /etc/dex/tls/tls\.key' "tls on: dex reads its key from the cert-manager Secret mount"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'issuer: http' "tls on: the issuer is still the public URL"
+if grep -q 'issuer: https\?://[^d]' "${K}/gotls/55-identity/people-dex/dex.yaml"; then bad "tls on: dex issuer changed"; else ok "tls on: the issuer is unchanged (dex.<domain>/dex)"; fi
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'port: 5557, targetPort: https' "tls on: the Service exposes 5557"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'issuerRef: \{name: people-dex-ca, kind: Issuer' "tls on: the serving certificate is signed by the in-cluster CA Issuer"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'people-dex\.autopilot-system\.svc$' "tls on: the certificate names the Service host the gateway dials"
+if grep -q 'kind: Secret' "${K}/gotls/55-identity/people-dex/tls.yaml"; then bad "tls on: a Secret is hand-made"; else ok "tls on: no Secret is written, cert-manager fills it"; fi
+# autopilot.peopleTlsClusterCA (A-19, plan step P6): the cluster CA signs people-dex's certificate (90 days, renewed 30 early) and the
+# gateway and read API trust the Bundle's ConfigMap; off (the gotls render above), the namespace's own CA as before.
+has "${K}/gotls/55-identity/people-dex/tls.yaml" '^  duration: 8760h$' "peopleTls without the cluster CA: the 1-year leaf as before"
+if grep -q 'hangar-cluster-ca' "${K}/gotls/55-identity/people-dex/tls.yaml" "${T}/gateway-go.yaml" "${T}/autopilot-api-go.yaml"; then
+  bad "peopleTlsClusterCA off: the cluster CA rendered"; else ok "peopleTlsClusterCA off: nothing of the cluster CA"; fi
+mkdir -p "${K}/gotlsca"
+python3 - "${K}/gotls/cluster.yaml" "${K}/gotlsca/cluster.yaml" <<'PYCA'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+d["autopilot"]["peopleTlsClusterCA"] = True
+d.setdefault("components", {}).update({"trustManager": True, "clusterCA": True})
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA
+render_ok "${K}/gotlsca" "eks-dev (people), go, peopleTls on the cluster CA"
+TC="${K}/gotlsca/55-identity/people-dex/tls.yaml"
+has "${TC}" 'issuerRef: \{name: hangar-cluster-ca, kind: ClusterIssuer, group: cert-manager.io\}' "peopleTlsClusterCA: the cluster CA's ClusterIssuer signs people-dex"
+has "${TC}" '^  duration: 2160h$' "peopleTlsClusterCA: 90-day leaf (owner decision 3)"
+has "${TC}" '^  renewBefore: 720h$' "peopleTlsClusterCA: renewed 30 days early"
+if grep -q 'people-dex-selfsigned\|name: people-dex-ca' "${TC}"; then bad "peopleTlsClusterCA: the namespace's own CA still renders"; else ok "peopleTlsClusterCA: no namespace CA, Issuer or bootstrap Issuer"; fi
+[ "$(grep -c '^kind: Certificate$' "${TC}")" = 1 ] && ok "peopleTlsClusterCA: one Certificate, the serving one" || bad "peopleTlsClusterCA: want exactly one Certificate"
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  FC="${K}/gotlsca/55-autopilot/gateway/${f}"
+  if [ "${HAVE_YAML}" = true ]; then
+    python3 - "${FC}" <<'PYCA2' && ok "peopleTlsClusterCA: ${f} mounts ca.crt of ConfigMap hangar-cluster-ca, not the Secret" || bad "peopleTlsClusterCA: ${f} volume is wrong"
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get("kind") == "Deployment":
+        v = [x for x in d["spec"]["template"]["spec"]["volumes"] if x["name"] == "people-dex-ca"]
+        assert v == [{"name": "people-dex-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], v
+        break
+else:
+    raise SystemExit("no Deployment")
+PYCA2
+  fi
+  has "${FC}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "peopleTlsClusterCA: ${f} still reads the CA at the same path"
+done
+for c in "autopilot.peopleTls=false:autopilot.peopleTlsClusterCA needs autopilot.peopleTls" "components.clusterCA=false:autopilot.peopleTlsClusterCA needs components.clusterCA"; do
+  python3 - "${K}/gotlsca/cluster.yaml" "${K}/gotlsca-bad.yaml" "${c%%:*}" <<'PYCA3'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+k, _, val = sys.argv[3].partition("=")
+a, b = k.split(".")
+d[a][b] = yaml.safe_load(val)
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA3
+  out="$(python3 hack/check.py --cluster "${K}/gotlsca-bad.yaml" 2>&1)" && bad "peopleTlsClusterCA with ${c%%:*}: check passed" \
+    || { grep -qF "${c#*:}" <<<"${out}" && ok "peopleTlsClusterCA with ${c%%:*}: refused" || bad "peopleTlsClusterCA with ${c%%:*}: ${out}"; }
+done
+# with TLS the jwks plain-http switch is not needed (and stays harmless on): check passes without it
+mkdir -p "${K}/gotls-nojwks"
+sed 's/jwks: true, //' "${K}/gotls/cluster.yaml" >"${K}/gotls-nojwks/cluster.yaml"
+python3 hack/check.py --cluster "${K}/gotls-nojwks/cluster.yaml" >/dev/null && ok "tls on: check passes without plainHttp.jwks" || bad "tls on: check wants plainHttp.jwks"
+sed 's/jwks: true, //' "${K}/go/cluster.yaml" >"${K}/gonojwks.yaml"
+if python3 hack/check.py --cluster "${K}/gonojwks.yaml" >/dev/null 2>&1; then bad "tls off: check accepted a missing plainHttp.jwks"; else ok "tls off: check still requires plainHttp.jwks"; fi
 if grep -q 'podSelector: {}' "${G}/gateway-go-egress.yaml"; then bad "go: an egress rule admits every pod of the namespace"; else ok "go: no egress rule admits every pod of the namespace"; fi
 # the read API's public-HTTPS rule exists only with a Tower (its one public destination); the gateway keeps its own (GitHub, registry, model provider)
 n="$(grep -c 'cidr: 0.0.0.0/0' "${G}/gateway-go-egress.yaml")"
@@ -1633,7 +2003,7 @@ printf '%s\n' '  gateway:' '    implementation: go' '    go:' '      tag: gatewa
   '      digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' '      migrateJob: true' '      registeredVersion: held' \
   '      brokerUrl: http://broker.platform-system.svc:8080' '      githubOwners: [acme]' '      airframeUpperClusters: [lab-prod]' \
   '      agentXRs: {namespaces: [app-agents], names: {reader: app-agents}}' \
-  '      plainHttp: {glidepath: true, broker: true, logs: true, catalog: true, jwks: true}' '      egress: {enabled: false}' >>"${LG}/go/cluster.yaml"
+  '      plainHttp: {glidepath: true, broker: true, logs: true, catalog: true, jwks: true, clearanceApi: true}' '      egress: {enabled: false}' >>"${LG}/go/cluster.yaml"
 python3 hack/check.py --cluster "${LG}/go/cluster.yaml" >/dev/null 2>"${TMP}/lg-check" && ok "lab go: passes check" || bad "lab go: check: $(cat "${TMP}/lg-check")"
 render_ok "${LG}/py" "lab (Python gateway)"
 render_ok "${LG}/go" "lab (Go gateway, step 2)"
@@ -1667,7 +2037,7 @@ refuse "an unknown implementation" "${GD}" 'autopilot: {gateway: {implementation
 GODIG='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 GOREST='brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], agentXRs: {namespaces: [app-a-cicd]}'
 GOEGR='egress: {apiServerCIDRs: [203.0.113.10/32]}'
-GOHTTP='plainHttp: {glidepath: true, logs: true}'
+GOHTTP='plainHttp: {glidepath: true, logs: true, clearanceApi: true}'
 gocfg() { printf 'autopilot: {gateway: {implementation: go, go: {%s}}}' "$*"; }
 refuse "go without a plain-http switch for glidepath-api's in-cluster URL" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}")"
 refuse "go with a mutable digest" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: latest, ${GOREST}, ${GOEGR}, ${GOHTTP}")"
@@ -1675,9 +2045,32 @@ refuse "go with a tag that is not a Go release" "${GD}" "$(gocfg "tag: gateway-v
 refuse "go without the API server's addresses" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOHTTP}")"
 refuse "go without the namespaces the loader reads" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], ${GOEGR}, ${GOHTTP}")"
 refuse "an airframeOwner outside githubOwners" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, airframeOwner: other, ${GOEGR}, ${GOHTTP}")"
-refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, everything: true}")"
+refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, clearanceApi: true, everything: true}")"
+mkdir -p "${K}/gonoca" && cp "${GD}/cluster.yaml" "${K}/gonoca/cluster.yaml" && printf '%s\n' "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true}")" >>"${K}/gonoca/cluster.yaml"
+if python3 hack/check.py --cluster "${K}/gonoca/cluster.yaml" >/dev/null 2>"${TMP}/gonoca"; then bad "check accepted go without plainHttp.clearanceApi"
+elif grep -q 'plainHttp.clearanceApi must be true' "${TMP}/gonoca"; then ok "check names go.plainHttp.clearanceApi when clearance-api's URL is plain http and the switch is off"
+else bad "go without clearanceApi refused for another reason: $(head -1 "${TMP}/gonoca")"; fi
+# CLEARANCE_API_URL and its allow-http switch are on serve; the read API names the URL and never gets the switch; egress reaches clearance-api (namespace rule, 8080)
+has "${G}/gateway-go.yaml" 'name: CLEARANCE_API_URL, value: "http://clearance-api\.[^"]*\.svc:8080"' "go: serve has CLEARANCE_API_URL"
+has "${G}/gateway-go.yaml" 'name: CLEARANCE_API_ALLOW_HTTP, value: "1"' "go: plainHttp.clearanceApi renders CLEARANCE_API_ALLOW_HTTP on serve"
+if grep -q 'CLEARANCE_API_ALLOW_HTTP' "${G}/autopilot-api-go.yaml"; then bad "go: the read API got CLEARANCE_API_ALLOW_HTTP"; else ok "go: the read API does not get CLEARANCE_API_ALLOW_HTTP"; fi
+CNS="$(grep -o 'name: CLEARANCE_API_URL, value: "http://clearance-api\.[^.]*' "${G}/gateway-go.yaml" | sed 's/.*clearance-api\.//')"
+if python3 - "${G}/gateway-go-egress.yaml" "${CNS}" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+pol = {d["metadata"]["name"]: d for d in docs}
+def reaches(d):
+    for r in d["spec"]["egress"]:
+        for t in r.get("to", []):
+            ns = t.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+            if ns == sys.argv[2] and any(p["port"] == 8080 for p in r["ports"]):
+                return True
+    return False
+sys.exit(0 if reaches(pol["autopilot-gateway-egress"]) and not reaches(pol["autopilot-api-egress"]) else 1)
+PY
+then ok "go: egress lets serve reach clearance-api on 8080 and the read API has no such rule"; else bad "go: egress for clearance-api wrong (namespace ${CNS})"; fi
 # a plain-http catalog opens port 80 to Tower's catalog and nothing else new
-mkdir -p "${K}/gocat" && sed 's/plainHttp: {glidepath: true, logs: true, jwks: true}/plainHttp: {glidepath: true, logs: true, jwks: true, catalog: true}/' "${K}/go/cluster.yaml" >"${K}/gocat/cluster.yaml"
+mkdir -p "${K}/gocat" && sed 's/plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true}/plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true, catalog: true}/' "${K}/go/cluster.yaml" >"${K}/gocat/cluster.yaml"
 render_ok "${K}/gocat" "go with a plain-http catalog"
 n80="$(grep -c 'port: 80}' "${K}/gocat/55-autopilot/gateway/gateway-go-egress.yaml")"; n80b="$(grep -c 'port: 80}' "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml")"
 [ "${n80}" = 3 ] && ok "go: plainHttp.catalog opens port 80 (gateway, read API; Loki's :80 is the third)" || bad "go: plainHttp.catalog port 80 rules: ${n80}"
@@ -1877,6 +2270,13 @@ if out="$(python3 tests/reaper/test_reaper.py 2>&1)"; then
   ok "agentrun-reaper: $(grep -E '^Ran ' <<<"${out}")"
 else
   bad "agentrun-reaper: $(grep -E 'FAIL|Error' <<<"${out}" | head -5)"
+fi
+
+echo "== 7. clearance-targets publisher (the script in its ConfigMap: retry on a dropped connection, none on a refusal)"
+if out="$(python3 tests/targets/test_publisher.py 2>&1)"; then
+  ok "clearance-targets publisher: $(grep -E '^Ran ' <<<"${out}")"
+else
+  bad "clearance-targets publisher: $(grep -E 'FAIL|Error' <<<"${out}" | head -5)"
 fi
 
 echo

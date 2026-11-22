@@ -96,13 +96,41 @@ and says, in cluster.yaml, what the Python gateway defaulted or assumed:
 | `go.brokerUrl`, `go.githubOwners`, `go.airframeOwner`, `go.airframeUpperClusters` | `BROKER_URL`, `GITHUB_OWNERS`, `AIRFRAME_OWNER`, `AIRFRAME_UPPER_CLUSTERS` (no defaults: the Go gateway has none) |
 | `go.agentXRs.namespaces`, `go.agentXRs.names` | `AGENT_XRS_NAMESPACES` (the only namespaces the loader reads) and `AGENT_XRS_NAMES` (`agent: namespace`) |
 | `go.delegates`, `go.notifiers`, `go.auditors` | more principals for `AUTOPILOT_DELEGATES`, `GATEWAY_API_NOTIFIERS`, `GATEWAY_API_AUDITORS` (Tower's backend and `autopilot.people` are already there) |
-| `go.plainHttp.{glidepath,broker,logs,catalog,jwks}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs) |
+| `go.plainHttp.{glidepath,broker,logs,catalog,jwks,clearanceApi}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs; `clearanceApi` is `CLEARANCE_API_ALLOW_HTTP` on the gateway, for its `CLEARANCE_API_URL`, and is always needed) |
+| `autopilot.peopleTls` (a sibling of `gateway`, default off) | people-dex serves its keys over https on an internal listener (5557, beside the http one on 5556; the issuer is unchanged) with a cert-manager certificate from an in-cluster CA (`55-identity/people-dex/tls.yaml`); the Go gateway and read API fetch them over https and trust that CA (`AUTOPILOT_JWKS_CA_FILE`, needs an autopilot gateway-go release that has it), so `go.plainHttp.jwks` can go off. Needs `autopilot.people`, `components.gatewayRoutes`, `components.certManager` and `implementation: go`. Clearance and glidepath-api still read the http listener. hangar `specs/plans/i28-people-dex-tls.md` has the migration order and rollback |
+| `autopilot.peopleTlsClusterCA` (a sibling of `gateway`, default off) | with `peopleTls`: the cluster CA (ClusterIssuer `hangar-cluster-ca`, `components.clusterCA`) signs people-dex's serving certificate instead of the namespace's own CA, for **90 days, renewed 30 days early** (owner decision 3 on A-19: the core's life), and the Go gateway and read API trust the Bundle's ConfigMap `hangar-cluster-ca` instead of the Secret's `ca.crt`. The namespace's bootstrap Issuer, CA and CA Issuer are not rendered. Dex reads its certificate only at start, so **restart `people-dex` after each renewal, about every 60 days** (a few seconds of sign-in outage). Order (I-28 section 6): sync `autopilot-people-dex`; wait until cert-manager has re-issued `people-dex-tls` from the cluster CA (the Certificate is Ready and its issuer is `hangar-cluster-ca`); then **restart `people-dex`** (`kubectl -n autopilot-system rollout restart deployment/people-dex`) and wait for the rollout, since the switch changes neither the pod template nor the Secret's name and a running Dex keeps the old certificate; check the keys over https with the cluster CA; only then sync the gateway and read API. Needs `peopleTls` and `components.clusterCA` |
 | `go.egress.apiServerCIDRs`, `go.egress.extraCIDRs`, `go.egress.enabled` | the egress policies' API server addresses (required), more HTTPS destinations, and `false` for no egress policy |
 | `go.registeredVersion` | the version the Clearance core registers for the gateway (every record carries it as `provider.version`; the core compares it with nothing); unset: `go.tag`. Setting it holds the registration, so the switch does not change the Clearance Application (a change to the core's `CLEARANCE_PROVIDERS` restarts its one pod); remove it at a quiet moment |
 | `go.migrateJob` | render the migrate Job and the NetworkPolicy that admits it to `autopilot-pg`, with either implementation (with `python` only these two render and no traffic changes; it needs `go.tag` and `go.digest`). Both are **ordinary resources ordered by sync waves, not Argo CD hooks**: policy wave 0, Job wave 1 (named for the image, so each new image runs migrate once; no TTL), the Go Deployments wave 2, so with `implementation: go` migrate has succeeded before the Go pods change (a failed Job in a non-final wave fails the sync, `sync_context.go:559-568`) and the Python pods are untouched. With `implementation: python` the Job shares the last wave with the Python Deployments, and Argo CD counts the last wave's non-hook resources as a success whatever they do next (`sync_context.go:700-709`), so a failed migrate shows as a Degraded Application, not a failed sync: read the Job's own status (`.status.succeeded` is 1) and log. The Go egress policies are wave 2 too (never before migrate). (A PreSync hook was dropped from a sync after a partial one, argo-cd#28701.) The Job and policy are pruned when the flag goes off (on a sync that prunes; the lab's automated sync does not); finished Jobs of older images stay until deleted. Off: the cutover runbook runs the Job by hand. `migrate` re-runs only for a new image, so unlike a per-sync hook it needs no turning off, but turn the flag off once the cutover has held to stop rendering it |
 
 The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
 The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).
+
+## The cluster CA (`components.trustManager`, `components.clusterCA`, off by default)
+
+One private CA for in-cluster https (A-19; hangar `specs/plans/a17-clearance-tls-rollout.md`, steps 1 and 2). cert-manager makes
+it and trust-manager publishes its certificate. Both switches are off by default, and with them off nothing here renders.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `components.trustManager` | `10-crds-operators/trust-manager/`: jetstack's chart `versions.trustManager.chart` in `cert-manager` (also the trust namespace), its image index by digest (`versions.trustManager.imageDigest`, multi-arch: one pin for arm64 and amd64 nodes). No public-CA package image (`defaultPackage` off) and no Secret targets. Needs `components.certManager` | first, alone: check the Deployment is Ready and a dry-run Bundle is accepted |
+| `components.clusterCA` | `10-crds-operators/cluster-ca/`: a self-signed ClusterIssuer `hangar-cluster-ca-bootstrap`, the CA Certificate `hangar-cluster-ca` in `cert-manager` (ECDSA P-256, 10 years, `rotationPolicy: Never`), the CA ClusterIssuer `hangar-cluster-ca`, and the Bundle `hangar-cluster-ca` (`trust.cert-manager.io/v1alpha1`), which writes the ConfigMap `hangar-cluster-ca`, key `ca.crt`, into **every** namespace (only the certificate, never the key; no public CAs). Needs `components.certManager` and `components.trustManager` | trust-manager is Ready |
+
+The ConfigMaps carry a controller ownerReference to the Bundle, so the Clearance agent's exception scan skips them. The
+Kubernetes audit collector (`clearance.observe`) still sees trust-manager write the ConfigMap into each protected namespace it
+watches (once, and again when the CA changes): those writes show as out-of-band until a noise rule covers them. Remove the
+Bundle only after every workload that mounts its ConfigMap is gone, then the CA.
+
+## Clearance over https (`clearance.tls`, off by default)
+
+The clearance chart's `tls.*` (clearance `docs/tls.md`, I-43; hangar `specs/plans/a17-clearance-tls-rollout.md`, steps 3 and 7).
+Unset, the render is unchanged.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `clearance.tls.enabled` | the chart's `tls.enabled`: the core and clearance-api also serve https on 8443 (Service port `https`), with cert-manager certificates signed by the cluster CA's ClusterIssuer `hangar-cluster-ca` (`components.clusterCA`; without it, the chart's own namespaced CA), 90 days each, renewed 30 days before they end. The chart's NetworkPolicies admit 8443 from the same peers as 8080. The core restarts once. Needs `components.clearance`, `components.certManager` and chart 0.54.0+ | the cluster CA is Ready (plan step 3) |
+| `clearance.tls.plainHttp` | default true (8080 stays). `false` drops the plain listener; `apron check` refuses it while any caller Apron renders still uses plain http (the Gateway's routes without `gatewayBackendTLS`, the web UI, clearance-slack, the Autopilot gateway and read API, Glidepath's agent gates and deployment gate, the AWS collector, and, while `clearance.gate.url` is plain http, the plugin, the wait Job, the audit collector and the targets publisher; a plain-http agent `apiURL`) | step 7, after a day with no client on 8080 |
+| `clearance.tls.gatewayBackendTLS` | the Gateway re-encrypts (owner decision on A-19): the routes `clearance-gate`, `clearance-api` and `clearance-github-webhook` send to port 8443, and `55-clearance/clearance-config/backend-tls.yaml` renders a Gateway API v1 `BackendTLSPolicy` for `clearance-core` and `clearance-api` (section `https`) that verifies the certificate for `<service>.<namespace>.svc` against the ConfigMap `hangar-cluster-ca`. Traefik's ClusterRole gains `backendtlspolicies/status`. Callers through the Gateway (hangar-prod's wait Jobs and agent, GitHub, Tower) keep their URLs. Needs `clearance.tls.enabled`, `components.clusterCA` and `components.gatewayRoutes` | the https listener answers in the cluster (step 3's checks) |
 
 ## Clearance's Argo CD gate (`clearance.gate`, Draft)
 
@@ -160,6 +188,11 @@ CloudNativePG has no object store on these clusters, so `clearance.backup.enable
 `55-clearance/clearance-config/backup.yaml`: a PVC and a nightly CronJob that `pg_dump`s clearance-pg (as the read-only
 role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
 `clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
+
+clearance-pg is sized by `clearance.postgres.*` (defaults: cpu request `250m` and no CPU limit, memory `512Mi` request / `768Mi` limit,
+`shared_buffers` 128MB, `effective_cache_size` 384MB, `work_mem` 8MB; `parameters` and `primaryLease` merge key by key over the defaults).
+`primaryLease` (`leaseDurationSeconds` 60, `renewDeadlineSeconds` 40, `retryPeriodSeconds` 15) makes the one primary tolerate a slow apiserver
+instead of exiting when it cannot renew its lease. Changing the resources or a restart-only parameter restarts Postgres. Changing only `primaryLease` does not restart the primary, and the running primary keeps its previous timings (CNPG reads them when it first acquires the lease): restart the primary's pod to activate a lease-only change. clearance-pg is a single instance (no replica to switch over to), so deleting the pod is the way, and it interrupts Clearance for the restart (every gate that calls it, including a cluster's gate that uses another cluster's Clearance, fails closed until Postgres is back): do it in a quiet window.
 
 `clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
 coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
@@ -278,6 +311,27 @@ but a map of gate names to `{required: <bool>}`. hangar-dev sets `clearance-gate
 until it is cleared in Tower (glidepath [clearance-gate.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/clearance-gate.md),
 G-ARGO-8). Turn it back to advisory by deleting the entry (or `required: false`) and re-rendering.
 
+## Gate-ledger writer (`promotion.gateLedger.writer`)
+
+`cluster.yaml` `promotion.gateLedger.writer` becomes the glidepath-catalog Application's `promotion.gateLedger.writer` (pipeline trust T4,
+W-8; glidepath [api.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/api.md#gate-verdicts), "Gate verdicts"): who writes
+each gate's verdict into the release record's gate ledger. `direct` (the catalog's default) is the `comment-pr-check-result` task patching
+the record as `pipeline-runner`; `api` is the task asking glidepath-api's `gate-verdict` endpoint, which derives the verdict from the run and
+writes it as its own account. Unset renders no key, so the catalog's default stands and the render is unchanged; `apron check` refuses any
+other value. Set `api` only on a cluster whose glidepath-api serves the route (an older one answers 404: the `promotion-ready` step then decides from the check runs alone and shows as failed).
+hangar-dev sets `api`; rolling back is deleting the entry and re-rendering.
+
+## Gate reports (`glidepath.gateReports.transport`)
+
+`cluster.yaml` `glidepath.gateReports.transport` becomes the glidepath-catalog Application's `gateReports.transport` (pipeline trust T4,
+W-8; glidepath [security.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/security.md#pipeline-identities), "Pipeline
+identities"): how api-compat-gate and policy-validation-gate hand their full report to `comment-pr-check-result`. `configmap` (the
+catalog's default) is the gate writing a `gate-report-<run>` ConfigMap as `pipeline-runner`; `log` is the gate printing the report into
+its own step's log, which `comment-pr-check-result` reads back, so no ConfigMap is written. Unset renders no key, so the catalog's default
+stands and the render is unchanged; `apron render` and `apron check` refuse any other value. Set `log` only on a cluster whose catalog
+has the switch (glidepath#286): the reader and the writer are one catalog release, and a run keeps the Tasks it resolved at its start.
+hangar-dev sets `log`; rolling back is deleting the entry and re-rendering.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),
@@ -305,13 +359,21 @@ grants. Both match one service account, so no other writer is touched. The polic
 as the plugin builds it: the image **exactly** `versions.clearance.waitImage` (required with `clearance.gate.enabled`),
 args `--change <id> --timeout <d>` only, `CLEARANCE_URL` pinned to `clearance.gate.url`, `hostAliases` pinned to
 `clearance.gate.hostAlias`, no command, `envFrom`, host namespace, privileged container or volume besides the
-audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable).
+audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable). With `clearance.gate.waitCAConfigMap` set, the
+exemption also admits the plugin's optional CA for an https core (clearance I-43): one more volume, `clearance-ca`, that is
+exactly a ConfigMap volume of that ConfigMap with the single item `ca.crt`, mounted read-only at `/etc/clearance-ca` (both
+or neither, after the token). Any other volume, path, Secret, hostPath, projected source, `subPath` or writable mount is
+still refused, and a wait Job without the CA is still exempt.
 
 | Key | Renders | Turn it on when |
 |---|---|---|
 | `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
 | `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
 | `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`); `agentServiceAccount` is also the agent chart's `serviceAccount.name` and, with `gate.agent`, must be in `clearance-system` | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
+| `waitCAConfigMap` | unset by default: the policy renders byte for byte as without it. A ConfigMap name (the trust-manager `Bundle` that publishes the cluster CA as `ca.crt` in every destination namespace): the wait Job's optional `clearance-ca` volume may name it, nothing else. It only widens the policy; `waitCAInject` (below) later sets the plugin's `CLEARANCE_WAIT_CA_CONFIGMAP` and the agent's `waitJob.caConfigMap` to the same name | the Bundle's ConfigMap exists in every protected namespace, before the plugin is told to mount it (hangar `specs/plans/a17-clearance-tls-rollout.md`) |
+| `waitCAInject` | default off. `true` (needs `waitCAConfigMap`; `render` refuses without it) sets the plugin sidecars' `CLEARANCE_WAIT_CA_CONFIGMAP` and the agent's `waitJob.caConfigMap` to `waitCAConfigMap`: every wait Job the plugin injects mounts the CA, and the agent's pin then expects exactly that shape (an old-shape wait Job is reported out-of-band, in Warn too). Needs `clearance-cmp` and the agent chart from clearance 0.54.0+ | plan step 5b: the policy already admits the volume (5a), and no wait Job is left on any cluster the change reaches |
+| `caConfigMap` | unset by default. A ConfigMap name (the cluster CA's `hangar-cluster-ca`): the plugin sidecars get `CLEARANCE_CA_FILE=/etc/clearance-ca/ca.crt` with that ConfigMap mounted from `argocd-apps`, and the agent gets `tls.caConfigMap` (its ConfigMap in `clearance-system`). Extra roots for an https `clearance.gate.url` or `agent.apiURL`; with http URLs they are unused. A missing ConfigMap keeps the pod from starting. Needs the agent chart 0.54.0+ with `gate.agent` | plan step 4: the Bundle's ConfigMap is in both namespaces, before any URL moves to https |
+| `previousURL` | unset by default (the policy renders byte for byte as without it). One release only, like `versions.clearance.previousWaitImage`: the wait-Job exemption also admits this `CLEARANCE_URL`, so a wait Job or cached manifest made before a `clearance.gate.url` change keeps working on an **enforcing** cluster. An http(s) URL that differs from `gate.url` (`render` refuses anything else). It widens only the policy: the agent's exception scan still pins the one `gate.url` | the release that changes `clearance.gate.url` on a cluster with `enforce: true`; remove it once no wait Job of the old URL is left |
 
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's
 `providers/argocd/crd/test_admission.py` carries the full matrix. The two copies of the manifests are kept in step by hand.

@@ -46,6 +46,9 @@ spec:
           # Gates that run and report for one app but do not hold its release (glidepath docs/admin/release-guardrails.md,
           # "One app only"), from cluster.yaml releaseGuardrailOverridesByApp. Admin-owned.
           releaseGuardrailOverridesByApp: @@GLIDEPATH_GUARDRAIL_OVERRIDES_BY_APP@@
+#@if glidepath.gateReports.transport
+          gateReports: @@GLIDEPATH_GATE_REPORTS@@  # cluster.yaml glidepath.gateReports (W-8): how two gates hand over their report
+#@end
 #@if releaseGuardrailOverrides
           # Per-cluster `required` of a release gate (glidepath docs/admin/release-guardrails.md, "Who sets it"), from cluster.yaml
           # releaseGuardrailOverrides. Admin-owned. Unset renders nothing here (the catalog's own defaults stand). The deployment

@@ -207,6 +207,19 @@ spec:
           routes: @@CLEARANCE_SLACK_ROUTES@@
           hostAliases: @@CLEARANCE_SLACK_HOST_ALIASES@@
 #@end
+#@if clearance.tls.enabled
+        # TLS (clearance I-43, docs/tls.md; A-19): the core and the API also serve https on 8443, with cert-manager
+        # certificates signed by @@CLEARANCE_TLS_ISSUER_DESC@@, 90 days each, renewed 30 days
+        # before they end (the servers reload a renewed pair without a restart). plainHttp keeps the 8080 listener; the chart's
+        # NetworkPolicies admit 8443 from the same peers as 8080. Turning this on restarts the core once (Recreate).
+        tls:
+          enabled: true
+          plainHttp: @@CLEARANCE_TLS_PLAIN_HTTP@@
+          certManager:
+            issuerRef: @@CLEARANCE_TLS_ISSUER_REF@@
+            duration: 2160h
+            renewBefore: 720h
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri
@@ -227,12 +240,13 @@ spec:
         api:
           replicas: 2
           # Headroom (2026-11-15): the chart default (64Mi/256Mi) was OOMKilled in a loop. GOMEMLIMIT is about 80% of the limit
-          # so the Go runtime collects before the kernel kills.
+          # so the Go runtime collects before the kernel kills. Set with the chart's goMemLimit, NOT extraEnv: chart 0.54.0
+          # adds its own GOMEMLIMIT, and an extraEnv one made the container carry the name twice, which fails Argo CD's
+          # strategic-merge dry run ("The order in patch list ... doesn't match $setElementOrder list").
           resources:
             requests: {cpu: 25m, memory: 128Mi}
             limits: {memory: 512Mi}
-          extraEnv:
-            - {name: GOMEMLIMIT, value: 400MiB}
+          goMemLimit: 400MiB
 #@if clearance.api.coverageCacheSeconds
           # Coverage result cache (clearance 0.51.0+, CLEARANCE_API_COVERAGE_CACHE_SECONDS): off in the chart; on only where
           # cluster.yaml sets clearance.api.coverageCacheSeconds. A statement shown can be up to this many seconds old.

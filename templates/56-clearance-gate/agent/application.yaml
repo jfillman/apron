@@ -58,6 +58,17 @@ spec:
           image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
           url: "@@CLEARANCE_GATE_URL@@"
           hostAlias: "@@CLEARANCE_GATE_HOST_ALIAS@@"
+#@if clearance.gate.waitCAInject
+          # The wait Job's CA volume (plan step 5b): the agent's pin then expects exactly that shape, the one the plugin builds
+          # with CLEARANCE_WAIT_CA_CONFIGMAP (the same name). Set together with the sidecar's, never apart.
+          caConfigMap: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"
+#@end
+#@if clearance.gate.caConfigMap
+        # TLS to the core and the API (clearance.gate.caConfigMap; I-43, A-19): extra roots for an https coreURL or apiURL, the
+        # cluster CA's ConfigMap in clearance-system (key ca.crt), mounted and read as CLEARANCE_CA_FILE.
+        tls:
+          caConfigMap: "@@CLEARANCE_GATE_CA_CONFIGMAP@@"
+#@end
   destination:
     server: https://kubernetes.default.svc
     namespace: clearance-system
