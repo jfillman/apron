@@ -159,6 +159,19 @@ spec:
     spec:
       project: "{{.appName}}"
       sources:
+#@if _tenantGatedSet
+        # tenant-onboarding-gated lists the `ref: appsrc` source FIRST. The Clearance agent builds its plugin source on an
+        # Application's first git source (clearance providers/argocd/agent/optin.go, `carrier`), and that must be the app's gitops
+        # repository: it is the plugin's own source (allowed without a CLEARANCE_CHART_REPOS entry) and its `main` revision is
+        # what Argo CD's manifest cache keys on, so a release commit re-renders. With the chart first, the carrier would be the
+        # chart repository at its pinned tag: the gitops repository would be refused by the plugin's allow list, and a release
+        # commit would not change the carrier's revision. tenant-onboarding keeps its order (this source after the chart).
+        __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
+        __GATED_SET_ONLY__  targetRevision: main
+        __GATED_SET_ONLY__  ref: appsrc
+        __GATED_SET_ONLY__  directory:
+        __GATED_SET_ONLY__    exclude: "*"
+#@end
         - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
           targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
           # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
@@ -202,6 +215,7 @@ spec:
               - $appsrc/@@CLUSTER_NAME@@/base.yaml
               - $appsrc/@@CLUSTER_NAME@@/{{.env}}/values.yaml
               - $appsrc/@@CLUSTER_NAME@@/{{.env}}/release.yaml
+#@if not _tenantGatedSet
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           ref: appsrc
@@ -211,6 +225,16 @@ spec:
           # hit and documented in platform-cicd's own version of this pattern.
           directory:
             exclude: "*"
+#@end
+#@if _tenantGatedSet
+        # tenant-onboarding's `ref: appsrc` source (the gated set has it first, above). `directory.exclude` keeps Argo CD's
+        # directory auto-detection from applying every *.yaml of the app's gitops repo: the source is only $ref'd for valueFiles.
+        __TENANT_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
+        __TENANT_SET_ONLY__  targetRevision: main
+        __TENANT_SET_ONLY__  ref: appsrc
+        __TENANT_SET_ONLY__  directory:
+        __TENANT_SET_ONLY__    exclude: "*"
+#@end
       destination:
         server: https://kubernetes.default.svc
         # <type>-<app>-<env>: an InfraService's environment is infra-<name>-<env> (airframe's ApplicationEnvironment
@@ -278,6 +302,14 @@ spec:
     {{- if .configMapGenerator }}
     spec:
       sources:
+#@if _tenantGatedSet
+        # The gated set's `ref: appsrc` source first, as in the template above (the agent's carrier).
+        __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
+        __GATED_SET_ONLY__  targetRevision: main
+        __GATED_SET_ONLY__  ref: appsrc
+        __GATED_SET_ONLY__  directory:
+        __GATED_SET_ONLY__    exclude: "*"
+#@end
         - repoURL: '{{ dig "chart" "repoURL" "__DEFAULT_CHART_REPO_URL__" . }}'
           targetRevision: '{{ dig "chart" "targetRevision" "__DEFAULT_CHART_TARGET_REVISION__" . }}'
           # A registry chart (identity.yaml chart.chart) has no path; an empty field is the same as unset.
@@ -309,11 +341,20 @@ spec:
               - $appsrc/@@CLUSTER_NAME@@/base.yaml
               - $appsrc/@@CLUSTER_NAME@@/{{.env}}/values.yaml
               - $appsrc/@@CLUSTER_NAME@@/{{.env}}/release.yaml
+#@if not _tenantGatedSet
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           ref: appsrc
           directory:
             exclude: "*"
+#@end
+#@if _tenantGatedSet
+        __TENANT_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
+        __TENANT_SET_ONLY__  targetRevision: main
+        __TENANT_SET_ONLY__  ref: appsrc
+        __TENANT_SET_ONLY__  directory:
+        __TENANT_SET_ONLY__    exclude: "*"
+#@end
         - repoURL: "{{.gitopsRepoUrl}}"
           targetRevision: main
           path: @@CLUSTER_NAME@@/{{.env}}/configmap

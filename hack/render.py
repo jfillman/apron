@@ -1302,6 +1302,14 @@ def tenant_gated_set_flags(g):
         if not (gate_here and g("clearance.gate.enabled", False) and g("clearance.gate.agent", None) and g("clearance.gate.agent.optIn", False)):
             raise ApronError("clearance.gate.agent.gatedSet needs the gate and its agent on this cluster (clearance.gate.enabled, clearance.gate.agent, "
                              "clearance.gate.agent.optIn: true, and zone: upper or clearance.gate.lowerZone: true)")
+        # Not with tenantPlugin (default true): tenant-onboarding would give an environment the static plugin source, and a
+        # handover into the gated set keeps that source (its ignore rule preserves /spec/sources), so the agent refuses the
+        # Application ("on the plugin and the agent did not put it there") and it stays on a static plugin source the gated set
+        # never updates. Which environments are gated is data (identity.yaml), not known here, so the combination is refused.
+        if g("clearance.gate.tenantPlugin", None) is not False:
+            raise ApronError("clearance.gate.agent.gatedSet needs clearance.gate.tenantPlugin: false: an Application tenant-onboarding put on the "
+                             "static plugin keeps that source when it is handed over to tenant-onboarding-gated, and the agent refuses to switch it "
+                             "(apron README, \"Gated environments\")")
     if handover and not gated:
         raise ApronError("clearance.gate.agent.gatedSetHandover is the handover window between tenant-onboarding and tenant-onboarding-gated: it needs clearance.gate.agent.gatedSet")
     return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover)}

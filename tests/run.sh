@@ -1027,6 +1027,9 @@ has "${GSA}" '^  __GATED_SET_ONLY__  - jsonPointers: \[/spec/source, /spec/sourc
 has "${GSA}" '^  __GATED_SET_ONLY__  annotations: \[clearance.hangar.io/switched\]$' "gatedSet: preservedFields keeps the agent's switched marker (gated set only)"
 has "${GSA}" '^      __TENANT_SET_ONLY__  - resources-finalizer.argocd.argoproj.io$' "gatedSet: the resources finalizer is tenant-onboarding's only"
 has "${GSA}" '^    \{\{- if and __SET_STATIC_PLUGIN__ \(regexMatch' "gatedSet: the static plugin source is switched per set"
+[ "$(grep -c '^        __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] && [ "$(grep -c '^        __TENANT_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] \
+  && ok "gatedSet: the gated set lists the \$appsrc source first (the agent's carrier), tenant-onboarding after the chart (template and templatePatch)" \
+  || bad "gatedSet: the \$appsrc source is not ordered per set in both the template and the templatePatch"
 has "${GSR}" '"__SET_NAME__" "tenant-onboarding-gated"' "gatedSet: render.yaml emits tenant-onboarding-gated"
 has "${GSR}" '"__SET_SELECTOR_OPERATOR__" "NotIn"' "gatedSet: tenant-onboarding excludes the gated environments"
 if grep -q 'applicationsSync' "${GSA}"; then bad "gatedSet without gatedSetHandover: applicationsSync rendered"; else ok "gatedSet without gatedSetHandover: no applicationsSync (both sets delete what they stop generating, as before)"; fi
@@ -1038,7 +1041,8 @@ has "${GSH}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" '^ 
 # The handover window relies on the controller honouring applicationsSync: no controller-wide policy on argocd-apps' ApplicationSet controller.
 if grep -q 'applicationsetcontroller.policy' templates/01-argocd-platform/argocd-apps-install/application.yaml; then bad "argocd-apps-install sets applicationsetcontroller.policy: an ApplicationSet's applicationsSync would be ignored"; else ok "argocd-apps-install sets no controller-wide applicationsetcontroller.policy (applicationsSync is honoured)"; fi
 for BADP in "clearance.gate.agent.gatedSet=maybe|agent.gatedSet is true or false" "clearance.gate.agent.gatedSetHandover=yes|gatedSetHandover is true or false" \
-            "clearance.gate.agent.optIn=false|gatedSet needs the gate and its agent" "clearance.gate.lowerZone=false|gatedSet needs the gate and its agent"; do
+            "clearance.gate.agent.optIn=false|gatedSet needs the gate and its agent" "clearance.gate.lowerZone=false|gatedSet needs the gate and its agent" \
+            "clearance.gate.tenantPlugin=true|gatedSet needs clearance.gate.tenantPlugin: false"; do
   BAD="${BADP%%|*}"; WANT="${BADP#*|}"
   new "${TMP}/gate-set-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
     --set clearance.gate.agent.gatedSet=true --set "${BAD}"

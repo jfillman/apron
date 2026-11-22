@@ -164,7 +164,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.canary` | optional, off by default: try a new `clearance-cmp` on some apps first. `image` (a digest, `<repo>@sha256:<64 hex>`) and `apps` (a non-empty list, each also in `clearance.gate.apps` when that is set). Renders a second sidecar `clearance-cmp-canary` (same settings and security context as the first, its own `/tmp` volume; it registers the image's `config-canary/plugin.yaml` as plugin `clearance-canary`) and the ApplicationSet gives the listed apps `plugin.name: clearance-canary`, every other app `clearance`. Unset, the render is unchanged. Promote by moving `versions.clearance.cmpImage` to the new digest and deleting the block; roll back an app by removing it from `apps`, or delete the whole `clearance.gate.canary` block when it was the last one (an empty `apps` is refused). Needs a `clearance-cmp` image from the clearance release that ships `config-canary` (clearance `docs/gate.md`, "Rolling out a plugin release") |
 | `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces`; needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
 | `clearance.gate.agent.optIn` | default off. `true` turns on the agent's annotation opt-in (clearance `docs/gate.md`, "Annotation opt-in", G-ARGO-10c; chart `optIn.enabled`): an Application annotated `clearance.hangar.io/protect: "true"` in one of `projects` and targeting one of `protectedNamespaces` is switched to the plugin and its namespace labelled protected once its merged grant is active. Needs `versions.clearance.argocdAgentChart` 0.49.0 or later, and, on the cluster that runs the core, a `clearance.extraProviders` entry whose `protection` lists the agent's principal and this cluster (`["clearance-system/clearance-argocd-agent=<cluster>"]`) and whose own `principals` list that principal (`render` refuses without both): without them the core refuses the agent's reports. Order: the CRD (rendered with the gate, schema revision 2), then the agent, then `optIn`. **Tenant Applications only through the gated set** (`gatedSet` below): tenant-onboarding itself sets neither `ignoreApplicationDifferences` (`/spec/source`, `/spec/sources`) nor `preservedFields.annotations` (`clearance.hangar.io/switched`), so the agent blocks an Application it generated ("does not ignore /spec/source"); `projects` should name only the projects of Applications whose own ApplicationSet or app-of-apps says what clearance `docs/gate.md` "What the parent must say" asks |
-| `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
+| `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`; and `clearance.gate.tenantPlugin: false`) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
 | `clearance.gate.agent.gatedSetHandover` | default off; needs `gatedSet`. The handover window: both sets render `syncPolicy.applicationsSync: create-update`, so neither deletes an Application it stops generating. Turn it on only for a handover and off again after |
 | `clearance.gate.agent.environment` | optional (a DNS label): the agent's `environment`, what a protected namespace with no `clearance.hangar.io/environment` label is cleared as. Unset, the chart's `prod` (right on a protected cluster, wrong on a rehearsal one) |
 | `clearance.gate.tenantPlugin` | default true. `false`: the tenant-onboarding ApplicationSet gives no Application the plugin (the app regex is `^$`), so the gate covers only what opts in by annotation. `gate.apps` and `protectedEnvironments` then do nothing for tenant Applications |
@@ -185,6 +185,19 @@ environments that want the gate get their own set:
   no static plugin source (the agent switches them), and **no resources finalizer** (with `preserveResourcesOnDeletion`
   the controller adds none): deleting a gated Application never deletes its workload. Decommissioning a gated environment
   therefore leaves its workload running: hand it back first, or delete the workload on purpose.
+- The gated set lists the `ref: appsrc` source (the app's gitops repository) **first**, the chart second. The agent builds
+  its plugin source on the Application's first git source (clearance `providers/argocd/agent/optin.go`, `carrier`): that
+  must be the gitops repository, which the plugin allows as its own source and whose `main` revision Argo CD's manifest
+  cache keys on. With the chart first the carrier would be the chart repository at its pinned tag: the plugin would refuse
+  the gitops repository (not on `CLEARANCE_CHART_REPOS`), and a release commit would not change the carrier's revision.
+  tenant-onboarding keeps its order (chart first).
+
+`gatedSet` needs `clearance.gate.tenantPlugin: false` (`render` refuses otherwise). With the static plugin on,
+tenant-onboarding gives a covered environment the plugin source; handed over, that Application keeps it (the gated set's
+ignore rule preserves `/spec/sources`) and the agent refuses it as "on the plugin and the agent did not put it there", so
+it stays on a static plugin source nothing updates. A cluster that uses the static plugin for tenant environments
+(hangar-prod's default) has no supported path into the gated set yet: turning `tenantPlugin` off there takes the plugin off
+every covered environment at once, which is its own decision.
 
 The two selectors are In / NotIn on one value, so every environment is generated by exactly one set. A gated
 Application's sources are not updated by its set after it is created (that is the ignore rule): a new default chart
@@ -195,17 +208,30 @@ Application it owns and no longer generates, and a tenant-onboarding Application
 flip outside the window deletes the workload (tests/appset records it). Into the gated set:
 
 1. Turn on `clearance.gate.agent.gatedSetHandover` and render; check both ApplicationSets show `applicationsSync: create-update`.
+   Then wait for a reconcile of each set that started after that: a reconcile reads the ApplicationSet once, at its start,
+   and one that read the old `sync` policy still deletes what its generator no longer returns (Argo CD v3.5.0
+   `applicationset/controllers/applicationset_controller.go`, `Reconcile`: one `Get`, then `deleteInCluster` under that
+   object's policy). The stored value does not show that it has finished. Set the refresh annotation on both sets,
+   `kubectl -n argocd-apps annotate applicationset tenant-onboarding tenant-onboarding-gated argocd.argoproj.io/application-set-refresh=true --overwrite`,
+   and wait until it is gone from both. Only a reconcile that read the set with the annotation removes it (the
+   `RefreshRequired` branch at the end of `Reconcile`, an `Update` at the resourceVersion that reconcile read, so one that read
+   an older version gets a conflict), and the workqueue never runs two reconciles of one set at once: once it is gone, every
+   reconcile that read the old policy has finished. An annotation that does not clear means the set's reconcile is failing
+   before its end: stop and read its conditions. (ApplicationSet status has no observedGeneration in v3.5.0.)
 2. Set `spec.clearanceGate: true` on the `ApplicationEnvironment` (identity.yaml gains `clearanceGate: true`). tenant-onboarding stops
    generating the Application and keeps it; tenant-onboarding-gated reports `already owned by another ApplicationSet controller tenant-onboarding`.
-3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid:
-   `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
-   The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it.
+3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
+   `$appsrc` source first (the gated set's order; its ignore rule keeps the live sources on adoption, so the move is not
+   made for you):
+   `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
+   The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
+   carried on the gitops repository.
 4. Check the Application's controller is `tenant-onboarding-gated` and neither set reports an error, then turn the window off.
 
-Back to tenant-onboarding: open the window; remove `spec.clearanceGate`; the gated set keeps the Application (nothing
+Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`; the gated set keeps the Application (nothing
 reconciles it now), so remove its `clearance.hangar.io/protect` annotation by hand and wait for the agent's opt-out to
 finish (sources restored, `switched` gone, namespace unlabelled); then remove the gated set's owner reference the same
-way; tenant-onboarding adopts it (Helm sources, resources finalizer back); close the window. Closing the window with an
+way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it (Helm sources in its order, resources finalizer back); close the window. Closing the window with an
 Application still owned by a set that no longer generates it deletes that Application: step 4 is the check.
 
 Needs the ApplicationSet controller to honour `applicationsSync`: it does while no controller-wide
