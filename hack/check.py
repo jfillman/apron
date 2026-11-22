@@ -317,6 +317,9 @@ def violations(v, fleet=None):
     ttl = get(v, "clearance.api.coverageCacheSeconds")
     if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= 300):
         add("clearance.api.coverageCacheSeconds is whole seconds, 0 to 300 (0 is off): clearance-api refuses anything else at start")
+    sus = get(v, "clearance.core.startupSeconds")
+    if sus is not None and (isinstance(sus, bool) or not isinstance(sus, int) or not 1 <= sus <= 3600):
+        add("clearance.core.startupSeconds is whole seconds, 1 to 3600 (unset is the chart's 300)")
     # the standalone web UI (clearance web, clearance chart web.enabled): signs people in at people-dex, so it needs the same
     if get(v, "clearance.web.enabled") is not None and not isinstance(get(v, "clearance.web.enabled"), bool):
         add("clearance.web.enabled must be true or false")
