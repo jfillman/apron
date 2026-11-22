@@ -45,7 +45,7 @@ spec:
         - path: {type: Exact, value: /v1/observations/resolutions}
           method: POST
         # The core's health, for a remote `clearance-cmp doctor` reachability check (I-58). Reveals nothing. Unconditional,
-        # so it holds without feedReaders, and Exact beats clearance-web's PathPrefix / when the web UI is on.
+        # so it holds without feedReaders, and an Exact match beats the web UI's PathPrefix / when that is on.
         - path: {type: Exact, value: /healthz}
           method: GET
       backendRefs:
