@@ -253,8 +253,13 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    the Application's controller is `tenant-onboarding-gated` (by the set's uid, and the Application's uid unchanged).
    This is the second guard: if an old-revision entry outlived step 2's wait (a value read wrong), it has expired by
    then and every tenant-onboarding reconcile that could have used it has finished, so a controller reference it put back
-   shows here. Fail closed: on anything else, keep the window open (nothing is deleted while it is open) and find out
-   why before redoing steps 2 and 3 (hangar's rehearsal plan has both waits and this check as scripts, C.3 and C.5).
+   shows here. Fail closed: on anything else, keep the window open (nothing is deleted while it is open), and recover by
+   who controls the Application now (hangar's rehearsal plan has both waits and this check as scripts, C.3 and C.5):
+   - `tenant-onboarding` is its controller again: the wait in step 2 did not hold; find out why, then redo steps 2 and 3.
+   - Nothing controls it (unowned): the gated set has not adopted it yet; refresh the gated set and run the check again.
+     Redo nothing.
+   - The gated set already controls it but the check failed (the uid changed, or it is being deleted): stop and
+     investigate by hand. Redoing steps 2 and 3 does not apply, and nothing is deleted while the window is open.
    Also check that neither set reports an error, and its carrier is the gitops repository: not yet switched,
    `spec.sources[0]` is the `ref: appsrc` source; switched, the one plugin source's `repoURL` is the gitops repository
    and the `ref: appsrc` source is first in its `sources` parameter (the agent keeps the originals there). Then turn the
