@@ -53,6 +53,34 @@ spec:
         optIn:
           enabled: true
 #@end
+#@if clearance.gate.enforce
+        # The mode the admission policy runs in (clearance.gate.enforce), so the chart can refuse Deny without an enforcing
+        # grant-expiry webhook (I-44; agent chart 0.55.0). Ignored by an older chart.
+        gate:
+          enforce: true
+#@end
+#@if clearance.gate.agent.grantExpiry
+        # The grant-expiry webhook (clearance.gate.agent.grantExpiry; clearance docs/gate.md, "The grant-expiry webhook"): the clock
+        # beside the admission policy. Its own Deployment (two replicas, a PDB), a cert-manager certificate and the
+        # ValidatingWebhookConfiguration clearance-grant-expiry; audit (failurePolicy Ignore) unless mode is enforce (Fail).
+        grantExpiry: @@CLEARANCE_AGENT_GRANT_EXPIRY@@
+#@end
+#@if clearance.gate.agent.ha.enabled
+        # Two agent replicas behind a coordination.k8s.io Lease (clearance.gate.agent.ha; I-44 option 0): only the holder runs the loops.
+        ha:
+          enabled: true
+#@end
+#@if clearance.gate.agent.statusHeartbeat
+        # status.checkedAt of every valid grant is refreshed at this age, so its age shows a stalled expiry pass.
+        statusHeartbeat: "@@CLEARANCE_AGENT_STATUS_HEARTBEAT@@"
+#@end
+#@if clearance.gate.agent.alerts.enabled
+        # The staleness alerts (clearance.gate.agent.alerts): a PrometheusRule and a PodMonitor for the grant-expiry pods. The label is
+        # what kube-prometheus-stack's ruleSelector matches (40-observability/kube-prometheus-stack).
+        alerts:
+          enabled: true
+          labels: {release: kube-prometheus-stack}
+#@end
         # What the exception scan recognises as the gate's own wait Job: the values admission's exemption is rendered with.
         waitJob:
           image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
@@ -62,6 +90,11 @@ spec:
           # The wait Job's CA volume (plan step 5b): the agent's pin then expects exactly that shape, the one the plugin builds
           # with CLEARANCE_WAIT_CA_CONFIGMAP (the same name). Set together with the sidecar's, never apart.
           caConfigMap: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"
+#@end
+#@if clearance.gate.agent.grantExpiry.enabled and clearance.gate.previousURL
+          # The previous core URL the admission policy's exemption still admits (clearance.gate.previousURL): the grant-expiry
+          # webhook exempts the same wait Job, so it admits it too. The agent's own exception scan still pins the one url.
+          previousURL: "@@CLEARANCE_GATE_PREVIOUS_URL@@"
 #@end
 #@if clearance.gate.caConfigMap
         # TLS to the core and the API (clearance.gate.caConfigMap; I-43, A-19): extra roots for an https coreURL or apiURL, the

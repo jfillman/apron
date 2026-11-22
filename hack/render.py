@@ -656,6 +656,15 @@ def clearance_gate_tokens(g):
         "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(list(g("clearance.gate.agent.protectedNamespaces", None) or [])),
         "CLEARANCE_AGENT_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts + ([agent_host] if agent_host and agent_host not in hosts else [])}]
                                                    if alias else []),
+        # clearance.gate.agent.grantExpiry (I-44; agent chart 0.55.0 grantExpiry): the chart's values as one flow mapping. mode audit (the
+        # default) or enforce is the chart's enforce; argocdUser is the controller the admission policy names, so the webhook matches the
+        # same writer. Only under `#@if clearance.gate.agent.grantExpiry`; check.py validates the block.
+        "CLEARANCE_AGENT_GRANT_EXPIRY": json.dumps(_agent_grant_expiry(g)),
+        # clearance.gate.agent.statusHeartbeat: the chart's statusHeartbeat (one unit: 90s, 5m, 1h). Only under its #@if.
+        "CLEARANCE_AGENT_STATUS_HEARTBEAT": str(g("clearance.gate.agent.statusHeartbeat", "") or ""),
+        # clearance.gate.previousURL as the agent chart's waitJob.previousURL: read only by the grant-expiry webhook, which exempts the
+        # same wait Job the admission policy does. Only under `#@if clearance.gate.agent.grantExpiry.enabled and clearance.gate.previousURL`.
+        "CLEARANCE_GATE_PREVIOUS_URL": str(g("clearance.gate.previousURL", "") or ""),
         # How the plugin and the wait Job reach the core: in-cluster on the control plane, else a gateway route.
         "CLEARANCE_GATE_URL": g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080",
         "CLEARANCE_GATE_HOST_ALIAS": alias,
@@ -664,6 +673,24 @@ def clearance_gate_tokens(g):
         "CLEARANCE_PLUGIN_NAME": plugin_name,
         "CLEARANCE_WAIT_IMAGE": wait_image,
     }
+
+
+def _agent_grant_expiry(g):
+    """clearance.gate.agent.grantExpiry -> the agent chart's grantExpiry values. Keys that are unset stay out (the chart's
+    defaults apply), so the rendered mapping names only what cluster.yaml set, plus argocdUser whenever the webhook is on."""
+    ge = g("clearance.gate.agent.grantExpiry", None)
+    if not isinstance(ge, dict):
+        return {}
+    out = {}
+    if ge.get("enabled") is not None:
+        out["enabled"] = ge.get("enabled") is True
+    if ge.get("mode") is not None:
+        out["enforce"] = ge.get("mode") == "enforce"
+    if ge.get("acceptResidualRisk") is not None:
+        out["acceptResidualRisk"] = ge.get("acceptResidualRisk") is True
+    if out.get("enabled"):
+        out["argocdUser"] = "system:serviceaccount:" + (g("clearance.gate.argocdServiceAccount", None) or "argocd-apps:argocd-application-controller")
+    return out
 
 
 def _host_alias(g, key):

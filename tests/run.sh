@@ -954,6 +954,79 @@ new "${TMP}/gate-ca-bad" prod hangar-prod kind --repo-url https://github.com/acm
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'clearance.gate.caConfigMap=Not_A_Name'
 out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-bad/cluster.yaml" 2>&1)" && bad "a caConfigMap that is not a ConfigMap name rendered" \
   || { grep -q 'clearance.gate.caConfigMap is' <<<"${out}" && ok "a caConfigMap that is not a ConfigMap name is refused" || bad "bad caConfigMap: ${out}"; }
+# The grant-expiry webhook, agent HA, the status heartbeat and the alerts (I-44; agent chart 0.55.0): unset, none renders (gate-agent
+# above); set, the agent's values carry them; check refuses a bad value, a missing prerequisite and the chart's gate.enforce rule.
+if grep -qE 'grantExpiry|^ *ha:|statusHeartbeat|alerts:|^ *gate:|previousURL' "${AGA}"; then bad "I-44 unset: a setting rendered in the agent"; else ok "I-44 unset: no grantExpiry, ha, statusHeartbeat, alerts or gate in the agent"; fi
+AGENT_SET=(--set clearance.gate.url=http://clearance.hangar-dev.local --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local
+  --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]'
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.55.0)
+i44() { # i44 NAME [more --set flags]: a prod cluster with the gate and its agent
+  local d="${TMP}/$1"; shift
+  new "${d}" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+    --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" "${AGENT_SET[@]}" "$@"
+}
+i44_refused() { # i44_refused NAME TEXT LABEL: render and check both refuse, naming TEXT
+  local out
+  out="$(python3 hack/render.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: rendered"; return; }
+  grep -qF -- "$2" <<<"${out}" || { bad "$3: render's refusal: ${out}"; return; }
+  out="$(python3 hack/check.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: check accepted it"; return; }
+  grep -qF -- "$2" <<<"${out}" && ok "$3 is refused" || bad "$3: check's refusal: ${out}"
+}
+i44 gate-i44 --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.ha.enabled=true \
+  --set clearance.gate.agent.statusHeartbeat=5m --set clearance.gate.agent.alerts.enabled=true --set clearance.gate.previousURL=http://clearance-old.hangar-dev.local
+render_ok "${TMP}/gate-i44" "gate agent with grantExpiry (audit), ha, statusHeartbeat and alerts"
+AGI="${TMP}/gate-i44/56-clearance-gate/agent/application.yaml"
+has "${AGI}" '^        grantExpiry: \{"enabled": true, "argocdUser": "system:serviceaccount:argocd-apps:argocd-application-controller"\}$' "grantExpiry: enabled, audit by the chart's default, the policy's controller"
+has "${AGI}" '^          previousURL: "http://clearance-old.hangar-dev.local"$' "grantExpiry with previousURL: the webhook exempts the previous URL's wait Job too"
+if grep -q '^ *gate:' "${AGI}"; then bad "gate.enforce off: the agent was told the policy enforces"; else ok "gate.enforce off: no gate values in the agent"; fi
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${AGI}" <<'PY' && ok "I-44: the agent's values are the chart's keys" || bad "I-44: the agent's rendered values are wrong"
+import sys, yaml
+v = yaml.safe_load(open(sys.argv[1]))["spec"]["source"]["helm"]["valuesObject"]
+assert v["ha"] == {"enabled": True}, v.get("ha")
+assert v["statusHeartbeat"] == "5m", v.get("statusHeartbeat")
+assert v["alerts"] == {"enabled": True, "labels": {"release": "kube-prometheus-stack"}}, v.get("alerts")
+assert v["waitJob"]["previousURL"] == "http://clearance-old.hangar-dev.local", v["waitJob"]
+PY
+fi
+i44 gate-i44-enf --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.grantExpiry.mode=enforce \
+  --set clearance.gate.enforce=true --set clearance.gate.argocdServiceAccount=argocd-apps:my-controller
+render_ok "${TMP}/gate-i44-enf" "gate.enforce with an enforcing grant-expiry webhook"
+AGE="${TMP}/gate-i44-enf/56-clearance-gate/agent/application.yaml"
+has "${AGE}" '^        grantExpiry: \{"enabled": true, "enforce": true, "argocdUser": "system:serviceaccount:argocd-apps:my-controller"\}$' "grantExpiry mode enforce: the chart's enforce, the named controller"
+has "${AGE}" '^          enforce: true$' "gate.enforce: the agent chart is told the policy denies"
+if grep -q 'previousURL' "${AGE}"; then bad "no previousURL: one rendered"; else ok "no previousURL: none in the agent"; fi
+i44 gate-i44-enf-audit --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.enforce=true
+i44_refused gate-i44-enf-audit "clearance.gate.enforce needs clearance.gate.agent.grantExpiry {enabled: true, mode: enforce}" "gate.enforce with the webhook in audit"
+i44 gate-i44-enf-none --set clearance.gate.enforce=true
+i44_refused gate-i44-enf-none "clearance.gate.enforce needs clearance.gate.agent.grantExpiry" "gate.enforce without the webhook"
+i44 gate-i44-risk --set clearance.gate.enforce=true --set clearance.gate.agent.grantExpiry.acceptResidualRisk=true
+render_ok "${TMP}/gate-i44-risk" "gate.enforce without the webhook, acceptResidualRisk"
+has "${TMP}/gate-i44-risk/56-clearance-gate/agent/application.yaml" '^        grantExpiry: \{"acceptResidualRisk": true\}$' "acceptResidualRisk alone: only the override renders"
+i44 gate-i44-enf-old --set clearance.gate.enforce=true --set versions.clearance.argocdAgentChart=0.54.0
+render_ok "${TMP}/gate-i44-enf-old" "gate.enforce on an agent chart before 0.55.0 (no webhook to require)"
+i44 gate-i44-mode --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.grantExpiry.mode=strict
+i44_refused gate-i44-mode "clearance.gate.agent.grantExpiry.mode is 'strict'" "a grantExpiry mode other than audit or enforce"
+i44 gate-i44-enf-off --set clearance.gate.agent.grantExpiry.mode=enforce
+i44_refused gate-i44-enf-off "mode: enforce needs grantExpiry.enabled: true" "grantExpiry mode enforce without enabled"
+i44 gate-i44-typo --set clearance.gate.agent.grantExpiry.enable=true
+i44_refused gate-i44-typo "clearance.gate.agent.grantExpiry.enable is not a setting" "an unknown grantExpiry key"
+i44 gate-i44-old --set clearance.gate.agent.grantExpiry.enabled=true --set versions.clearance.argocdAgentChart=0.54.0
+i44_refused gate-i44-old "need versions.clearance.argocdAgentChart 0.55.0 or later" "grantExpiry on an agent chart before 0.55.0"
+i44 gate-i44-nocm --set clearance.gate.agent.grantExpiry.enabled=true --set components.certManager=false
+i44_refused gate-i44-nocm "clearance.gate.agent.grantExpiry needs components.certManager" "grantExpiry without cert-manager"
+i44 gate-i44-hb --set clearance.gate.agent.statusHeartbeat=5m30s
+i44_refused gate-i44-hb "clearance.gate.agent.statusHeartbeat is '5m30s'" "a statusHeartbeat of two units"
+i44 gate-i44-al-hb --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-hb "clearance.gate.agent.alerts needs statusHeartbeat" "alerts without statusHeartbeat"
+i44 gate-i44-al-ge --set clearance.gate.agent.statusHeartbeat=5m --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-ge "clearance.gate.agent.alerts needs grantExpiry.enabled" "alerts without the webhook"
+i44 gate-i44-al-slow --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.statusHeartbeat=15m --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-slow "must be below 15m with alerts" "a statusHeartbeat not below the alert's staleness"
+i44 gate-i44-al-obs --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.statusHeartbeat=5m \
+  --set clearance.gate.agent.alerts.enabled=true --set components.observability=false
+i44_refused gate-i44-al-obs "clearance.gate.agent.alerts needs components.observability" "alerts without kube-prometheus-stack"
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
@@ -1254,6 +1327,8 @@ python3 - "${TMP}/tgt-prod/cluster.yaml" "${TMP}/tgt-prod-enf/cluster.yaml" <<'P
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1]))
 c["clearance"]["gate"]["enforce"] = True
+# Deny needs an enforcing grant-expiry webhook (I-44; the agent chart and check refuse it otherwise).
+c["clearance"]["gate"]["agent"]["grantExpiry"] = {"enabled": True, "mode": "enforce"}
 c["clearance"]["protectedEnvironments"] = ["hangar-prod/staging"]
 yaml.safe_dump(c, open(sys.argv[2], "w"))
 PY
