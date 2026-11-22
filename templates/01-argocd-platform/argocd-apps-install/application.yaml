@@ -209,6 +209,10 @@ spec:
                 # (trust-manager's Bundle target in argocd-apps), read once at start: a missing ConfigMap keeps the pod from starting.
                 - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
 #@end
+#@if clearance.gate.enabled and clearance.gate.fsSandbox
+                # clearance.gate.fsSandbox (A-24): the plugin's Landlock filesystem sandbox mode (try, require or off); unset, the plugin's default (try).
+                - {name: CLEARANCE_CMP_FS_SANDBOX, value: "@@CLEARANCE_GATE_FS_SANDBOX@@"}
+#@end
 #@if clearance.gate.enabled and clearance.gate.waitCAInject
                 # clearance.gate.waitCAInject (plan step 5b): the injected wait Job mounts this ConfigMap (key ca.crt) at /etc/clearance-ca,
                 # which clearance-protected-writes admits only with clearance.gate.waitCAConfigMap (the same name; apron check).
@@ -253,6 +257,9 @@ spec:
 #@end
 #@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.caConfigMap
                 - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.fsSandbox
+                - {name: CLEARANCE_CMP_FS_SANDBOX, value: "@@CLEARANCE_GATE_FS_SANDBOX@@"}
 #@end
 #@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.waitCAInject
                 - {name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"}

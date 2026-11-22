@@ -242,6 +242,8 @@ def violations(v, fleet=None):
             add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
                 "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
+    if get(v, "clearance.gate.fsSandbox") is not None and get(v, "clearance.gate.fsSandbox") not in ("try", "require", "off"):
+        add(f"clearance.gate.fsSandbox is {get(v, 'clearance.gate.fsSandbox')!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
     # The audit collector and the target registry publisher call clearance.gate.url and have no CA setting (their charts in
     # clearance 0.54.0): an https URL to the in-cluster core is signed by a private CA they cannot trust (CodeRabbit on #270).
     gate_host = (urlparse(str(get(v, "clearance.gate.url") or "")).hostname or "") if str(get(v, "clearance.gate.url") or "").startswith("https://") else ""

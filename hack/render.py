@@ -1181,6 +1181,11 @@ def clearance_admission_tokens(g):
     if inject and not wait_ca:
         raise ApronError("clearance.gate.waitCAInject needs clearance.gate.waitCAConfigMap: the plugin would inject a CA volume "
                          "the admission policy refuses (set the policy's key first, plan step 5a)")
+    # clearance.gate.fsSandbox (A-24): the plugin's CLEARANCE_CMP_FS_SANDBOX (clearance docs/install-argocd-plugin.md). Unset: nothing
+    # renders and the plugin's default (try) applies. Only read under `#@if clearance.gate.fsSandbox`.
+    fs_sandbox = g("clearance.gate.fsSandbox", None)
+    if fs_sandbox is not None and fs_sandbox not in ("try", "require", "off"):
+        raise ApronError(f"clearance.gate.fsSandbox is {fs_sandbox!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
     ns = g("clearance.namespace", None) or "clearance-system"
     gate_url = g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080"
     prev_url = str(g("clearance.gate.previousURL", "") or "")
@@ -1191,6 +1196,7 @@ def clearance_admission_tokens(g):
         _cel_safe_url("clearance.gate.url (with previousURL set)", gate_url)
     return {
         "CLEARANCE_GATE_WAIT_CA_CONFIGMAP": wait_ca or "",
+        "CLEARANCE_GATE_FS_SANDBOX": fs_sandbox or "",
         # clearance.gate.caConfigMap (A-19): the ConfigMap (key ca.crt) the plugin sidecar (argocd-apps) and the agent
         # (clearance-system) trust as extra roots for an https core and API. Only read under `#@if clearance.gate.caConfigMap`.
         "CLEARANCE_GATE_CA_CONFIGMAP": gate_ca or "",

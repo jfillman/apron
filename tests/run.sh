@@ -912,6 +912,25 @@ AGC="${TMP}/gate-ca/56-clearance-gate/agent/application.yaml"
 [ "$(grep -c 'name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars read the CA file" || bad "caConfigMap: CLEARANCE_CA_FILE is not on both sidecars"
 [ "$(grep -c 'name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars mount the CA read-only" || bad "caConfigMap: the CA mount is not on both sidecars"
 [ "$(grep -c 'name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "hangar-cluster-ca"' "${RSC}")" = 2 ] && ok "waitCAInject: both sidecars inject the wait Job's CA" || bad "waitCAInject: CLEARANCE_WAIT_CA_CONFIGMAP is not on both sidecars"
+# clearance.gate.fsSandbox (A-24): unset, no CLEARANCE_CMP_FS_SANDBOX renders (gate-agent, gate-ca above); set, both sidecars carry it;
+# a value other than try, require or off is refused by render and check.
+if grep -q 'CLEARANCE_CMP_FS_SANDBOX' "${RSA}" "${RSC}"; then bad "fsSandbox unset: the env rendered"; else ok "fsSandbox unset: no CLEARANCE_CMP_FS_SANDBOX"; fi
+new "${TMP}/gate-fs" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=https://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' \
+  --set clearance.gate.fsSandbox=require \
+  --set clearance.gate.canary.image=ghcr.io/acme/clearance-cmp@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-fs" "gate on with fsSandbox require"
+[ "$(grep -c 'name: CLEARANCE_CMP_FS_SANDBOX, value: "require"' "${TMP}/gate-fs/01-argocd-platform/argocd-apps-install/application.yaml")" = 2 ] \
+  && ok "fsSandbox: both sidecars set CLEARANCE_CMP_FS_SANDBOX" || bad "fsSandbox: CLEARANCE_CMP_FS_SANDBOX is not on both sidecars"
+python3 hack/check.py --cluster "${TMP}/gate-fs/cluster.yaml" >/dev/null 2>&1 && ok "fsSandbox: check accepts require" || bad "fsSandbox: check refused require"
+mkdir -p "${TMP}/gate-fs-bad"
+sed 's/fsSandbox: require/fsSandbox: strict/' "${TMP}/gate-fs/cluster.yaml" >"${TMP}/gate-fs-bad/cluster.yaml"
+grep -q 'fsSandbox: strict' "${TMP}/gate-fs-bad/cluster.yaml" || bad "fsSandbox: the bad-value fixture did not take"
+out="$(python3 hack/render.py --cluster "${TMP}/gate-fs-bad/cluster.yaml" 2>&1)" && bad "fsSandbox: a bad value rendered" \
+  || { grep -q 'clearance.gate.fsSandbox' <<<"${out}" && ok "fsSandbox: a bad value is refused by render" || bad "fsSandbox: bad value refusal text: ${out}"; }
+out="$(python3 hack/check.py --cluster "${TMP}/gate-fs-bad/cluster.yaml" 2>&1)" && bad "fsSandbox: check accepted a bad value" \
+  || { grep -q 'clearance.gate.fsSandbox' <<<"${out}" && ok "fsSandbox: a bad value is refused by check" || bad "fsSandbox: check refusal text: ${out}"; }
 if [ "${HAVE_YAML}" = true ]; then
   python3 - "${RSC}" "${AGC}" <<'PY' && ok "gate CA: the repo-server volume is the ConfigMap's ca.crt only; the agent's tls.caConfigMap and waitJob.caConfigMap name it" || bad "gate CA: the rendered values are wrong"
 import sys, yaml
