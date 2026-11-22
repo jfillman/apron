@@ -36,6 +36,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -268,28 +269,31 @@ func start(t *testing.T) *world {
 }
 
 // apply creates or replaces the ApplicationSet (as the tenant-onboarding Application's sync would) and asks for a refresh.
+// The controller writes the set too (it removes the refresh annotation at the end of a reconcile), so an Update can meet a
+// newer resourceVersion: read again and retry, as kubectl apply would.
 func (w *world) apply(as *argov1alpha1.ApplicationSet) {
 	w.t.Helper()
-	cur := &argov1alpha1.ApplicationSet{}
-	err := w.c.Get(w.ctx, types.NamespacedName{Namespace: ns, Name: as.Name}, cur)
-	want := as.DeepCopy()
-	want.Namespace = ns
-	if want.Annotations == nil {
-		want.Annotations = map[string]string{}
-	}
-	want.Annotations[common.AnnotationApplicationSetRefresh] = "true"
-	switch {
-	case apierrors.IsNotFound(err):
-		if err := w.c.Create(w.ctx, want); err != nil {
-			w.t.Fatal(err)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cur := &argov1alpha1.ApplicationSet{}
+		err := w.c.Get(w.ctx, types.NamespacedName{Namespace: ns, Name: as.Name}, cur)
+		want := as.DeepCopy()
+		want.Namespace = ns
+		if want.Annotations == nil {
+			want.Annotations = map[string]string{}
 		}
-	case err != nil:
+		want.Annotations[common.AnnotationApplicationSetRefresh] = "true"
+		switch {
+		case apierrors.IsNotFound(err):
+			return w.c.Create(w.ctx, want)
+		case err != nil:
+			return err
+		default:
+			want.ResourceVersion = cur.ResourceVersion
+			return w.c.Update(w.ctx, want)
+		}
+	})
+	if err != nil {
 		w.t.Fatal(err)
-	default:
-		want.ResourceVersion = cur.ResourceVersion
-		if err := w.c.Update(w.ctx, want); err != nil {
-			w.t.Fatal(err)
-		}
 	}
 }
 
@@ -557,6 +561,9 @@ func TestGatedSet(t *testing.T) {
 			return strings.Contains(m, "shop-dev") && strings.Contains(m, "already owned"), "condition: " + m
 		})
 		w.steady("shop-dev kept, still owned by tenant-onboarding", 5*time.Second, live(w, "shop-dev", tenantSet, uid))
+		// Step 2's second wait, on tenant-onboarding only (the gated set's reconcile fails at "already owned" before it
+		// clears the annotation): no tenant-onboarding reconcile that read the identities before the flip is still running.
+		w.observed(tenantSet)
 		// The operator step: drop tenant-onboarding's controller reference, guarded by a test of its uid.
 		a := w.app("shop-dev")
 		var tenantUID types.UID
@@ -574,6 +581,8 @@ func TestGatedSet(t *testing.T) {
 		}
 		w.refresh()
 		w.eventually("the gated set adopts shop-dev", live(w, "shop-dev", gatedSet, uid))
+		w.observed(tenantSet) // step 4: one more reconcile of each set before the check
+		w.observed(gatedSet)
 		w.steady("shop-dev keeps the moved order under the gated set (carrier: its gitops repository)", 3*time.Second, func() (bool, string) {
 			a := w.app("shop-dev")
 			return carrier(a.Spec.Sources) == gitopsRepo("shop") && len(a.Spec.Sources) == 2, fmt.Sprintf("sources %+v", a.Spec.Sources)
@@ -606,6 +615,7 @@ func TestGatedSet(t *testing.T) {
 			m := w.setCondition(tenantSet)
 			return strings.Contains(m, "shop-dev") && strings.Contains(m, "already owned"), "condition: " + m
 		})
+		w.observed(gatedSet) // the reverse of step 2's second wait: only the set that is not reporting the error
 		w.steady("shop-dev kept by the gated set, nothing rewrites it", 3*time.Second, func() (bool, string) {
 			if ok, why := live(w, "shop-dev", gatedSet, uid)(); !ok {
 				return false, why
@@ -635,6 +645,8 @@ func TestGatedSet(t *testing.T) {
 		}
 		w.refresh()
 		w.eventually("tenant-onboarding adopts shop-dev", live(w, "shop-dev", tenantSet, uid))
+		w.observed(tenantSet)
+		w.observed(gatedSet)
 		w.eventually("shop-dev is back on its Helm sources with the resources finalizer", func() (bool, string) {
 			a := w.app("shop-dev")
 			return len(a.Spec.Sources) == 2 && a.Spec.Sources[0].Plugin == nil && a.Spec.Sources[0].RepoURL == chartRepo && has(a.Finalizers, finalizer) && a.Annotations[switched] == "",

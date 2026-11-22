@@ -220,18 +220,26 @@ flip outside the window deletes the workload (tests/appset records it). Into the
    before its end: stop and read its conditions. (ApplicationSet status has no observedGeneration in v3.5.0.)
 2. Set `spec.clearanceGate: true` on the `ApplicationEnvironment` (identity.yaml gains `clearanceGate: true`). tenant-onboarding stops
    generating the Application and keeps it; tenant-onboarding-gated reports `already owned by another ApplicationSet controller tenant-onboarding`.
+   Once it does, repeat step 1's refresh-annotation wait on tenant-onboarding before step 3 (not on the gated set: its
+   reconcile now fails at that error, before it clears the annotation). A tenant-onboarding reconcile that
+   read the identities before the flip still generates the Application, and its `CreateOrUpdate` writes a merge patch
+   with no resourceVersion precondition (`applicationset/utils/createOrUpdate.go`): run during or after step 3, it puts
+   tenant-onboarding's controller reference (and its source order) back. After the wait, every such reconcile has finished.
 3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
    `$appsrc` source first (the gated set's order; its ignore rule keeps the live sources on adoption, so the move is not
    made for you):
    `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
    The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
    carried on the gitops repository.
-4. Check the Application's controller is `tenant-onboarding-gated` and neither set reports an error, then turn the window off.
+4. Repeat step 1's refresh-annotation wait on both sets once more, then check the Application's controller is
+   `tenant-onboarding-gated`, its `$appsrc` source is first, and neither set reports an error; then turn the window off.
 
-Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`; the gated set keeps the Application (nothing
+Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`, and
+once tenant-onboarding reports `already owned`, wait again on the gated set only (as in step 2); the gated set keeps the Application (nothing
 reconciles it now), so remove its `clearance.hangar.io/protect` annotation by hand and wait for the agent's opt-out to
 finish (sources restored, `switched` gone, namespace unlabelled); then remove the gated set's owner reference the same
-way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it (Helm sources in its order, resources finalizer back); close the window. Closing the window with an
+way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it (Helm sources in its order, resources finalizer back); wait once more
+and check as in step 4; close the window. Closing the window with an
 Application still owned by a set that no longer generates it deletes that Application: step 4 is the check.
 
 Needs the ApplicationSet controller to honour `applicationsSync`: it does while no controller-wide
