@@ -248,6 +248,9 @@ def tokens(v):
         "CP_LEASE_DURATION": g("runtime.controlPlane.leaderElection.leaseDuration", ""),
         "CP_RENEW_DEADLINE": g("runtime.controlPlane.leaderElection.renewDeadline", ""),
         "CP_RETRY_PERIOD": g("runtime.controlPlane.leaderElection.retryPeriod", ""),
+        # tenantOnboarding.deleteGuard (W-46 (d)): the binding's validationActions and the controller's username. Only used
+        # in the tenant-onboarding chart's delete-guard.yaml, rendered only with tenantOnboarding.deleteGuard.enabled.
+        **{k: x for k, x in tenant_delete_guard(g).items() if not k.startswith("_")},
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
 
@@ -1390,11 +1393,47 @@ def tenant_gated_set_flags(g):
     return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover)}
 
 
+# The ServiceAccount argocd-apps-install's ApplicationSet controller runs as: the argo-cd chart's default
+# (applicationSet.serviceAccount.name), which argocd-apps-install does not override (tests/run.sh checks it).
+APPSET_CONTROLLER_SA = "argocd-applicationset-controller"
+# A ServiceAccount name: a DNS subdomain (RFC 1123, at most 253 characters), matched with fullmatch (no trailing newline).
+_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
+
+
+def tenant_delete_guard(g):
+    """tenantOnboarding.deleteGuard (W-46 option (d); hangar specs/plans/w46-clearancegate-flip-guard.md): the tenant-onboarding
+    chart renders a ValidatingAdmissionPolicy that refuses the ApplicationSet controller's DELETE of an Application that
+    tenant-onboarding or tenant-onboarding-gated controls. Off by default (nothing renders: the chart is byte for byte what it
+    was); `enabled: true` per cluster turns it on. `validationActions` is Audit (the default, the first rollout step) or Deny.
+    `controllerServiceAccount` is the controller's ServiceAccount in argocd-apps (default: the chart's). Returns the
+    `_tenantDeleteGuard` flag (templates/MANIFEST) and the two tokens."""
+    enabled = g("tenantOnboarding.deleteGuard.enabled", None)
+    actions = g("tenantOnboarding.deleteGuard.validationActions", None)
+    sa = g("tenantOnboarding.deleteGuard.controllerServiceAccount", None)
+    block = g("tenantOnboarding.deleteGuard", None)
+    if block is not None and not isinstance(block, dict):
+        raise ApronError("tenantOnboarding.deleteGuard is a mapping: {enabled, validationActions, controllerServiceAccount}")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ApronError("tenantOnboarding.deleteGuard.enabled is true or false")
+    if actions is not None and actions not in ("Audit", "Deny"):
+        raise ApronError("tenantOnboarding.deleteGuard.validationActions is Audit or Deny")
+    # A CEL string literal in the policy: a DNS subdomain only (no quote, no newline), so it cannot end the literal.
+    if sa is not None and not (isinstance(sa, str) and len(sa) <= 253 and _DNS_SUBDOMAIN.fullmatch(sa)):
+        raise ApronError("tenantOnboarding.deleteGuard.controllerServiceAccount is a ServiceAccount name (a DNS subdomain)")
+    return {
+        "_tenantDeleteGuard": bool(enabled),
+        "TENANT_DELETE_GUARD_ACTIONS": actions or "Audit",
+        "TENANT_DELETE_GUARD_USER": f"system:serviceaccount:argocd-apps:{sa or APPSET_CONTROLLER_SA}",
+    }
+
+
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
     signing_dir_check(out_dir)
-    v = dict(v, _dir=os.path.abspath(out_dir), **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)))
+    guard = tenant_delete_guard(lambda k, d=None: get(v, k, d))
+    v = dict(v, _dir=os.path.abspath(out_dir), _tenantDeleteGuard=guard["_tenantDeleteGuard"],
+             **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):

@@ -18,6 +18,8 @@ the render with `file:line`.
 | `@@REPO_URL@@` | `repoURL` - this cluster's GitOps repo (required, `apron init --repo-url`) |
 | `@@TENANTS_REPO_URL@@` | `tenantsRepo`, derived `<repo name>-tenants` under `scm` |
 | `@@TENANTS_REPO_NAME@@` | the tenants repo's bare name (prose in an AppProject description) |
+| `@@TENANT_DELETE_GUARD_ACTIONS@@` | `tenantOnboarding.deleteGuard.validationActions`, `Audit` (default) or `Deny`: the tenant-onboarding delete guard's binding (W-46 (d); rendered only with `tenantOnboarding.deleteGuard.enabled`) |
+| `@@TENANT_DELETE_GUARD_USER@@` | `system:serviceaccount:argocd-apps:<tenantOnboarding.deleteGuard.controllerServiceAccount>`, default `argocd-applicationset-controller` (argocd-apps-install's ApplicationSet controller): the one requester the delete guard matches |
 
 ## SCM and registry (no default owner)
 
