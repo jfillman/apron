@@ -69,6 +69,14 @@ spec:
           method: POST
         - path: {type: Exact, value: /v1/breakglass}
           method: GET
+        # Its protected app/environment pairs (the annotation opt-in, clearance G-ARGO-10c): what the core holds, and its
+        # own cluster's report. The core takes a report only from a principal its provider's `protection` list pairs with
+        # that exact cluster (clearance internal/server/protection.go), so this route only lets the call reach it (I-81:
+        # both 404'd at the Gateway, and no remote Application was ever switched).
+        - path: {type: Exact, value: /v1/protection}
+          method: GET
+        - path: {type: RegularExpression, value: "^/v1/protection/[a-z0-9][a-z0-9-]*$"}
+          method: PUT
       backendRefs:
         - name: clearance-core
           port: @@CLEARANCE_BACKEND_PORT@@

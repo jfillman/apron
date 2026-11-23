@@ -1728,6 +1728,22 @@ EXPECT_DEV='{"targets": [{"env": "lab", "gates": [{"instance": "github:repo:acme
 [ "$(targets_json "${TMP}/tgt-dev")" = "${EXPECT_DEV}" ] && ok "targets (dev): the AWS account (scope = the account, G-TF from cluster.yaml) and the rehearsal namespace (no app: no gates), Ground" || bad "targets (dev): unexpected set: $(targets_json "${TMP}/tgt-dev")"
 TC="${TMP}/tgt-dev/55-clearance/clearance/application.yaml"
 has "${TMP}/tgt-dev/55-clearance/clearance-config/routes.yaml" 'value: "\^/v1/targets/\[a-z0-9\]\[a-z0-9-\]\*\$"' "targets (dev): the Gateway routes a remote publisher's PUT /v1/targets/<source> to the core"
+# I-81: a remote gate agent (clearance.feedReaders) reads the core's protection state and reports its own cluster's pairs
+# (GET /v1/protection, PUT /v1/protection/<cluster>) through the gate route; without feedReaders neither is routed.
+new "${TMP}/feed-dev" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set 'clearance.feedReaders=[{principal: hangar-prod/clearance-system/clearance-argocd-agent, cluster: hangar-prod}]'
+render_ok "${TMP}/feed-dev" "feedReaders on (dev, the core)"
+FR="${TMP}/feed-dev/55-clearance/clearance-config/routes.yaml"
+has "${FR}" 'value: /v1/records\}' "feedReaders: the Gateway routes the agent's POST /v1/records"
+python3 - "${FR}" <<'PY' && ok "feedReaders: the gate route sends GET /v1/protection (Exact) and PUT /v1/protection/<cluster> (a name) to the core, no other method" || bad "feedReaders: the protection matches are missing or wrong"
+import re, sys, yaml
+route = next(d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["metadata"]["name"] == "clearance-gate")
+m = [(x["path"]["type"], x["path"]["value"], x.get("method")) for r in route["spec"]["rules"] for x in r["matches"] if "protection" in x["path"]["value"]]
+assert sorted(m) == [("Exact", "/v1/protection", "GET"), ("RegularExpression", "^/v1/protection/[a-z0-9][a-z0-9-]*$", "PUT")], m
+rx = re.compile(m[0][1] if m[0][0] == "RegularExpression" else m[1][1])
+assert rx.match("/v1/protection/hangar-prod") and not rx.match("/v1/protection/") and not rx.match("/v1/protection/a/b") and not rx.match("/v1/protection/Hangar")
+PY
+if grep -q '/v1/protection' "${LAB}/dev/55-clearance/clearance-config/routes.yaml"; then bad "no feedReaders: the gate route carries /v1/protection"; else ok "no feedReaders: no /v1/protection route (the render is as before)"; fi
 has "${TC}" '"name": "targets-hangar-dev", "version": "[0-9.]+", "principals": \["clearance-system/clearance-targets"\], "kinds": \[\], "targets": \["hangar-dev"\]' "targets (dev): the core registers its own publisher with the right to publish its own source only"
 has "${TC}" '"name": "targets-hangar-prod", "version": "[0-9.]+", "principals": \["hangar-prod/clearance-system/clearance-targets"\], "kinds": \[\], "targets": \["hangar-prod"\]' "targets (dev): and the remote publisher, for its source only"
 has "${TC}" 'serviceAccounts: \[.*"clearance-system/clearance-targets"\]' "targets (dev): the remote publisher's account is a foreign service account of the Tower cluster"
