@@ -186,9 +186,14 @@ spec:
         # what Argo CD's manifest cache keys on, so a release commit re-renders. With the chart first, the carrier would be the
         # chart repository at its pinned tag: the gitops repository would be refused by the plugin's allow list, and a release
         # commit would not change the carrier's revision. tenant-onboarding keeps its order (this source after the chart).
+        # `path: .` (I-82): the agent copies the carrier's path into its plugin source, and Argo CD refuses a source with no
+        # path, chart or ref (InvalidSpecError, util/argo/argo.go validateSourcePermissions). With a path the source is no
+        # longer ref-only, so Argo CD generates it as a Directory source (the explicit `directory:`), and `exclude: "*"`
+        # keeps that generation empty: still only $ref'd for valueFiles, nothing applied from the repository root.
         __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
         __GATED_SET_ONLY__  targetRevision: main
         __GATED_SET_ONLY__  ref: appsrc
+        __GATED_SET_ONLY__  path: .
         __GATED_SET_ONLY__  directory:
         __GATED_SET_ONLY__    exclude: "*"
 #@end
@@ -342,10 +347,11 @@ spec:
 #@end
       sources:
 #@if _tenantGatedSet
-        # The gated set's `ref: appsrc` source first, as in the template above (the agent's carrier).
+        # The gated set's `ref: appsrc` source first, as in the template above (the agent's carrier; `path: .`, I-82).
         __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"
         __GATED_SET_ONLY__  targetRevision: main
         __GATED_SET_ONLY__  ref: appsrc
+        __GATED_SET_ONLY__  path: .
         __GATED_SET_ONLY__  directory:
         __GATED_SET_ONLY__    exclude: "*"
 #@end

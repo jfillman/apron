@@ -1156,6 +1156,20 @@ has "${GSA}" '^    \{\{- if and __SET_STATIC_PLUGIN__ \(regexMatch' "gatedSet: t
 [ "$(grep -c '^        __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] && [ "$(grep -c '^        __TENANT_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] \
   && ok "gatedSet: the gated set lists the \$appsrc source first (the agent's carrier), tenant-onboarding after the chart (template and templatePatch)" \
   || bad "gatedSet: the \$appsrc source is not ordered per set in both the template and the templatePatch"
+[ "$(grep -c '^        __GATED_SET_ONLY__  path: \.$' "${GSA}")" = 2 ] && [ "$(grep -c '^        __TENANT_SET_ONLY__  path:' "${GSA}")" = 0 ] \
+  && ok "gatedSet: the gated set's \$appsrc carrier has path . (I-82: the agent copies it into its plugin source), tenant-onboarding's has none" \
+  || bad "gatedSet: the gated \$appsrc source lacks path . in the template or the templatePatch, or tenant-onboarding's gained one"
+python3 - "${GSA}" <<'PY' && ok "gatedSet: every \$appsrc source with a path keeps directory.exclude \"*\" (it renders nothing)" || bad "gatedSet: an \$appsrc source with a path would render the repository root"
+import re, sys
+lines = open(sys.argv[1]).read().splitlines()
+n = 0
+for i, l in enumerate(lines):
+    if re.fullmatch(r"\s+__GATED_SET_ONLY__  path: \.", l):
+        blk = lines[i - 3:i + 3]
+        assert any("ref: appsrc" in b for b in blk) and any("exclude: \"*\"" in b for b in blk), blk
+        n += 1
+assert n == 2, n
+PY
 has "${GSR}" '"__SET_NAME__" "tenant-onboarding-gated"' "gatedSet: render.yaml emits tenant-onboarding-gated"
 has "${GSR}" '"__SET_SELECTOR_OPERATOR__" "NotIn"' "gatedSet: tenant-onboarding excludes the gated environments"
 if grep -q 'applicationsSync' "${GSA}"; then bad "gatedSet without gatedSetHandover: applicationsSync rendered"; else ok "gatedSet without gatedSetHandover: no applicationsSync (both sets delete what they stop generating, as before)"; fi
