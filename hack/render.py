@@ -234,6 +234,9 @@ def tokens(v):
         # trust-manager's chart (and its image's tag) and image index digest (components.trustManager; versions.yaml).
         "TRUST_MANAGER_CHART_VERSION": g("versions.trustManager.chart", ""),
         "TRUST_MANAGER_IMAGE_DIGEST": g("versions.trustManager.imageDigest", ""),
+        # certManager.dns01RecursiveNameservers as the chart's comma list (host:port,...). Only under its #@if in the
+        # cert-manager Application; unset, the chart's default (the pod's resolv.conf) applies and nothing renders.
+        "CERT_MANAGER_DNS01_RECURSIVE_NAMESERVERS": ",".join(str(x) for x in (g("certManager.dns01RecursiveNameservers") or [])),
         "ARGOCD_CHART_VERSION": g("versions.argocdChart"),
         "CNPG_REPLICAS": g("cnpg.replicas"),
         "OBSERVABILITY_FULL": "true" if g("observability.full") else "false",

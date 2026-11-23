@@ -8,6 +8,7 @@ nav:
   - The fleet file (clusters.yaml): clusters-file.md
   - Cluster identity: cluster-identity.md
   - Control-plane tuning: control-plane-tuning.md
+  - cert-manager (DNS-01 self-check resolvers): cert-manager.md
   - Signing PKI (C-2a): signing-pki.md
   - Clearance Map (targets, attestation trust): clearance-map.md
   - Clearance Slack: clearance-slack.md
