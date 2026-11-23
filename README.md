@@ -162,10 +162,12 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
 | `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
 | `clearance.gate.canary` | optional, off by default: try a new `clearance-cmp` on some apps first. `image` (a digest, `<repo>@sha256:<64 hex>`) and `apps` (a non-empty list, each also in `clearance.gate.apps` when that is set). Renders a second sidecar `clearance-cmp-canary` (same settings and security context as the first, its own `/tmp` volume; it registers the image's `config-canary/plugin.yaml` as plugin `clearance-canary`) and the ApplicationSet gives the listed apps `plugin.name: clearance-canary`, every other app `clearance`. Unset, the render is unchanged. Promote by moving `versions.clearance.cmpImage` to the new digest and deleting the block; roll back an app by removing it from `apps`, or delete the whole `clearance.gate.canary` block when it was the last one (an empty `apps` is refused). Needs a `clearance-cmp` image from the clearance release that ships `config-canary` (clearance `docs/gate.md`, "Rolling out a plugin release") |
-| `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces`; needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
+| `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces` (with `rule` set, either may be left out and is derived from the rule's literal values: see "The platform's gate rule" below); needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
 | `clearance.gate.agent.optIn` | default off. `true` turns on the agent's annotation opt-in (clearance `docs/gate.md`, "Annotation opt-in", G-ARGO-10c; chart `optIn.enabled`): an Application annotated `clearance.hangar.io/protect: "true"` in one of `projects` and targeting one of `protectedNamespaces` is switched to the plugin and its namespace labelled protected once its merged grant is active. Needs `versions.clearance.argocdAgentChart` 0.49.0 or later, and, on the cluster that runs the core, a `clearance.extraProviders` entry whose `protection` lists the agent's principal and this cluster (`["clearance-system/clearance-argocd-agent=<cluster>"]`) and whose own `principals` list that principal (`render` refuses without both): without them the core refuses the agent's reports. Order: the CRD (rendered with the gate, schema revision 2), then the agent, then `optIn`. **Tenant Applications only through the gated set** (`gatedSet` below): tenant-onboarding itself sets neither `ignoreApplicationDifferences` (`/spec/source`, `/spec/sources`) nor `preservedFields.annotations` (`clearance.hangar.io/switched`), so the agent blocks an Application it generated ("does not ignore /spec/source"); `projects` should name only the projects of Applications whose own ApplicationSet or app-of-apps says what clearance `docs/gate.md` "What the parent must say" asks |
 | `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`; and `clearance.gate.tenantPlugin: false`) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
 | `clearance.gate.agent.gatedSetHandover` | default off; needs `gatedSet`. The handover window: both sets render `syncPolicy.applicationsSync: create-update`, so neither deletes an Application it stops generating. Turn it on only for a handover and off again after |
+| `clearance.gate.agent.rule` | unset by default: nothing renders (byte for byte as without it; an empty mapping is the same). The platform's gate rule (W-42; clearance `docs/gate.md`, "The gate rule"), passed through verbatim as the agent chart's `gateRule`: `version: 1`, `select` entries `{name, projects, namespaces, labels}`, `exempt` entries `{application, reason, expires, ref}`. An Application it selects is gated as if it carried the opt-in annotation, and a team cannot opt out of it. Needs `optIn: true` and `versions.clearance.argocdAgentChart` 0.56.0+. `apron check` refuses a bad shape (unknown keys too: the agent reads the file strictly), and holds the rule to the agent's ceiling: `projects` and `protectedNamespaces` are derived from the rule's literal values when unset and checked against it when set. See "The platform's gate rule" below |
+| `clearance.gate.agent.ruleOptions` | unset by default (the chart's own bounds). The chart's `gateRuleOptions`, only the keys set: `exemptMax` (a Go duration, at most `2160h`), `releaseMax` (rule-caused releases an hour, at least 1), `exemptionRecheck` and `exemptionRecheckTimeout` (the timeout below the recheck). Needs `rule` |
 | `clearance.gate.agent.ownedProject` | unset by default: nothing renders (byte for byte as without it). `{create: true, sourceRepos: [...]}` makes apron own what the agent needs and nothing else on the cluster does (the hangar-dev opt-in rehearsal, W-40): a `Namespace` per `protectedNamespaces` entry and an Argo CD `AppProject` (in `argocd-apps`) per `projects` entry, restricted to deploy into exactly those namespaces, from `sourceRepos` (default: this cluster's gitops repository). Rendered as `56-clearance-gate/agent/owned.yaml` and added to the agent's Application as a second source (the Application then has `sources:` - the folder, then the chart - instead of `source:`), so the Namespaces (sync-wave -1) exist before the chart puts a Role in each protected namespace (wave 0) in the same sync; sync waves order resources inside one Application, not one Application against another (Argo CD has no built-in Application health since 1.8), so this is not a separate Application. The AppProjects are wave 0. The objects carry `Prune=false,Delete=false`: removing the setting, or the agent Application's own finalizer, leaves them; delete them by hand. Refused when `projects` names `default` or a name that is not a DNS label, or on any other key. Do not set it where a tenant's own onboarding makes the project or namespace |
 | `clearance.gate.agent.environment` | optional (a DNS label): the agent's `environment`, what a protected namespace with no `clearance.hangar.io/environment` label is cleared as. Unset, the chart's `prod` (right on a protected cluster, wrong on a rehearsal one) |
 | `clearance.gate.agent.grantExpiry` | unset by default: nothing renders (byte for byte as without it). `{enabled, mode, acceptResidualRisk}`, the agent chart's grant-expiry webhook (clearance `docs/gate.md`, "The grant-expiry webhook", I-44): the clock the admission policy lacks, so an expired grant stops admitting Argo CD's writes even while the agent is stalled. `enabled: true` renders a second Deployment (`clearance-grant-expiry`, two replicas, a PDB, a spread), its cert-manager certificate (own CA, injected into the configuration) and the ValidatingWebhookConfiguration `clearance-grant-expiry`; its `argocdUser` is the controller `clearance.gate.argocdServiceAccount` names. `mode: audit` (the default) allows, warns and records `clearance.hangar.io/expired-grant` under `failurePolicy: Ignore`; `mode: enforce` refuses under `Fail` (3 s timeout). `acceptResidualRisk: true` is the recorded override of the rule below; leave it off. Needs `components.certManager` and `versions.clearance.argocdAgentChart` 0.55.0+. With `clearance.gate.previousURL` set it also becomes the chart's `waitJob.previousURL`, so the webhook exempts the same wait Job the policy does |
@@ -288,6 +290,59 @@ Needs the ApplicationSet controller to honour `applicationsSync`: it does while 
 Turning `gatedSet` off is for a cluster with no gated environment left: tenant-onboarding would then generate them too
 and fail on every Application the gated set owns; the gated ApplicationSet is not pruned (the tenant-onboarding Application
 does not prune) and is deleted by hand once it owns nothing. The rehearsal plan is hangar `specs/plans/w43-gated-set-handover-rehearsal.md`.
+
+### The platform's gate rule (`clearance.gate.agent.rule`, W-42)
+
+The opt-in annotation is the tenant's: whoever can edit an Application can remove it. The rule is the platform's: it selects
+Applications by their Argo CD project, destination namespace and labels, and the agent gates every one it selects as if it were
+annotated (clearance `docs/gate.md`, "The gate rule"; design: hangar `specs/plans/gate-rule-design.md`). Apron passes the rule
+through unchanged and adds only what it knows about the cluster:
+
+```yaml
+clearance:
+  gate:
+    agent:
+      optIn: true                  # required: the rule switches Applications as the opt-in does
+      # projects / protectedNamespaces: leave out to derive them from the rule's literal values
+      rule:
+        version: 1
+        select:                    # OR across entries; inside one, AND across the keys present
+          - name: gate-api-prod    # a DNS label; it names the entry in the agent's status and records
+            projects: [gate-api]   # globs on spec.project (OR)
+            namespaces: [app-gate-api-prod]   # globs on spec.destination.namespace (OR)
+            labels: {hangar.io/env: prod}     # exact, every one (quote "true" or "1")
+        exempt:                    # time-limited; the core decides each one
+          - application: argocd-apps/gate-api-prod   # glob on <namespace>/<name>: the agent reads argocd-apps
+            reason: "a migration to the new chart"   # 10 to 500 characters
+            expires: "2026-12-19"                    # a date (00:00 UTC) or an RFC 3339 time, as a string
+            ref: W-45                                # optional
+```
+
+**The ceiling.** The rule never widens what the agent may touch: an Application outside the agent's `projects` is not seen at
+all, and one whose namespace is not in `protectedNamespaces` is `blocked` (reported to the core as a pair, never switched). The
+agent compares projects exactly (`"*"` alone means every project) and holds one Role per listed namespace, so:
+
+- **unset**, `projects` is the rule's literal projects and `protectedNamespaces` its literal namespaces, in order, once each.
+  `apron check` refuses an entry that names no project (a namespace-only or label-only entry), a glob project, an entry that
+  names no namespace (it matches every namespace of its projects) or a glob namespace: list the ceiling by hand for those;
+- **set**, every literal project of the rule must be in `projects` (or `projects` holds `"*"`), a glob project needs `"*"`,
+  every literal namespace must be in `protectedNamespaces`, and a glob namespace must match at least one of them. With a
+  rule, a glob in the ceiling itself (other than `"*"` in `projects`) is refused. An entry that names no project or no namespace cannot be
+  checked: its Applications must be inside the listed ceiling.
+
+**ApplicationSet-made Applications.** For a ruled Application the agent's parent check asks the ApplicationSet to ignore
+`/spec/source` and `/spec/sources` and to preserve `clearance.hangar.io/switched`. `tenant-onboarding-gated` (above) has both,
+unconditionally, so a ruled environment in the gated set is switched; the rule does not change the tenant-onboarding chart.
+A ruled Application that `tenant-onboarding` generates has neither and is `blocked` by the agent (its pair is still reported):
+put tenant environments under the rule through the gated set. On a cluster with the static plugin (`tenantPlugin`, the default),
+an Application tenant-onboarding put on the plugin is one the agent did not switch, and it leaves it alone; the plugin still
+gates it.
+
+**What is not checked here.** Whether an exemption's `expires` is within `exemptMax` of now (a render must not depend on the
+day it runs: the agent ignores, and reports, one that is too far out), and whether the core accepts an exemption (the core
+refuses one in a statically protected environment). The old path (`clearance.gate.apps`, the ApplicationSet's regexes and its
+plugin source) stays as it is: the rule is added beside it, and moving off it is a later, separate change (design note,
+section 6, step 7).
 
 ### Tenant delete guard (`tenantOnboarding.deleteGuard`, W-46 (d))
 

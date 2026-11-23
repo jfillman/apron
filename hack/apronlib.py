@@ -7,6 +7,8 @@
   values (domain, issuer, repo URLs, ...) that follow from the cluster's one name.
 - A tiny condition language for templates/MANIFEST and `#@if` lines.
 """
+import datetime
+import fnmatch
 import json
 import os
 import re
@@ -600,4 +602,259 @@ def clearance_slack_problems(v):
             ok = False
         if not ok:
             add(f"{k}.idp.cidrs is a list of CIDRs, e.g. [203.0.113.10/32]")
+    return out
+
+
+# --- Clearance's gate rule (W-42; clearance docs/gate.md, "The gate rule") ---------------------------------------------
+# clearance.gate.agent.rule is passed through verbatim to the agent chart's gateRule (0.56.0+). The agent compares its
+# project ceiling (argocd.projects) exactly ("*": every project) and holds RBAC only in the literal protectedNamespaces, so
+# Apron derives both from the rule's literal values when they are unset, and checks them against the rule when they are set.
+
+GATE_RULE_MIN_CHART = (0, 56, 0)
+GATE_RULE_KEYS = ("version", "select", "exempt")
+GATE_RULE_SELECT_KEYS = ("name", "projects", "namespaces", "labels")
+GATE_RULE_EXEMPT_KEYS = ("application", "reason", "expires", "ref")
+GATE_RULE_OPTION_KEYS = ("exemptMax", "releaseMax", "exemptionRecheck", "exemptionRecheckTimeout")
+
+
+def is_glob(s):
+    """The agent's matcher reads `*` and `?` (the deny list's globs); `[` is never part of a Kubernetes name, so it counts too."""
+    return any(c in str(s) for c in "*?[")
+
+
+def gate_rule(g):
+    """The rule as cluster.yaml sets it, or None when unset or empty (an empty mapping renders nothing, as unset). `g` is a
+    getter, g(dotted_key, default)."""
+    r = g("clearance.gate.agent.rule", None)
+    return r if r not in (None, {}) else None
+
+
+def _rule_entries(rule):
+    sel = rule.get("select") if isinstance(rule, dict) else None
+    return [e for e in sel if isinstance(e, dict)] if isinstance(sel, list) else []
+
+
+def _uniq(xs):
+    out = []
+    for x in xs:
+        if x not in out:
+            out.append(x)
+    return out
+
+
+def gate_agent_ceiling(g):
+    """(projects, protectedNamespaces) the agent gets: clearance.gate.agent.projects / protectedNamespaces when set (even
+    with a rule; `apron check` holds them against it), else, with a rule, the rule's literal projects and namespaces (glob
+    values and entries that name none give nothing: check refuses that). Without a rule, what is set (or [])."""
+    projs, nss = g("clearance.gate.agent.projects", None), g("clearance.gate.agent.protectedNamespaces", None)
+    rule = gate_rule(g)
+    if rule is not None:
+        ents = _rule_entries(rule)
+        if projs is None:
+            projs = _uniq(p for e in ents for p in (e.get("projects") or []) if isinstance(p, str) and p and not is_glob(p))
+        if nss is None:
+            nss = _uniq(n for e in ents for n in (e.get("namespaces") or []) if isinstance(n, str) and n and not is_glob(n))
+    return list(projs or []), list(nss or [])
+
+
+GO_DURATION_MAX_NS = (1 << 63) - 1   # time.Duration is an int64 of nanoseconds
+
+
+def _go_duration_s(s):
+    """A Go time.Duration string (5m, 1h30m, 2160h, 500ms) in seconds, or None when it is not one, or when it is outside
+    Go's int64 nanosecond range (time.ParseDuration refuses it, and the agent would not start). Summed exactly in integer
+    nanoseconds, as Go does (a fraction is truncated per component)."""
+    from fractions import Fraction
+    if not isinstance(s, str) or not re.fullmatch(r"([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+", s):
+        return None
+    unit = {"ns": 1, "us": 1000, "µs": 1000, "ms": 10 ** 6, "s": 10 ** 9, "m": 60 * 10 ** 9, "h": 3600 * 10 ** 9}
+    ns = 0
+    for n, _, u in re.findall(r"([0-9]+(\.[0-9]+)?)(ns|us|µs|ms|s|m|h)", s):
+        ns += int(Fraction(n) * unit[u])
+        if ns > GO_DURATION_MAX_NS:
+            return None
+    return Fraction(ns, 10 ** 9)
+
+
+def gate_rule_problems(v):
+    """clearance.gate.agent.rule and ruleOptions, checked as the agent chart and the agent read them (unknown keys refused:
+    the agent decodes the file with KnownFields), plus what only Apron knows: the opt-in, the chart version, the project
+    ceiling and the namespaces the agent holds RBAC for. Called only with the gate and its agent on this cluster."""
+    out = []
+    add = out.append
+    g = lambda k, d=None: get(v, k, d)  # noqa: E731
+    raw = g("clearance.gate.agent.rule")
+    opts = g("clearance.gate.agent.ruleOptions")
+    rule = gate_rule(g)
+    if raw is not None and not isinstance(raw, dict):
+        return [f"clearance.gate.agent.rule is a mapping ({{version: 1, select: [...], exempt: [...]}}), got {raw!r}"]
+    if opts is not None and rule is None:
+        add("clearance.gate.agent.ruleOptions needs clearance.gate.agent.rule: the options tune the rule's exemptions and releases")
+    if opts is not None and not isinstance(opts, dict):
+        add(f"clearance.gate.agent.ruleOptions is a mapping ({{{', '.join(GATE_RULE_OPTION_KEYS)}}})")
+    elif isinstance(opts, dict):
+        for k in sorted(set(opts) - set(GATE_RULE_OPTION_KEYS)):
+            add(f"clearance.gate.agent.ruleOptions.{k} is not a setting (only {', '.join(GATE_RULE_OPTION_KEYS)})")
+        for k in ("exemptMax", "exemptionRecheck", "exemptionRecheckTimeout"):
+            if opts.get(k) is not None and not _go_duration_s(opts.get(k)):
+                add(f"clearance.gate.agent.ruleOptions.{k} is {opts.get(k)!r}: a positive Go duration (90s, 5m, 2160h), at most 2562047h (Go's int64 nanoseconds)")
+        em = _go_duration_s(opts.get("exemptMax"))
+        if em and em > 2160 * 3600:
+            add(f"clearance.gate.agent.ruleOptions.exemptMax {opts.get('exemptMax')} is over 2160h: the core bounds an exemption at 90 days, and the agent refuses to start")
+        rm = opts.get("releaseMax")
+        if rm is not None and (isinstance(rm, bool) or not isinstance(rm, int) or rm < 1):
+            add(f"clearance.gate.agent.ruleOptions.releaseMax is {rm!r}: a whole number of at least 1 (rule-caused releases an hour)")
+        rc = _go_duration_s(opts.get("exemptionRecheck", "5m")) or 0
+        rt = _go_duration_s(opts.get("exemptionRecheckTimeout", "30s")) or 0
+        if rc and rt and rt >= rc:
+            add("clearance.gate.agent.ruleOptions.exemptionRecheckTimeout must be below exemptionRecheck (chart defaults 30s and 5m): the agent refuses to start otherwise")
+    if rule is None:
+        return out
+    if get(v, "clearance.gate.agent.optIn") is not True:
+        add("clearance.gate.agent.rule needs clearance.gate.agent.optIn: true: the rule switches Applications as the opt-in does (the agent chart refuses gateRule without optIn.enabled)")
+    try:
+        chart_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.argocdAgentChart") or "")).groups())
+    except AttributeError:
+        chart_v = (0, 0, 0)
+    if chart_v < GATE_RULE_MIN_CHART:
+        add("clearance.gate.agent.rule needs versions.clearance.argocdAgentChart 0.56.0 or later (the agent chart's gateRule, W-42): an older chart ignores it")
+    for k in sorted(set(rule) - set(GATE_RULE_KEYS)):
+        add(f"clearance.gate.agent.rule.{k} is not a setting (only {', '.join(GATE_RULE_KEYS)})")
+    ver = rule.get("version")
+    if isinstance(ver, bool) or ver != 1:
+        add(f"clearance.gate.agent.rule.version is {ver!r}: it must be 1")
+    sel, exempt = rule.get("select"), rule.get("exempt")
+    if sel is not None and not (isinstance(sel, list) and all(isinstance(e, dict) for e in sel)):
+        add("clearance.gate.agent.rule.select is a list of entries ({name, projects, namespaces, labels})")
+        sel = []
+    if exempt is not None and not (isinstance(exempt, list) and all(isinstance(e, dict) for e in exempt)):
+        add("clearance.gate.agent.rule.exempt is a list of entries ({application, reason, expires, ref})")
+        exempt = []
+    dns = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+    names = []
+    for i, e in enumerate(sel or []):
+        nm = e.get("name")
+        where = f"clearance.gate.agent.rule.select[{i}]" + (f" ({nm})" if isinstance(nm, str) else "")
+        for k in sorted(set(e) - set(GATE_RULE_SELECT_KEYS)):
+            add(f"{where}.{k} is not a setting (only {', '.join(GATE_RULE_SELECT_KEYS)})")
+        if not (isinstance(nm, str) and dns.fullmatch(nm)):
+            add(f"{where} needs a name, a DNS label (it names the entry in the agent's status and records)")
+        elif nm in names:
+            add(f"{where}: the name {nm} is used twice")
+        names.append(nm)
+        for k in ("projects", "namespaces"):
+            vals = e.get(k)
+            if vals is not None and not (isinstance(vals, list) and vals and all(isinstance(x, str) and x.strip() and len(x) <= 253 for x in vals)):
+                add(f"{where}.{k} is a non-empty list of globs (strings of 1 to 253 characters)")
+        labels = e.get("labels")
+        if labels is not None and not (isinstance(labels, dict) and labels and all(
+                isinstance(k, str) and k.strip() and len(k) <= 317 and isinstance(x, str) and len(x) <= 63 for k, x in labels.items())):
+            add(f"{where}.labels is a non-empty mapping of label key to exact value (quote a value such as \"true\" or \"1\")")
+        if not (e.get("projects") or e.get("namespaces") or e.get("labels")):
+            add(f"{where} names none of projects, namespaces and labels: it would match everything (write projects: [\"*\"] to mean that)")
+    for i, e in enumerate(exempt or []):
+        where = f"clearance.gate.agent.rule.exempt[{i}]"
+        for k in sorted(set(e) - set(GATE_RULE_EXEMPT_KEYS)):
+            add(f"{where}.{k} is not a setting (only {', '.join(GATE_RULE_EXEMPT_KEYS)})")
+        app = e.get("application")
+        ns_glob, _, name_glob = str(app or "").partition("/")
+        if not (isinstance(app, str) and app.count("/") == 1 and ns_glob and name_glob):
+            add(f"{where}.application is {app!r}: a glob on <namespace>/<name> of the Application (argocd-apps/<name>)")
+        elif not fnmatch.fnmatchcase("argocd-apps", ns_glob):
+            add(f"{where}.application {app} can never match: the agent reads Applications in argocd-apps (write argocd-apps/<name>)")
+        reason = e.get("reason")
+        if not (isinstance(reason, str) and 10 <= len(reason) <= 500):
+            add(f"{where}.reason is 10 to 500 characters (it goes into the record)")
+        exp = e.get("expires")
+        if not (isinstance(exp, str) and (_iso_date(exp) or _rfc3339(exp))):
+            add(f"{where}.expires is {exp!r}: a date (2026-12-19, read as 00:00 UTC) or an RFC 3339 time, as a string")
+        if e.get("ref") is not None and not isinstance(e.get("ref"), str):
+            add(f"{where}.ref is a string (a strip, ticket or pull request)")
+    out.extend(_gate_rule_ceiling_problems(v, rule))
+    return out
+
+
+def _iso_date(s):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return False
+    try:
+        datetime.date.fromisoformat(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _rfc3339(s):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})", s):
+        return False
+    try:
+        datetime.datetime.fromisoformat(s.replace("z", "Z").replace("Z", "+00:00").replace("t", "T"))
+        return True
+    except ValueError:
+        return False
+
+
+def _gate_rule_ceiling_problems(v, rule):
+    """The rule never widens what the agent may touch: an Application outside the project ceiling is not seen at all, and
+    one outside protectedNamespaces is blocked (reported, never switched). So the render fails when the rule names what
+    the ceiling leaves out, or when the ceiling cannot be derived."""
+    out = []
+    add = out.append
+    ents = _rule_entries(rule)
+    projs_set, nss_set = get(v, "clearance.gate.agent.projects"), get(v, "clearance.gate.agent.protectedNamespaces")
+    projs, nss = gate_agent_ceiling(lambda k, d=None: get(v, k, d))
+    for key, val in (("projects", projs_set), ("protectedNamespaces", nss_set)):
+        if val is not None and not (isinstance(val, list) and all(isinstance(x, str) and x for x in val)):
+            add(f"clearance.gate.agent.{key} is a list of names")
+            return out
+    for p in projs:
+        if p != "*" and is_glob(p):
+            add(f"clearance.gate.agent.projects: {p!r} is a glob; the agent compares its projects exactly (\"*\" alone means every project)")
+    for n in nss:
+        if is_glob(n):
+            add(f"clearance.gate.agent.protectedNamespaces: {n!r} is a glob; the agent's RBAC is one Role per listed namespace, so list each one")
+    for e in ents:
+        nm = e.get("name") or "?"
+        ep = [p for p in (e.get("projects") or []) if isinstance(p, str)]
+        en = [n for n in (e.get("namespaces") or []) if isinstance(n, str)]
+        # projects
+        if projs_set is None:
+            if not ep:
+                add(f"clearance.gate.agent.rule entry {nm} names no project, so the project ceiling cannot be derived from it: "
+                    "list clearance.gate.agent.projects (the agent reads only Applications in those projects)")
+            for p in ep:
+                if is_glob(p):
+                    add(f"clearance.gate.agent.rule entry {nm}: project {p!r} is a glob, which the ceiling cannot be derived from: "
+                        "list clearance.gate.agent.projects with \"*\" (the agent compares projects exactly)")
+        else:
+            for p in ep:
+                if "*" in projs:
+                    continue
+                if is_glob(p):
+                    add(f"clearance.gate.agent.rule entry {nm}: project {p!r} is a glob, and clearance.gate.agent.projects does not hold \"*\": "
+                        "the agent compares projects exactly, so the Applications it matches outside the list are never seen")
+                elif p not in projs:
+                    add(f"clearance.gate.agent.rule entry {nm}: project {p} is not in clearance.gate.agent.projects: the agent never sees its Applications")
+        # namespaces
+        if nss_set is None:
+            if not en:
+                add(f"clearance.gate.agent.rule entry {nm} names no namespace (it matches every namespace of its projects): list "
+                    "clearance.gate.agent.protectedNamespaces, or a matched Application outside them is blocked, never switched")
+            for n in en:
+                if is_glob(n):
+                    add(f"clearance.gate.agent.rule entry {nm}: namespace {n!r} is a glob: list its namespaces in "
+                        "clearance.gate.agent.protectedNamespaces (the agent holds RBAC only in the namespaces listed there)")
+        else:
+            for n in en:
+                if is_glob(n):
+                    if not any(fnmatch.fnmatchcase(x, n) for x in nss):
+                        add(f"clearance.gate.agent.rule entry {nm}: namespace {n!r} matches none of clearance.gate.agent.protectedNamespaces: "
+                            "every Application it selects would be blocked")
+                elif n not in nss:
+                    add(f"clearance.gate.agent.rule entry {nm}: namespace {n} is not in clearance.gate.agent.protectedNamespaces: "
+                        "its Applications would be blocked (reported, never switched)")
+    if not projs:
+        add("clearance.gate.agent needs projects: list clearance.gate.agent.projects, or name literal projects in the rule")
+    if not nss:
+        add("clearance.gate.agent needs protectedNamespaces: list clearance.gate.agent.protectedNamespaces, or name literal namespaces in the rule")
     return out

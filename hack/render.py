@@ -20,7 +20,8 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, get, lab_networking, parse_vkey, resolve  # noqa: E402
+from apronlib import (LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, gate_agent_ceiling,  # noqa: E402
+                      gate_rule, get, lab_networking, parse_vkey, resolve)
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -586,9 +587,12 @@ def clearance_gate_tokens(g):
     agent_api = g("clearance.gate.agent.apiURL", "") or ""
     agent_host = urllib.parse.urlparse(agent_api).hostname or ""
     agent_image = g("versions.clearance.argocdAgentImage", "") or ""
+    # The agent's project ceiling and namespaces: clearance.gate.agent.projects / protectedNamespaces, or, with the gate rule
+    # (clearance.gate.agent.rule) and either unset, the rule's literal projects / namespaces (apron check holds them against the rule).
+    agent_projects, agent_namespaces = gate_agent_ceiling(g)
     if on and g("clearance.gate.agent", None):
-        if not (agent_api and g("clearance.gate.agent.projects", None) and g("clearance.gate.agent.protectedNamespaces", None)):
-            raise ApronError("clearance.gate.agent needs apiURL, projects and protectedNamespaces")
+        if not (agent_api and agent_projects and agent_namespaces):
+            raise ApronError("clearance.gate.agent needs apiURL, projects and protectedNamespaces (or a clearance.gate.agent.rule that names literal projects and namespaces)")
         if "@sha256:" not in agent_image or not g("versions.clearance.argocdAgentChart", ""):
             raise ApronError("clearance.gate.agent needs versions.clearance.argocdAgentImage (by digest) and argocdAgentChart")
     agent_repo, _, agent_digest = agent_image.partition("@")
@@ -655,7 +659,7 @@ def clearance_gate_tokens(g):
             raise ApronError("clearance.gate.agent.ownedProject.create is true or false")
         if owned.get("create"):
             dns = r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"
-            projs, nss = g("clearance.gate.agent.projects", None), g("clearance.gate.agent.protectedNamespaces", None)
+            projs, nss = agent_projects, agent_namespaces
             for key, vals in (("projects", projs), ("protectedNamespaces", nss)):
                 if not isinstance(vals, list) or not all(isinstance(x, str) and re.fullmatch(dns, x) for x in vals):
                     raise ApronError(f"clearance.gate.agent.ownedProject.create needs clearance.gate.agent.{key} to be a list of DNS labels")
@@ -695,8 +699,12 @@ def clearance_gate_tokens(g):
         # The chart builds <repository>:<tag>, so the digest pin goes in the tag.
         "CLEARANCE_AGENT_IMAGE_TAG": f"v{agent_chart}@{agent_digest}" if agent_digest else "",
         "CLEARANCE_AGENT_API_URL": agent_api,
-        "CLEARANCE_AGENT_PROJECTS": json.dumps(list(g("clearance.gate.agent.projects", None) or [])),
-        "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(list(g("clearance.gate.agent.protectedNamespaces", None) or [])),
+        "CLEARANCE_AGENT_PROJECTS": json.dumps(agent_projects),
+        "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(agent_namespaces),
+        # clearance.gate.agent.rule (W-42; agent chart 0.56.0 gateRule) verbatim, and ruleOptions (gateRuleOptions, only the keys
+        # set), each a JSON flow mapping. Only under their #@if lines; apron check validates both.
+        "CLEARANCE_AGENT_GATE_RULE": json.dumps(gate_rule(g) or {}),
+        "CLEARANCE_AGENT_GATE_RULE_OPTIONS": json.dumps(g("clearance.gate.agent.ruleOptions", None) or {}),
         "CLEARANCE_AGENT_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts + ([agent_host] if agent_host and agent_host not in hosts else [])}]
                                                    if alias else []),
         # clearance.gate.agent.grantExpiry (I-44; agent chart 0.55.0 grantExpiry): the chart's values as one flow mapping. mode audit (the
@@ -977,7 +985,7 @@ def clearance_targets_tokens(v, g):
     argo_instance = str(g("clearance.targets.argoInstance", "") or "argocd-agent")
     protected = [str(e) for e in (g("clearance.protectedEnvironments", None) or [])]
     observe_ns = [str(n) for n in (g("clearance.observe.protectedNamespaces", None) or [])] if g("clearance.observe.enabled", False) else []
-    agent_ns = [str(n) for n in (g("clearance.gate.agent.protectedNamespaces", None) or [])] if gate_on and g("clearance.gate.agent", None) else []
+    agent_ns = [str(n) for n in gate_agent_ceiling(g)[1]] if gate_on and g("clearance.gate.agent", None) else []
     gate_apps = [str(a) for a in (g("clearance.gate.apps", None) or [])]
     targets = []
     for ns in sorted(set(observe_ns) | set(agent_ns)):
