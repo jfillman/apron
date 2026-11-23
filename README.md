@@ -474,7 +474,9 @@ wait Job runs in the tenant's namespace and is not a Flight image.
 
 On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccounts`, `clearance.extraProviders`,
 `clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
-`feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
+`feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes, and its protection calls (`GET /v1/protection`,
+`PUT /v1/protection/<cluster>`, the annotation opt-in): the core takes a report only from the principal a provider's `protection`
+entry pairs with that exact cluster.
 
 ### Rollout order for Clearance releases (`clearance.gate.rolloutOrder`, I-77)
 
