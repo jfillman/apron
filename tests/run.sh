@@ -1263,6 +1263,7 @@ for BADP in \
     "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 30s}|exemptionRecheckTimeout must be below exemptionRecheck" \
     "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 5 minutes}|exemptionRecheck is '5 minutes'" \
     "${RULE1}|clearance.gate.agent.ruleOptions={releasemax: 1}|ruleOptions.releasemax is not a setting" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 3000000h}|exemptionRecheck is '3000000h'" \
     "${RULE1}|clearance.gate.agent.projects=[\"team-*\"]|the agent compares its projects exactly" \
     "${RULE1}|clearance.gate.agent.protectedNamespaces=[\"app-*\"]|the agent's RBAC is one Role per listed namespace"; do
   WANT="${BADP##*|}"; SETS="${BADP%|*}"
@@ -1275,6 +1276,16 @@ for BADP in \
   LBL="${BADP#"${RULE1}|"}"
   rule_refused gate-rule-bad "${WANT}" "gate rule: ${LBL#clearance.gate.agent.}"
 done
+# Durations at the edge of Go's int64 nanoseconds: 2562047h is in range (accepted), 2562048h is not (above, refused).
+rule gate-rule-maxdur --set "${RULE1}" --set 'clearance.gate.agent.ruleOptions={exemptionRecheck: 2562047h, exemptionRecheckTimeout: 30s}'
+python3 hack/check.py --cluster "${TMP}/gate-rule-maxdur/cluster.yaml" >/dev/null 2>&1 && ok "ruleOptions: 2562047h, the largest whole-hour Go duration, is accepted" || bad "ruleOptions: 2562047h refused"
+# An empty rule with the gate off is unset (nothing to check); a rule that is not a mapping still needs the gate.
+new "${TMP}/gate-rule-off-empty" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.rule={}'
+render_ok "${TMP}/gate-rule-off-empty" "gate off with an empty rule"
+new "${TMP}/gate-rule-off-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.rule=nope'
+rule_refused gate-rule-off-bad "rule and ruleOptions need the gate and its agent on this cluster" "gate off with a rule that is not a mapping"
+new "${TMP}/gate-rule-off-opts" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.ruleOptions={releaseMax: 2}'
+rule_refused gate-rule-off-opts "rule and ruleOptions need the gate and its agent on this cluster" "gate off with ruleOptions and no rule"
 # Derivation refusals: with the ceiling unset, an entry that names no project, a glob project, no namespace or a glob namespace
 for BADP in \
     "clearance.gate.agent.rule={version: 1, select: [{name: a, namespaces: [app-a-dev]}]}|names no project, so the project ceiling cannot be derived" \

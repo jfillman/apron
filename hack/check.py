@@ -13,7 +13,7 @@ import sys
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_rule_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_rule, gate_rule_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -323,7 +323,11 @@ def violations(v, fleet=None):
         out.extend(gate_agent_i44_problems(v))
     # The platform's gate rule (W-42; agent chart 0.56.0 gateRule): its shape, the opt-in, the chart, and the project and
     # namespace ceiling it acts inside (derived from its literal values when unset). Unset: nothing renders.
-    if get(v, "clearance.gate.agent.rule") is not None or get(v, "clearance.gate.agent.ruleOptions") is not None:
+    # Normalized as render reads it: an empty rule is unset (nothing renders, nothing to check); a rule that is not a mapping, or
+    # ruleOptions, still needs the gate here and is refused there.
+    raw_rule = get(v, "clearance.gate.agent.rule")
+    if gate_rule(lambda k, d=None: get(v, k, d)) is not None or (raw_rule is not None and not isinstance(raw_rule, dict)) \
+            or get(v, "clearance.gate.agent.ruleOptions") is not None:
         gate_here = get(v, "zone") == "upper" or on("clearance.gate.lowerZone")
         if not (gate_here and on("clearance.gate.enabled") and get(v, "clearance.gate.agent")):
             add("clearance.gate.agent.rule and ruleOptions need the gate and its agent on this cluster (clearance.gate.enabled, "

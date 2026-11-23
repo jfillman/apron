@@ -657,12 +657,23 @@ def gate_agent_ceiling(g):
     return list(projs or []), list(nss or [])
 
 
+GO_DURATION_MAX_NS = (1 << 63) - 1   # time.Duration is an int64 of nanoseconds
+
+
 def _go_duration_s(s):
-    """A Go time.Duration string (5m, 1h30m, 2160h, 500ms) in seconds, or None when it is not one."""
+    """A Go time.Duration string (5m, 1h30m, 2160h, 500ms) in seconds, or None when it is not one, or when it is outside
+    Go's int64 nanosecond range (time.ParseDuration refuses it, and the agent would not start). Summed exactly in integer
+    nanoseconds, as Go does (a fraction is truncated per component)."""
+    from fractions import Fraction
     if not isinstance(s, str) or not re.fullmatch(r"([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+", s):
         return None
-    unit = {"ns": 1e-9, "us": 1e-6, "µs": 1e-6, "ms": 1e-3, "s": 1, "m": 60, "h": 3600}
-    return sum(float(n) * unit[u] for n, _, u in re.findall(r"([0-9]+(\.[0-9]+)?)(ns|us|µs|ms|s|m|h)", s))
+    unit = {"ns": 1, "us": 1000, "µs": 1000, "ms": 10 ** 6, "s": 10 ** 9, "m": 60 * 10 ** 9, "h": 3600 * 10 ** 9}
+    ns = 0
+    for n, _, u in re.findall(r"([0-9]+(\.[0-9]+)?)(ns|us|µs|ms|s|m|h)", s):
+        ns += int(Fraction(n) * unit[u])
+        if ns > GO_DURATION_MAX_NS:
+            return None
+    return Fraction(ns, 10 ** 9)
 
 
 def gate_rule_problems(v):
@@ -686,7 +697,7 @@ def gate_rule_problems(v):
             add(f"clearance.gate.agent.ruleOptions.{k} is not a setting (only {', '.join(GATE_RULE_OPTION_KEYS)})")
         for k in ("exemptMax", "exemptionRecheck", "exemptionRecheckTimeout"):
             if opts.get(k) is not None and not _go_duration_s(opts.get(k)):
-                add(f"clearance.gate.agent.ruleOptions.{k} is {opts.get(k)!r}: a positive Go duration (90s, 5m, 2160h)")
+                add(f"clearance.gate.agent.ruleOptions.{k} is {opts.get(k)!r}: a positive Go duration (90s, 5m, 2160h), at most 2562047h (Go's int64 nanoseconds)")
         em = _go_duration_s(opts.get("exemptMax"))
         if em and em > 2160 * 3600:
             add(f"clearance.gate.agent.ruleOptions.exemptMax {opts.get('exemptMax')} is over 2160h: the core bounds an exemption at 90 days, and the agent refuses to start")
