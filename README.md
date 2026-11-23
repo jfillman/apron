@@ -500,7 +500,9 @@ limited to `get` on the named objects, its binding, a ConfigMap with the script,
   already has the wait image this sync sets (the sync does not change it: almost every sync);
 - otherwise it waits until each policy's spec names the new wait image and is loaded (a ValidatingAdmissionPolicy's
   `status.observedGeneration`; Kyverno's `status.conditionStatus.ready`, and, because Kyverno's status carries no
-  observedGeneration, the hook's own 30 s of seeing the new spec, longer than Kyverno's informer takes to load it), and each agent Deployment
+  observedGeneration, 30 s of the hook seeing the same object at the same generation name the new image, timed after each
+  read and restarted by a delete, re-create or later spec change: longer than Kyverno's informer takes to load a spec, a
+  heuristic rather than proof), and each agent Deployment
   (`clearance-argocd-agent`, and `clearance-grant-expiry` with `grantExpiry.enabled`) passes `--wait-image=<new>` on the
   agent image the agent Application sets, with every replica updated and available. Then the sync goes on and the
   repo-server rolls;

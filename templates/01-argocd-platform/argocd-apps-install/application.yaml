@@ -413,8 +413,9 @@ spec:
                 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
                 API = "https://kubernetes.default.svc"
                 # Kyverno's policy status has no observedGeneration (conditionStatus.ready is about its webhook and RBAC, not which spec it
-                # loaded), so a Kyverno policy counts only once this hook has seen its spec name the image for SETTLE seconds: longer than
-                # Kyverno's informer takes to pass a spec change to its admission controller (seconds), the same rule on every try.
+                # loaded), so a Kyverno policy counts only once this hook has seen the same object (uid) at the same generation name the
+                # image for SETTLE seconds, timed from after each read: longer than Kyverno's informer takes to pass a spec change to its
+                # admission controller (seconds). A heuristic, not proof; a delete, a re-create or any later spec change restarts it.
                 SETTLE = 30
                 seen = {}
 
@@ -461,14 +462,19 @@ spec:
                     return f"repo-server wait image {live or '(none)'} -> {cfg['waitImage']}"
 
 
-                def policy_pending(p, image, now):
+                def policy_pending(p, image, clock):
                     obj = get(p["path"])
+                    now = clock()
                     if obj is None:
+                        seen.pop(p["name"], None)
                         return f"{p['name']}: not found"
                     if image not in json.dumps(obj.get("spec") or {}):
                         seen.pop(p["name"], None)
                         return f"{p['name']}: does not admit {image} yet"
-                    first = seen.setdefault(p["name"], now)
+                    ident = (obj["metadata"].get("uid"), obj["metadata"].get("generation"))
+                    if seen.get(p["name"], (None, 0))[0] != ident:
+                        seen[p["name"]] = (ident, now)
+                    first = seen[p["name"]][1]
                     st = obj.get("status") or {}
                     if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
                         return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
@@ -502,11 +508,11 @@ spec:
                     return None
 
 
-                def pending(cfg, now):
+                def pending(cfg, clock):
                     """What still stands between the policies and the agent and this sync, in rollout order."""
                     out = []
                     for p in cfg.get("policies") or []:
-                        out.append(policy_pending(p, cfg["waitImage"], now))
+                        out.append(policy_pending(p, cfg["waitImage"], clock))
                     agent = cfg.get("agent") or {}
                     for ref in agent.get("deployments") or []:
                         out.append(agent_pending(ref, deployment(ref), agent.get("image"), cfg["waitImage"]))
@@ -522,7 +528,7 @@ spec:
                     deadline, last = clock() + timeout, None
                     while True:
                         try:
-                            left = pending(cfg, clock())
+                            left = pending(cfg, clock)
                         except Exception as e:  # a transient API error is one more wait, not a failed sync
                             left = [f"API error: {e}"]
                         if not left:

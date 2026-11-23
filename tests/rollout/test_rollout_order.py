@@ -47,8 +47,8 @@ def vap(images, generation=4, observed=4):
             "status": {"observedGeneration": observed}}
 
 
-def kyverno(images, ready=True):
-    return {"metadata": {"generation": 2}, "spec": {"variables": [{"name": "allowed", "expression": json.dumps(images)}]},
+def kyverno(images, ready=True, uid="u1", generation=2):
+    return {"metadata": {"uid": uid, "generation": generation}, "spec": {"variables": [{"name": "allowed", "expression": json.dumps(images)}]},
             "status": {"conditionStatus": {"ready": ready}}}
 
 
@@ -119,19 +119,53 @@ class Order(unittest.TestCase):
         # Kyverno exposes no observedGeneration: a fresh spec with ready true from the previous one still settles first.
         objs = rolled()
         self.ns["get"] = Fake(objs)
-        self.assertIn("settling", self.ns["pending"](CHECKS, 0)[0])
-        self.assertIn("settling", self.ns["pending"](CHECKS, self.ns["SETTLE"] - 1)[0])
-        self.assertEqual(self.ns["pending"](CHECKS, self.ns["SETTLE"]), [])
+        self.assertIn("settling", self.ns["pending"](CHECKS, lambda: 0)[0])
+        self.assertIn("settling", self.ns["pending"](CHECKS, lambda: self.ns["SETTLE"] - 1)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, lambda: self.ns["SETTLE"]), [])
 
     def test_settle_restarts_when_the_image_leaves_the_spec(self):
         objs = rolled()
         self.ns["get"] = Fake(objs)
-        self.ns["pending"](CHECKS, 0)
+        self.ns["pending"](CHECKS, lambda: 0)
         objs[KY] = kyverno([OLD])
-        self.ns["pending"](CHECKS, 10)
+        self.ns["pending"](CHECKS, lambda: 10)
         objs[KY] = kyverno([NEW])
-        self.assertIn("settling", self.ns["pending"](CHECKS, 35)[0])
-        self.assertEqual(self.ns["pending"](CHECKS, 65), [])
+        self.assertIn("settling", self.ns["pending"](CHECKS, lambda: 35)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, lambda: 65), [])
+
+    def test_settle_restarts_on_delete_recreate_or_a_new_generation(self):
+        S = self.ns["SETTLE"]
+        for change in ("recreate", "delete", "generation"):
+            self.ns["seen"].clear()
+            objs = rolled()
+            self.ns["get"] = Fake(objs)
+            self.assertIn("settling", self.ns["pending"](CHECKS, lambda: 0)[0])
+            self.assertEqual(self.ns["pending"](CHECKS, lambda: S), [], change)
+            if change == "recreate":
+                objs[KY] = kyverno([NEW], uid="u2")
+            elif change == "generation":
+                objs[KY] = kyverno([NEW], generation=3)
+            else:
+                del objs[KY]
+                self.assertEqual(self.ns["pending"](CHECKS, lambda: S + 5), ["flight-only-images: not found"])
+                objs[KY] = kyverno([NEW])
+            self.assertIn("settling", self.ns["pending"](CHECKS, lambda: S + 10)[0], change)
+            self.assertEqual(self.ns["pending"](CHECKS, lambda: 2 * S + 10), [], change)
+
+    def test_settle_is_timed_from_after_the_read(self):
+        # The clock is read after the policy GET: a slow read does not count toward the settle.
+        objs = rolled()
+        t = {"now": 0, "slow": True}
+
+        def slow_get(path):
+            if path == KY and t["slow"]:
+                t["now"] += 20
+                t["slow"] = False
+            return copy.deepcopy(objs.get(path))
+        self.ns["get"] = slow_get
+        self.ns["pending"](CHECKS, lambda: t["now"])   # first seen at 20, not 0
+        t["now"] = 40
+        self.assertIn("settling", self.ns["pending"](CHECKS, lambda: t["now"])[0])
 
     def test_gate_turned_on_is_a_change(self):
         objs = rolled()
@@ -142,8 +176,8 @@ class Order(unittest.TestCase):
     def pending(self, objs):
         """What holds, once any Kyverno policy that admits the image has settled."""
         self.ns["get"] = Fake(objs)
-        self.ns["pending"](CHECKS, 0)
-        return self.ns["pending"](CHECKS, self.ns["SETTLE"])
+        self.ns["pending"](CHECKS, lambda: 0)
+        return self.ns["pending"](CHECKS, lambda: self.ns["SETTLE"])
 
     def test_policy_without_the_new_image_holds(self):
         objs = rolled()
