@@ -435,6 +435,28 @@ class Order(unittest.TestCase):
             self.ns["get"](VAP, timeout=0.3)
         self.assertLess(time.monotonic() - start, 2)
 
+    def test_get_bounds_its_setup_too(self):
+        # the token read and TLS setup count against the same timer as the request
+        self.stub_api(lambda: b"{}")
+
+        def slow_context(cafile):
+            time.sleep(5)
+        self.ns["ssl"].create_default_context = slow_context
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            self.ns["get"](VAP, timeout=0.3)
+        self.assertLess(time.monotonic() - start, 2)
+
+    def test_setup_and_response_share_one_timer(self):
+        # 0.2s of setup and 0.2s of response each fit a 0.3s timer alone, not together
+        self.stub_api(lambda: (time.sleep(0.2), b"{}")[1])
+
+        def slowish_context(cafile):
+            time.sleep(0.2)
+        self.ns["ssl"].create_default_context = slowish_context
+        with self.assertRaises(TimeoutError):
+            self.ns["get"](VAP, timeout=0.3)
+
     def test_get_returns_a_prompt_response(self):
         self.stub_api(lambda: json.dumps(vap([NEW])).encode())
         self.assertEqual(self.ns["get"](VAP, timeout=5)["metadata"]["generation"], 4)

@@ -460,13 +460,13 @@ spec:
 
 
                 def get(path, timeout=30):
-                    """The object at path, or None when it does not exist; the whole request within timeout seconds (bounded)."""
-                    with open(f"{SA}/token") as f:
-                        token = f.read().strip()
-                    req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
-                    ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
-
+                    """The object at path, or None when it does not exist; all of it, the token and TLS setup too, within timeout seconds
+                    (bounded), which read() takes from the deadline just before."""
                     def fetch():
+                        with open(f"{SA}/token") as f:
+                            token = f.read().strip()
+                        req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
+                        ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
                         try:
                             with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
                                 return json.load(r)
