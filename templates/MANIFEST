@@ -12,6 +12,8 @@
 
 # 02 argocd-apps
 02-argocd-apps/xr-requests/             components.serviceCatalog.enabled
+# W-46 (d): the ApplicationSet controller may not delete a tenant-onboarding Application (tenantOnboarding.deleteGuard.enabled; off: unchanged)
+02-argocd-apps/tenant-onboarding/chart/templates/delete-guard.yaml   _tenantDeleteGuard
 02-argocd-apps/repo-creds/notifications-relay-token-external-secret.yaml   not isControlPlane
 
 # 10 crds-operators

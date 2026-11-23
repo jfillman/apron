@@ -210,7 +210,8 @@ revision, or a new `chart` in its identity.yaml, reaches it only through the age
 
 **Moving an existing environment is a handover, never a bare flip of `clearanceGate`.** An ApplicationSet deletes an
 Application it owns and no longer generates, and a tenant-onboarding Application carries the resources finalizer, so a
-flip outside the window deletes the workload (tests/appset records it). Into the gated set:
+flip outside the window deletes the workload (tests/appset records it), unless the tenant delete guard is on in `Deny`
+(below), where it leaves a stuck handover instead. Into the gated set:
 
 1. Turn on `clearance.gate.agent.gatedSetHandover` and render; check both ApplicationSets show `applicationsSync: create-update`.
    Then wait for a reconcile of each set that started after that: a reconcile reads the ApplicationSet once, at its start,
@@ -286,6 +287,37 @@ Needs the ApplicationSet controller to honour `applicationsSync`: it does while 
 Turning `gatedSet` off is for a cluster with no gated environment left: tenant-onboarding would then generate them too
 and fail on every Application the gated set owns; the gated ApplicationSet is not pruned (the tenant-onboarding Application
 does not prune) and is deleted by hand once it owns nothing. The rehearsal plan is hangar `specs/plans/w43-gated-set-handover-rehearsal.md`.
+
+### Tenant delete guard (`tenantOnboarding.deleteGuard`, W-46 (d))
+
+An ApplicationSet deletes an Application it owns and no longer generates, and a tenant-onboarding Application carries the
+resources finalizer, so that delete takes the workload (and any database in its namespace) with it. A bare `clearanceGate`
+flip, a hand edit or a bad commit in the tenants repo, or a selector bug all lead there. The delete guard closes it on the
+cluster where it happens: a `ValidatingAdmissionPolicy` (`tenant-onboarding-no-set-delete`, in the tenant-onboarding chart)
+refuses a DELETE of an Application in `argocd-apps` by argocd-apps' ApplicationSet controller when `tenant-onboarding` or
+`tenant-onboarding-gated` is its controller. Design: hangar `specs/plans/w46-clearancegate-flip-guard.md`, option (d).
+
+| `cluster.yaml` key | |
+|---|---|
+| `tenantOnboarding.deleteGuard.enabled` | default off: nothing renders (byte for byte as without it). `true` renders the policy and its binding. It needs no gate and is meant for every cluster |
+| `tenantOnboarding.deleteGuard.validationActions` | `Audit` (default: records, refuses nothing) or `Deny` |
+| `tenantOnboarding.deleteGuard.controllerServiceAccount` | default `argocd-applicationset-controller`, the argo-cd chart's name that argocd-apps-install keeps (`tests/run.sh` checks it is not overridden). The guard matches `system:serviceaccount:argocd-apps:<this>` only |
+
+With the guard in `Deny`, the set that would delete reports `ErrorOccurred` with reason `DeleteApplicationError`; its create
+and update steps already ran, so its other Applications are still updated, and the Application and its workload stay as
+they were. A bare flip is then a stuck handover, not a deletion: finish it (or revert the flip) as the design note's
+section 2 (d) recovery says. People, Argo CD's application controller and the garbage collector are not matched, and the
+username is the policy's first match condition, so a CEL error can only refuse the controller's own deletes.
+
+- **Removing an environment** takes one more step: delete its identity in the tenants repo, then delete its Application by
+  hand (`kubectl -n argocd-apps delete application <app>-<env>`). Until Argo CD has finished deleting it, tenant-onboarding
+  shows `DeleteApplicationError` for it.
+- Not covered: deleting a whole ApplicationSet (the garbage collector deletes its Applications).
+- Rollout: `enabled: true` with `Audit` for about a week (expect no audit events: any is a real deletion, which Audit does
+  not stop), then `Deny`. The audit record is the API server's audit log (annotation
+  `validation.policy.admission.k8s.io/validation_failure`).
+- Rollback: set `validationActions: Audit` and render. Turning `enabled` off removes the files, but the tenant-onboarding
+  Application does not prune: delete the binding `tenant-onboarding-no-set-delete` (and the policy) by hand as well.
 
 With the gate on and the core on the same cluster, the core's and clearance-api's NetworkPolicies also admit the repo-server (`argocd-apps`) and, with `gate.agent`, the agent. The wait Job's pod is not admitted: a held change on such a cluster cannot be waited for by the Job. Register the repo-server (`clearance.verifiers`), the agent (`clearance.extraProviders`, `clearance.feedReaders`) with their in-cluster principals (`<namespace>/<serviceaccount>`, no cluster prefix) there.
 
