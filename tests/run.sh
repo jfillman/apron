@@ -1355,7 +1355,10 @@ win() { # win NAME [more --set flags]: the window's base cluster (WIN_SET) with 
 win gate-window --set 'clearance.gate.migration={window: true, apps: [shop]}' --set 'tenantOnboarding.syncPaused={shop: [dev, prod, qa], pay: [prod]}'
 render_ok "${TMP}/gate-window" "the migration window with the static plugin and the gated set"
 GWA="${TMP}/gate-window/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
-has "${GWA}" '^          __GATED_SET_ONLY__  values: \["pay"\]$' "window: the gated set leaves out the held app (appName NotIn [pay])"
+[ "$(grep -c '^            values: \["pay"\]$' "${GWA}")" = 1 ] && has "${GWA}" '^          - key: appName$' "window: both sets' main generator leaves out the held app (appName NotIn [pay])" \
+  || bad "window: the main generator's appName NotIn [pay] is not in both sets"
+if grep -A12 '__TENANT_SET_ONLY__- git:' "${GWA}" | grep -q 'clearanceGate'; then bad "window: the held-app generator reads clearanceGate"
+else ok "window: the held-app generator selects on the app name alone"; fi
 has "${GWA}" '^    __TENANT_SET_ONLY__- git:$' "window: tenant-onboarding has a second generator for the held apps"
 has "${GWA}" '^    __TENANT_SET_ONLY__        values: \["pay"\]$' "window: tenant-onboarding's second generator takes exactly the held apps"
 has "${GWA}" 'regexMatch "\^\(shop\|pay\)\$" \.appName' "window: the static plugin's app regex is still clearance.gate.apps"
