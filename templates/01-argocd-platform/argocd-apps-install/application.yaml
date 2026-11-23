@@ -437,16 +437,23 @@ spec:
                 RETRIES = 0
 
 
+                class Expired(BaseException):
+                    """The timer of bounded. Not an OSError, nor even an Exception, so nothing inside fn swallows it: socket.create_connection
+                    treats an OSError as "try the next address", and would carry on past the deadline."""
+
+
                 def bounded(seconds, fn):
                     """fn(), stopped with TimeoutError once seconds have passed, wherever it is blocked. The socket timeout bounds each
                     blocking call only, so a response that keeps trickling in could outlast it; a real-time interval timer bounds the whole
                     request (connect, headers, body, JSON). SIGALRM: the hook is one thread, its main one."""
                     def expired(signum, frame):
-                        raise TimeoutError(f"no complete response within {seconds:g}s")
+                        raise Expired()
                     previous = signal.signal(signal.SIGALRM, expired)
                     signal.setitimer(signal.ITIMER_REAL, seconds)
                     try:
                         return fn()
+                    except Expired:
+                        raise TimeoutError(f"no complete response within {seconds:g}s") from None
                     finally:
                         signal.setitimer(signal.ITIMER_REAL, 0)
                         signal.signal(signal.SIGALRM, previous)

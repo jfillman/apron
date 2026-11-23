@@ -382,6 +382,20 @@ class Order(unittest.TestCase):
         self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
         self.assertIs(signal.getsignal(signal.SIGALRM), signal.SIG_DFL)
 
+    def test_bounded_is_not_swallowed_by_an_oserror_handler(self):
+        # socket.create_connection tries the next address on any OSError: the timer must get through such a handler
+        def connect_fallback():
+            for _ in range(2):
+                try:
+                    time.sleep(5)
+                except OSError:
+                    continue
+            return "carried on"
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            self.ns["bounded"](0.2, connect_fallback)
+        self.assertLess(time.monotonic() - start, 2)
+
     def test_bounded_returns_and_clears_its_timer(self):
         self.assertEqual(self.ns["bounded"](5, lambda: 7), 7)
         self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
