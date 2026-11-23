@@ -320,6 +320,54 @@ class Order(unittest.TestCase):
         self.assertEqual(self.ns["read"](VAP)["metadata"]["generation"], 4)
         self.assertEqual(fake.timeouts, [0.25])  # what is left, no floor
 
+    # I-79 follow-up (gitops-hangar-dev#221): a poll whose reads retried is not accepted; nothing read late is accepted.
+    def test_poll_with_a_retry_is_not_accepted(self):
+        objs = rolled()
+        a = agent(NEW)
+        objs[AG] = [a, a, a, err(AG, 503), a]  # the 4th poll (30s) would pass, but its agent read retried
+        rc, _, sleeps = self.run_main(objs, timeout=600)
+        self.assertEqual((rc, sleeps), (0, [10, 10, 10, 1, 10]))
+
+    def test_policy_gone_during_a_retry_is_seen_by_the_next_poll(self):
+        objs = rolled()
+        a = agent(NEW)
+        objs[AG] = [a, a, a, err(AG, 503), a]
+
+        def tick(n, o):
+            if n == 4:  # the 1s backoff of the agent read: the policy is removed meanwhile
+                del o[KY]
+        rc, _, _ = self.run_main(objs, timeout=60, ticks=tick)
+        self.assertEqual(rc, 1)
+
+    def test_retries_are_counted(self):
+        self.ns["get"] = Fake({VAP: [err(VAP, 503), err(VAP, 502), vap([NEW])]})
+        self.ns["CLOCK"], self.ns["SLEEP"], self.ns["DEADLINE"] = (lambda: 0), (lambda s: None), 600
+        self.ns["read"](VAP)
+        self.assertEqual(self.ns["RETRIES"], 2)
+
+    def test_read_finished_past_the_deadline_is_refused(self):
+        t = {"now": 0}
+
+        def slow(path, timeout=30):
+            t["now"] = 11  # started in budget (timeout 10s per call), the whole response ends after it
+            return vap([NEW])
+        self.ns["get"] = slow
+        self.ns["CLOCK"], self.ns["DEADLINE"] = (lambda: t["now"]), 10
+        with self.assertRaises(TimeoutError):
+            self.ns["read"](VAP)
+
+    def test_late_initial_read_is_not_accepted(self):
+        # an unchanged wait image would pass at once, but the repo-server read ended past the deadline
+        for rs in ({RS: repo_server(NEW)}, {}):
+            t = {"now": 0}
+            fake = Fake(rs)
+
+            def slow(path, timeout=30):
+                t["now"] = 700
+                return fake(path, timeout)
+            rc, _, _ = self.run_main(rs, timeout=600, t=t, fake=slow)
+            self.assertEqual(rc, 1, rs)
+
     def test_no_retry_without_a_deadline(self):
         # pending() called on its own (no main): an error is raised at once, never slept on
         self.ns["get"] = Fake({VAP: err(VAP, 503)})
