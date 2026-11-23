@@ -99,6 +99,11 @@ spec:
         # What the exception scan recognises as the gate's own wait Job: the values admission's exemption is rendered with.
         waitJob:
           image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
+#@if _agentWaitPreviousImage
+          # The previous wait image (versions.clearance.previousWaitImage, one release only; I-59, agent chart 0.56.0): the agent's
+          # exception scan and the grant-expiry webhook also accept a held wait Job on it, as the admission exemption does.
+          previousImage: "@@CLEARANCE_GATE_PREVIOUS_WAIT_IMAGE@@"
+#@end
           url: "@@CLEARANCE_GATE_URL@@"
           hostAlias: "@@CLEARANCE_GATE_HOST_ALIAS@@"
 #@if clearance.gate.waitCAInject
