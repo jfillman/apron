@@ -311,6 +311,13 @@ def violations(v, fleet=None):
         if agent_v < (0, 54, 0):
             add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
                 "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
+    # The previous wait image (I-59, clearance#218): render passes versions.clearance.previousWaitImage to the agent chart as
+    # waitJob.previousImage, which the agent chart has from 0.56.0. An older agent accepts only waitImage, so during the rollover
+    # it reports every held wait Job still on the previous image as an out-of-band exception, a false record.
+    if (on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and get(v, "versions.clearance.waitImage")
+            and get(v, "versions.clearance.previousWaitImage") and _agent_chart(v) < (0, 56, 0)):
+        add("versions.clearance.previousWaitImage with clearance.gate.agent needs versions.clearance.argocdAgentChart 0.56.0 or later "
+            "(the agent chart's waitJob.previousImage, I-59): an older agent reports a held wait Job on the previous image as out-of-band")
     # The grant-expiry webhook, agent HA, the status heartbeat and the staleness alerts (I-44; agent chart 0.55.0). Unset: nothing renders.
     if on("clearance.gate.enabled") and get(v, "clearance.gate.agent"):
         out.extend(gate_agent_i44_problems(v))

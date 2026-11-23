@@ -895,6 +895,30 @@ new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/
   --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
   --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
 if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
+# The agent's previous wait-image pin (I-59, clearance#218; agent chart 0.56.0): previousWaitImage is passed as waitJob.previousImage.
+PWJ=(--fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]'
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc)
+new "${TMP}/gate-pwj" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.56.0 --set "versions.clearance.previousWaitImage=${PREV}"
+render_ok "${TMP}/gate-pwj" "agent chart 0.56.0 with previousWaitImage"
+PWA="${TMP}/gate-pwj/56-clearance-gate/agent/application.yaml"
+has "${PWA}" "^          previousImage: \"${PREV}\"$" "agent chart 0.56.0: waitJob.previousImage is previousWaitImage"
+has "${PWA}" '^          image: "ghcr.io/acme/clearance-wait@sha256:bbbb"$' "agent chart 0.56.0: waitJob.image stays the new digest"
+grep -B1 '^          previousImage:' "${PWA}" | head -1 | grep -q '^          #' && ok "agent chart 0.56.0: previousImage sits in waitJob, after its comment" || bad "agent chart 0.56.0: previousImage is not where waitJob.image is"
+new "${TMP}/gate-pwj-none" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.56.0
+render_ok "${TMP}/gate-pwj-none" "agent chart 0.56.0 without previousWaitImage"
+if grep -q 'previousImage' "${TMP}/gate-pwj-none/56-clearance-gate/agent/application.yaml"; then bad "no previousWaitImage: waitJob.previousImage rendered"; else ok "no previousWaitImage: no waitJob.previousImage"; fi
+new "${TMP}/gate-pwj-old" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.55.0 --set "versions.clearance.previousWaitImage=${PREV}"
+out="$(python3 hack/check.py --cluster "${TMP}/gate-pwj-old/cluster.yaml" 2>&1)" && bad "previousWaitImage on an agent chart before 0.56.0 passed check" \
+  || { grep -q 'argocdAgentChart 0.56.0 or later' <<<"${out}" && ok "previousWaitImage on an agent chart before 0.56.0 is refused by check" || bad "previousWaitImage, old agent chart: ${out}"; }
+if python3 hack/render.py --cluster "${TMP}/gate-pwj-old/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage on an agent chart before 0.56.0 rendered"; else ok "previousWaitImage on an agent chart before 0.56.0 does not render"; fi
+python3 hack/render.py --no-check --cluster "${TMP}/gate-pwj-old/cluster.yaml" >/dev/null 2>&1 || bad "previousWaitImage, old agent chart, --no-check: render failed"
+if grep -q 'previousImage' "${TMP}/gate-pwj-old/56-clearance-gate/agent/application.yaml"; then bad "agent chart 0.55.0: waitJob.previousImage rendered"; else ok "agent chart 0.55.0 (--no-check): no waitJob.previousImage, the chart has none"; fi
+has "${TMP}/gate-pwj-old/56-clearance-gate/admission.yaml" "variables.waitctr.image in \\['ghcr.io/acme/clearance-wait@sha256:bbbb', '${PREV}'\\] &&" "agent chart 0.55.0 (--no-check): the exemption still admits both wait images"
 # The gate's clients' CA (A-19, plan steps 4 and 5b): off, no CA in the sidecars or the agent; on, each names the ConfigMap.
 AGA="${TMP}/gate-agent/56-clearance-gate/agent/application.yaml"
 RSA="${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml"
@@ -1637,7 +1661,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:b3b9111b' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:d7944899' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"

@@ -1284,6 +1284,9 @@ def clearance_admission_tokens(g):
         # The pinned wait image the policy exempts as G-ARGO-4's injected PreSync Job: the same digest reference the
         # plugin injects (versions.clearance.waitImage, required with clearance.gate.enabled); empty = no exemption.
         "CLEARANCE_GATE_WAIT_IMAGE": g("versions.clearance.waitImage", "") or "",
+        # The agent chart's waitJob.previousImage (I-59): versions.clearance.previousWaitImage, the same previous digest the
+        # exemption and Flight admission admit. Only read under `#@if _agentWaitPreviousImage`.
+        "CLEARANCE_GATE_PREVIOUS_WAIT_IMAGE": g("versions.clearance.previousWaitImage", "") or "",
         # The CEL test of the Job's container image. With versions.clearance.previousWaitImage set (one release only) it is a
         # list of the new and the previous digest, so a wait Job or cached manifest naming the old digest keeps working once
         # this policy is deployed. It does not order the roll-out: the policy must update before the sidecar generates the
@@ -1427,13 +1430,27 @@ def tenant_delete_guard(g):
     }
 
 
+def agent_wait_previous_flag(g):
+    """versions.clearance.previousWaitImage to the agent chart's waitJob.previousImage (I-59, clearance#218; agent chart 0.56.0):
+    the agent and its grant-expiry webhook then accept a wait Job on the previous image too, for the one release of a wait-image
+    rollover, instead of reporting it out-of-band. On only with the gate and its agent, previousWaitImage set and an agent chart
+    of 0.56.0 or later (an older chart has no such value; check.py refuses that combination). Returned as the
+    `_agentWaitPreviousImage` value the agent template's #@if reads; off, the agent renders as before."""
+    if not (g("clearance.gate.enabled", False) is True and g("clearance.gate.agent", None) and g("versions.clearance.waitImage", "")
+            and g("versions.clearance.previousWaitImage", "")):
+        return {"_agentWaitPreviousImage": False}
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(g("versions.clearance.argocdAgentChart", "") or ""))
+    return {"_agentWaitPreviousImage": bool(m) and tuple(int(x) for x in m.groups()) >= (0, 56, 0)}
+
+
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
     signing_dir_check(out_dir)
     guard = tenant_delete_guard(lambda k, d=None: get(v, k, d))
     v = dict(v, _dir=os.path.abspath(out_dir), _tenantDeleteGuard=guard["_tenantDeleteGuard"],
-             **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)))
+             **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)),
+             **agent_wait_previous_flag(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):

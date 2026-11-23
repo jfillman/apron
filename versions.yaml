@@ -12,30 +12,30 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.55.0
-    imageDigest: sha256:1e8a4d446ebb199be41cc40f7feecddc3b6cc4f48dd67867545568a02146658e
+    chart: 0.56.0
+    imageDigest: sha256:5222189bf27101af5238985e0e159f57b5e7d0daed4778c66541ab0a5b6f3444
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
-    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:1a8ca856fed307f2f9a7de1eb57d68234992a11f635dff8d3c61f89a7d5269be
-    waitImage: ghcr.io/jfillman/clearance-wait@sha256:9082d87727d50a26f219e8e247a1f39ffd27a08497ddab7e380524f783e70afd
-    # One release only (remove at the next wait-image change): the v0.54.0 wait image, admitted beside waitImage by the gate policy's
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:ff984ca783d3560008bc1f2c22ccf8a420aee710d18ab149be3169ccb7601a4e
+    waitImage: ghcr.io/jfillman/clearance-wait@sha256:36a55f14f2abb8febdef0cce42dc5a85f54a8f6b02a2f559b15a1bb71a42cf1e
+    # One release only (remove at the next wait-image change): the v0.55.0 wait image, admitted beside waitImage by the gate policy's
     # wait-Job exemption and Flight admission's allow-list, so a held release whose wait Job still runs it stays admitted.
-    previousWaitImage: ghcr.io/jfillman/clearance-wait@sha256:1c9697e18620b199c473eec11daf481e4923186e9bc4abbd9da01a0bff9fcad7
+    previousWaitImage: ghcr.io/jfillman/clearance-wait@sha256:9082d87727d50a26f219e8e247a1f39ffd27a08497ddab7e380524f783e70afd
     # The Argo CD agent (G-ARGO-3): image and chart, for the protected cluster (hangar-prod).
-    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:614015c9c8d74725abe5e7d21c046cf00ef8149b36a394e6eceac4f2fe1a4888
-    argocdAgentChart: 0.55.0
+    argocdAgentImage: ghcr.io/jfillman/clearance-argocd-agent@sha256:d6e030bfeebfff8317312831d244f749a3de0849e2bafcf042bee44dfd71de4f
+    argocdAgentChart: 0.56.0
     # The Slack service (clearance.slack.enabled; clearance chart slack.*, first in clearance v0.47.1): ghcr.io/jfillman/clearance-slack by
-    # digest (v0.55.0's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
-    slackImageDigest: sha256:b3b9111ba67365768118b64afb3fa4370d56081d48572ff177fcafd7d99833a2
+    # digest (v0.56.0's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
+    slackImageDigest: sha256:d7944899ef5204fa06eb2d7cfa6cf636094101469778352f33498a109e823e3b
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
-    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:139a974efe0b188a9a40f8be286589411011d9889b3f31e3170bc569dec059dd
-    observeK8sChart: 0.55.0
+    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:99efd2cd2356dbd8838fe7d886ae95492e9e9cde0b4248db1e4ac18b5702ef0d
+    observeK8sChart: 0.56.0
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
-    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:5a08835d39ada30f3e9f67138523bed33f844033aaed4fdd4c1ab4b8a0352639
-    observeAWSChart: 0.55.0
+    observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:00a561c5638e8c96df3eff09159e7911f5080f57b6f4f251ae647854d5d985cb
+    observeAWSChart: 0.56.0
     # The ledger witness (C-3; clearance.witness.enabled): ghcr.io/<owner>/clearance-witness by digest, first published by
     # clearance v0.36.0. Rendered as plain manifests (templates/56-clearance-witness): its chart is not published.
-    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:ee642cef580cb328d0660f2ed59d25b3b94029aa98ee2f149088ab5560a2d7d9
+    witnessImage: ghcr.io/jfillman/clearance-witness@sha256:926bcd5bcf3f00d65e60a4b8e4b967b6ee6d1d9d5ee3c8f923939a09a50b6dc0
   # Autopilot: the gateway image's tag, named as the registered provider's version in Clearance's providers list.
   autopilot:
     gateway: gateway-v0.8.0
