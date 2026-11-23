@@ -1188,9 +1188,9 @@ render_ok "${DGD}" "deleteGuard Deny, with the gated set"
 has "${DGD}/${DGF}" '^  validationActions: \[Deny\]$' "deleteGuard: validationActions Deny"
 DGS="${TMP}/delete-guard-sa"
 mkdir -p "${DGS}"
-{ cat "${LAB}/prod/cluster.yaml"; printf 'tenantOnboarding:\n  deleteGuard: {enabled: true, controllerServiceAccount: appset-ctrl}\n'; } >"${DGS}/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; printf 'tenantOnboarding:\n  deleteGuard: {enabled: true, controllerServiceAccount: appset.ctrl}\n'; } >"${DGS}/cluster.yaml"
 render_ok "${DGS}" "deleteGuard on prod, another controller ServiceAccount"
-has "${DGS}/${DGF}" "username == 'system:serviceaccount:argocd-apps:appset-ctrl'" "deleteGuard: controllerServiceAccount names the matched user"
+has "${DGS}/${DGF}" "username == 'system:serviceaccount:argocd-apps:appset\.ctrl'" "deleteGuard: controllerServiceAccount names the matched user"
 # Same cluster.yaml plus the key: only the guard's file is added, the rest of the render is byte for byte what it was.
 if diff -r -x cluster.yaml -x .apron-rendered -x delete-guard.yaml "${LAB}/prod" "${DGS}" >/dev/null \
   && [ "$(diff <(sed 1d "${LAB}/prod/.apron-rendered") <(sed 1d "${DGS}/.apron-rendered") | grep -c '^[<>]')" = 1 ]; then
@@ -1199,6 +1199,7 @@ else bad "deleteGuard: turning it on changes more than the guard's file"; fi
 for BADP in "tenantOnboarding.deleteGuard.enabled=maybe|deleteGuard.enabled is true or false" \
             "tenantOnboarding.deleteGuard.validationActions=Warn|validationActions is Audit or Deny" \
             "tenantOnboarding.deleteGuard.controllerServiceAccount=x' or true or 'y|controllerServiceAccount is a ServiceAccount name" \
+            "tenantOnboarding.deleteGuard.controllerServiceAccount=Appset|controllerServiceAccount is a ServiceAccount name" \
             "tenantOnboarding.deleteGuard=on|tenantOnboarding.deleteGuard is a mapping"; do
   BAD="${BADP%%|*}"; WANT="${BADP#*|}"
   new "${TMP}/delete-guard-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set "${BAD}"

@@ -95,6 +95,16 @@ def main():
         def delete(name, who, ns="argocd-apps"):
             return k.kubectl(["delete", "application", name, "-n", ns, "--wait=false"], as_user=who)
 
+        def in_force(mode):
+            # A server-side dry run of the controller's delete of a tenant Application: refused once Deny applies,
+            # admitted once Audit replaced it. Polled, so a slow admission informer is not a failure.
+            for _ in range(60):
+                ok, out = k.kubectl(["delete", "application", "probe", "-n", "argocd-apps", "--dry-run=server"], as_user=CONTROLLER)
+                if (mode == "Deny" and not ok and "may not delete" in out) or (mode == "Audit" and ok):
+                    return
+                time.sleep(1)
+            raise RuntimeError(f"the {mode} binding did not take effect in 60s: {out}")
+
         def gone(name, ns="argocd-apps"):
             ok, out = k.kubectl(["get", "application", name, "-n", ns])
             return (not ok and "NotFound" in out, out)
@@ -116,11 +126,12 @@ def main():
             "owned-by-a-deployment": [ref("tenant-onboarding", kind="Deployment", api="apps/v1")],
             "two-owners": [ref("pr-envs", controller=False), ref("tenant-onboarding-gated")],
             "audit-1": [ref("tenant-onboarding")],
+            "probe": [ref("tenant-onboarding")],
         }
         for name, owners in apps.items():
             setup(["create", "-f", "-"], app(name, owners))
         setup(["create", "-f", "-"], app("tenant-in-argocd", [ref("tenant-onboarding")], ns="argocd"))
-        time.sleep(3)  # policy and RBAC informers settle
+        in_force("Deny")
 
         print("-- denied (validationActions Deny)")
         check("the controller deletes a tenant-onboarding Application", False, delete("tenant-1", CONTROLLER),
@@ -152,7 +163,7 @@ def main():
 
         print("-- audit (validationActions Audit)")
         setup(["apply", "-f", str(audit)])
-        time.sleep(3)
+        in_force("Audit")
         check("the controller's delete of a tenant Application is admitted (recorded, not refused)", True,
               delete("audit-1", CONTROLLER))
         check("audit-1 is gone", True, gone("audit-1"))

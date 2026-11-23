@@ -301,7 +301,7 @@ refuses a DELETE of an Application in `argocd-apps` by argocd-apps' ApplicationS
 |---|---|
 | `tenantOnboarding.deleteGuard.enabled` | default off: nothing renders (byte for byte as without it). `true` renders the policy and its binding. It needs no gate and is meant for every cluster |
 | `tenantOnboarding.deleteGuard.validationActions` | `Audit` (default: records, refuses nothing) or `Deny` |
-| `tenantOnboarding.deleteGuard.controllerServiceAccount` | default `argocd-applicationset-controller`, the argo-cd chart's name that argocd-apps-install keeps (`tests/run.sh` checks it is not overridden). The guard matches `system:serviceaccount:argocd-apps:<this>` only |
+| `tenantOnboarding.deleteGuard.controllerServiceAccount` | a ServiceAccount name (DNS subdomain); default `argocd-applicationset-controller`, the argo-cd chart's name that argocd-apps-install keeps (`tests/run.sh` checks it is not overridden). The guard matches `system:serviceaccount:argocd-apps:<this>` only |
 
 With the guard in `Deny`, the set that would delete reports `ErrorOccurred` with reason `DeleteApplicationError`; its create
 and update steps already ran, so its other Applications are still updated, and the Application and its workload stay as
@@ -313,11 +313,20 @@ username is the policy's first match condition, so a CEL error can only refuse t
   hand (`kubectl -n argocd-apps delete application <app>-<env>`). Until Argo CD has finished deleting it, tenant-onboarding
   shows `DeleteApplicationError` for it.
 - Not covered: deleting a whole ApplicationSet (the garbage collector deletes its Applications).
+- An Application whose destination cluster Argo CD cannot resolve loses its resources finalizer: before the DELETE, the
+  controller removes the finalizer with a PATCH (Argo CD v3.5.0 `removeFinalizerOnInvalidDestination`), which the guard
+  does not match. The Application stays, but deleting it later no longer deletes its workload. After such a refusal, check
+  the Application's finalizers and put `resources-finalizer.argocd.argoproj.io` back if the cascade is still wanted.
 - Rollout: `enabled: true` with `Audit` for about a week (expect no audit events: any is a real deletion, which Audit does
   not stop), then `Deny`. The audit record is the API server's audit log (annotation
-  `validation.policy.admission.k8s.io/validation_failure`).
-- Rollback: set `validationActions: Audit` and render. Turning `enabled` off removes the files, but the tenant-onboarding
-  Application does not prune: delete the binding `tenant-onboarding-no-set-delete` (and the policy) by hand as well.
+  `validation.policy.admission.k8s.io/validation_failure`). First check that the cluster's audit policy and backend
+  record `delete` of `applications.argoproj.io` in `argocd-apps` at `Metadata` level or above: without that, a quiet week
+  says nothing about what `Deny` would refuse.
+- Rollback: set `validationActions: Audit`, render, merge, and sync the `tenant-onboarding` Application (argocd); then check
+  the live binding (`kubectl get validatingadmissionpolicybinding tenant-onboarding-no-set-delete -o jsonpath='{.spec.validationActions}'`
+  says `["Audit"]`). Until that sync, the controller's deletes stay refused. Turning `enabled` off removes the files, but
+  the tenant-onboarding Application does not prune: delete the binding `tenant-onboarding-no-set-delete` (and the policy)
+  by hand as well.
 
 With the gate on and the core on the same cluster, the core's and clearance-api's NetworkPolicies also admit the repo-server (`argocd-apps`) and, with `gate.agent`, the agent. The wait Job's pod is not admitted: a held change on such a cluster cannot be waited for by the Job. Register the repo-server (`clearance.verifiers`), the agent (`clearance.extraProviders`, `clearance.feedReaders`) with their in-cluster principals (`<namespace>/<serviceaccount>`, no cluster prefix) there.
 

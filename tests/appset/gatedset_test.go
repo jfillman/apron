@@ -496,6 +496,24 @@ func (w *world) observed(set string) {
 	})
 }
 
+// reconciled sets the set's refresh annotation and waits for the controller to remove it: a whole reconcile of the set
+// (create, update and delete steps) ran after the call (see observed).
+func (w *world) reconciled(set string) {
+	w.t.Helper()
+	p := []byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:"true"}}}`, common.AnnotationApplicationSetRefresh))
+	if err := w.c.Patch(w.ctx, &argov1alpha1.ApplicationSet{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: set}}, client.RawPatch(types.MergePatchType, p)); err != nil {
+		w.t.Fatal(err)
+	}
+	w.eventually(set+": a reconcile after the change", func() (bool, string) {
+		as := &argov1alpha1.ApplicationSet{}
+		if err := w.c.Get(w.ctx, types.NamespacedName{Namespace: ns, Name: set}, as); err != nil {
+			return false, err.Error()
+		}
+		_, pending := as.Annotations[common.AnnotationApplicationSetRefresh]
+		return !pending, "the refresh annotation is still on the set"
+	})
+}
+
 // carrier is the source the Clearance agent builds its plugin source on: the first git source (clearance v0.54.0
 // providers/argocd/agent/optin.go, carrier). It must be the app's gitops repository (see the template's comment).
 func carrier(srcs argov1alpha1.ApplicationSources) string {
@@ -608,7 +626,9 @@ func handoverInto(t *testing.T, w *world) {
 	w.observed(gatedSet)
 	w.steady("shop-dev keeps the moved order under the gated set (carrier: its gitops repository)", 3*time.Second, func() (bool, string) {
 		a := w.app("shop-dev")
-		return carrier(a.Spec.Sources) == gitopsRepo("shop") && len(a.Spec.Sources) == 2, fmt.Sprintf("sources %+v", a.Spec.Sources)
+		ok := len(a.Spec.Sources) == 2 && a.Spec.Sources[0].Ref == "appsrc" && a.Spec.Sources[0].RepoURL == gitopsRepo("shop") &&
+			a.Spec.Sources[1].RepoURL == chartRepo && carrier(a.Spec.Sources) == gitopsRepo("shop")
+		return ok, fmt.Sprintf("want [appsrc ref %s, chart %s], got %+v", gitopsRepo("shop"), chartRepo, a.Spec.Sources)
 	})
 	w.eventually("shop-dev is opted in and lost the resources finalizer", func() (bool, string) {
 		a := w.app("shop-dev")
@@ -743,6 +763,7 @@ func TestGatedSet(t *testing.T) {
 	t.Run("the gated set keeps the agent's switch (ignore rule and preservedFields)", func(t *testing.T) {
 		w.t = t
 		w.agentSwitch("shop-prod")
+		w.reconciled(gatedSet) // a whole gated-set reconcile after the switch, then a few more
 		w.refresh()
 		w.steady("shop-prod stays switched across reconciles", 5*time.Second, w.onPlugin("shop-prod"))
 	})

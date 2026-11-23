@@ -1356,7 +1356,8 @@ def tenant_gated_set_flags(g):
 # The ServiceAccount argocd-apps-install's ApplicationSet controller runs as: the argo-cd chart's default
 # (applicationSet.serviceAccount.name), which argocd-apps-install does not override (tests/run.sh checks it).
 APPSET_CONTROLLER_SA = "argocd-applicationset-controller"
-_DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+# A ServiceAccount name: a DNS subdomain (RFC 1123, at most 253 characters), matched with fullmatch (no trailing newline).
+_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
 
 
 def tenant_delete_guard(g):
@@ -1376,9 +1377,9 @@ def tenant_delete_guard(g):
         raise ApronError("tenantOnboarding.deleteGuard.enabled is true or false")
     if actions is not None and actions not in ("Audit", "Deny"):
         raise ApronError("tenantOnboarding.deleteGuard.validationActions is Audit or Deny")
-    # A CEL string literal in the policy: a DNS label only, so it cannot end the literal.
-    if sa is not None and not (isinstance(sa, str) and _DNS_LABEL.match(sa)):
-        raise ApronError("tenantOnboarding.deleteGuard.controllerServiceAccount is a ServiceAccount name (a DNS label)")
+    # A CEL string literal in the policy: a DNS subdomain only (no quote, no newline), so it cannot end the literal.
+    if sa is not None and not (isinstance(sa, str) and len(sa) <= 253 and _DNS_SUBDOMAIN.fullmatch(sa)):
+        raise ApronError("tenantOnboarding.deleteGuard.controllerServiceAccount is a ServiceAccount name (a DNS subdomain)")
     return {
         "_tenantDeleteGuard": bool(enabled),
         "TENANT_DELETE_GUARD_ACTIONS": actions or "Audit",
