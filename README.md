@@ -160,7 +160,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 |---|---|
 | `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
 | `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
-| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. Nothing in the rendered output orders that (the policy Applications and `argocd-apps-install` carry no sync wave and sync independently); it holds in practice because the policies sync in seconds and the repo-server takes minutes. Before merging a roll-out, check that both policies show the new allow-list before the repo-server has rolled. Remove the key at the next release. The agent's `waitJob.image` stays the new digest; with the gate's agent on, the key is also passed as the agent chart's `waitJob.previousImage` (I-59), so the agent and its grant-expiry webhook accept a held wait Job on the previous image instead of reporting it out-of-band. That needs `versions.clearance.argocdAgentChart` 0.56.0 or later, which `apron check` says |
+| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. `argocd-apps-install`'s rollout-order hook holds the repo-server until the policies and the agent have the new image (see "Rollout order for Clearance releases" below). Remove the key at the next release. The agent's `waitJob.image` stays the new digest; with the gate's agent on, the key is also passed as the agent chart's `waitJob.previousImage` (I-59), so the agent and its grant-expiry webhook accept a held wait Job on the previous image instead of reporting it out-of-band. That needs `versions.clearance.argocdAgentChart` 0.56.0 or later, which `apron check` says |
 | `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
 | `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
 | `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
@@ -181,6 +181,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.migration` | unset by default: nothing renders. `{window: true, apps: [<app>, ...]}` is the migration window off the static plugin: `gatedSet` is allowed beside `tenantPlugin` (true or unset) for the listed apps only. See "Migrating off the static plugin" below |
 | `tenantOnboarding.syncPaused` | unset by default: nothing renders (an empty mapping is the same). `{<app>: [<env>, ...]}`: each listed environment's generated Application has no automated sync. See "Migrating off the static plugin" below |
 | `clearance.gate.tenantPlugin` | default true. `false`: the tenant-onboarding ApplicationSet gives no Application the plugin (the app regex is `^$`), so the gate covers only what opts in by annotation. `gate.apps` and `protectedEnvironments` then do nothing for tenant Applications |
+| `clearance.gate.rolloutOrder` | default on with the gate, where its policies render. `false` drops `argocd-apps-install`'s rollout-order hook and its `retry` (see "Rollout order for Clearance releases" below) |
 | `clearance.gate.lowerZone` | default off. `true` renders the ClearanceGrant CRD, the admission policies and the agent on a `zone: lower` cluster too (a rehearsal), not only on an upper one |
 
 ### Gated environments (`clearance.gate.agent.gatedSet`, W-43)
@@ -474,6 +475,70 @@ wait Job runs in the tenant's namespace and is not a Flight image.
 On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccounts`, `clearance.extraProviders`,
 `clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
 `feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
+
+### Rollout order for Clearance releases (`clearance.gate.rolloutOrder`, I-77)
+
+A Clearance release that changes `versions.clearance.waitImage` changes three things on a gated cluster, and each syncs on
+its own:
+
+1. the policies that admit the wait Job: `clearance-gate`'s `clearance-protected-writes` exemption and, with Flight
+   admission, `kyverno-policies`' `flight-only-images` allow-list;
+2. the agent, `clearance-argocd-agent` (its `--wait-image`, and the grant-expiry webhook's);
+3. `argocd-apps-install`, whose repo-server sidecar `clearance-cmp` puts `CLEARANCE_WAIT_IMAGE` into every wait Job it injects.
+
+The repo-server must go last. If it rolls before the policies, a new-image wait Job is refused where admission enforces
+(Flight admission on hangar-prod). If it rolls before the agent, the old agent reports the new-image wait Job as an
+out-of-band `deploy.exception`. The policies do not have to go before the agent: the new agent and its grant-expiry webhook
+accept the new and the previous wait image (`previousWaitImage`).
+
+**What renders.** With the gate on a cluster that renders its policies (`zone: upper` or `clearance.gate.lowerZone`),
+`argocd-apps-install` gets a PreSync hook (the argo-cd chart's `extraObjects`: a ServiceAccount, a read-only ClusterRole
+limited to `get` on the named objects, its binding, a ConfigMap with the script, and the Job `clearance-rollout-order` in
+`argocd-apps`) and a `syncPolicy.retry`. Every sync of `argocd-apps-install` runs the Job first:
+
+- it passes at once when the repo-server is not there yet (a first install: no old wait image runs) or its sidecar
+  already has the wait image this sync sets (the sync does not change it: almost every sync);
+- otherwise it waits until each policy's spec names the new wait image and is loaded (a ValidatingAdmissionPolicy's
+  `status.observedGeneration`; Kyverno's `status.conditionStatus.ready`), and each agent Deployment
+  (`clearance-argocd-agent`, and `clearance-grant-expiry` with `grantExpiry.enabled`) passes `--wait-image=<new>` on the
+  agent image the agent Application sets, with every replica updated and available. Then the sync goes on and the
+  repo-server rolls;
+- it gives up after 600 s, and the sync fails. An automated sync is not retried on the same revision without `retry`, so
+  `argocd-apps-install` retries 5 times (1 min doubling to 10 min, about an hour in all). After that, Sync it by hand
+  once the agent is Ready. The Job's log (`kubectl -n argocd-apps logs job/clearance-rollout-order`; the Job stays until
+  the next sync) says what it waited for.
+
+`clearance.gate.rolloutOrder: false` turns it off (no hook, no retry): the escape hatch if the agent cannot become Ready
+and the repo-server must roll anyway. Without the gate, or on a cluster without its policies, nothing renders and
+`argocd-apps-install` is byte for byte as before.
+
+**What else changes.** Only `argocd-apps-install`:
+
+- a sync that changes the wait image waits for the agent and the policies, and anything else in the same sync (another
+  chart value) waits with it;
+- every sync runs one short pod (`python:3.13-alpine`, 10m CPU, 64Mi);
+- `retry` applies to every failed sync of `argocd-apps-install`, not only the hook's.
+
+No other Application changes, and neither does the root.
+
+**Why a hook, not sync waves.** These were considered and not used:
+
+- *Sync waves on the child Applications, with an Application health check in argocd-cm.* The root
+  (`root-app-of-apps.yaml`) only applies Application manifests. The wait image is in `argocd-apps-install`'s and the
+  agent's Application specs, but the policies change inside their own Applications' directory sources
+  (`30-policy/kyverno-policies/`, `56-clearance-gate/`). The root's sync never touches them, so waves on it cannot order
+  them. Waves would also need `resource.customizations.health.argoproj.io_Application` (off since Argo CD 1.8). That is in
+  the platform instance's argocd-cm, in `01-argocd-platform/install.yaml`, which no Application manages (it is applied by
+  hand). It would also make every child's health gate every later wave of every root sync on every cluster: one Degraded
+  child would hold the rest.
+- *Splitting the wait image into its own later Application.* The image reaches the wait Job only through the sidecar's
+  environment. A ConfigMap in another Application would change it only at the repo-server's next restart, so nothing
+  orders it.
+- *A hook in the agent's Application that waits for the policies.* Policies before the agent is not needed (above).
+
+What still is not ordered: the policies against the agent (not needed), and a change that moves only the agent or only
+the policies (the repo-server's wait image is unchanged, so the hook passes). Keep `versions.clearance.previousWaitImage` for the
+release after a wait-image change: it covers wait Jobs and cached manifests that already name the old image.
 
 ## Where Clearance runs (`clearance.namespace`) and its nightly dump (`clearance.backup`)
 

@@ -225,6 +225,7 @@ def tokens(v):
         **clearance_targets_tokens(v, g),
         **clearance_attest_tokens(v, g),
         **clearance_admission_tokens(g),
+        **rollout_order_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
@@ -1479,6 +1480,65 @@ def agent_wait_previous_flag(g):
     return {"_agentWaitPreviousImage": bool(m) and tuple(int(x) for x in m.groups()) >= (0, 56, 0)}
 
 
+# The gate's rollout-order hook (I-77; README.md, "Rollout order for Clearance releases"): where its checks look.
+ROLLOUT_ORDER_REPO_SERVER = "argocd-apps/argocd-apps-repo-server"
+ROLLOUT_ORDER_AGENT_NAMESPACE = "clearance-system"
+ROLLOUT_ORDER_GATE_POLICY = "clearance-protected-writes"
+ROLLOUT_ORDER_FLIGHT_POLICY = "flight-only-images"
+ROLLOUT_ORDER_TIMEOUT_SECONDS = 600
+
+
+def rollout_order_flags(g):
+    """I-77: the PreSync hook in argocd-apps-install that holds a repo-server wait-image change until the policies admit the new
+    wait image and the gate's agent runs it, Ready. On with the gate on a cluster that renders its policies (zone upper or
+    clearance.gate.lowerZone), unless clearance.gate.rolloutOrder is false. `_rolloutOrderFlight`: Flight admission's
+    flight-only-images is rendered too (the same condition as templates/MANIFEST's flight-images.yaml), so the hook checks it.
+    Off: argocd-apps-install renders byte for byte as before."""
+    order = g("clearance.gate.rolloutOrder", None)
+    gate = g("clearance.gate.enabled", False) is True
+    if gate and order is not None and not isinstance(order, bool):
+        raise ApronError("clearance.gate.rolloutOrder is true or false")
+    on = gate and order is not False and (g("zone", "") == "upper" or g("clearance.gate.lowerZone", False) is True)
+    flight = on and bool(g("components.policy", False)) and g("zone", "") == "upper" and bool(g("admission.flight.enabled", False))
+    return {"_rolloutOrder": on, "_rolloutOrderFlight": flight}
+
+
+def rollout_order_tokens(g):
+    """The hook's checks as one JSON document (the Job's CHECKS) and the Deployments its ClusterRole may read. Only read under
+    `#@if _rolloutOrder`. The policy and Deployment names are the ones apron renders (56-clearance-gate/admission.yaml,
+    30-policy/kyverno-policies/flight-images.yaml) and the agent chart's (its Deployment, and clearance-grant-expiry with
+    grantExpiry.enabled)."""
+    flags = rollout_order_flags(g)
+    if not flags["_rolloutOrder"]:
+        return {k: "" for k in ("CLEARANCE_ROLLOUT_ORDER_CHECKS", "CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS",
+                                "CLEARANCE_ROLLOUT_ORDER_TIMEOUT", "CLEARANCE_ROLLOUT_ORDER_DEADLINE")}
+    policies = [{"name": ROLLOUT_ORDER_GATE_POLICY, "kind": "vap",
+                 "path": f"/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/{ROLLOUT_ORDER_GATE_POLICY}"}]
+    if flags["_rolloutOrderFlight"]:
+        policies.append({"name": ROLLOUT_ORDER_FLIGHT_POLICY, "kind": "kyverno",
+                         "path": f"/apis/policies.kyverno.io/v1/validatingpolicies/{ROLLOUT_ORDER_FLIGHT_POLICY}"})
+    agent = None
+    if g("clearance.gate.agent", None):
+        repo, _, digest = (g("versions.clearance.argocdAgentImage", "") or "").partition("@")
+        deps = [f"{ROLLOUT_ORDER_AGENT_NAMESPACE}/clearance-argocd-agent"]
+        ge = g("clearance.gate.agent.grantExpiry", None)
+        if isinstance(ge, dict) and ge.get("enabled") is True:
+            deps.append(f"{ROLLOUT_ORDER_AGENT_NAMESPACE}/clearance-grant-expiry")
+        # The image the agent Application sets (repository:v<chart>@<digest>, CLEARANCE_AGENT_IMAGE_TAG).
+        agent = {"image": f"{repo}:v{g('versions.clearance.argocdAgentChart', '')}@{digest}", "deployments": deps}
+    checks = {"waitImage": g("versions.clearance.waitImage", "") or "", "repoServer": ROLLOUT_ORDER_REPO_SERVER,
+              "container": "clearance-cmp", "policies": policies, "agent": agent}
+    names = [ROLLOUT_ORDER_REPO_SERVER.split("/", 1)[1]] + [d.split("/", 1)[1] for d in (agent or {}).get("deployments", [])]
+    return {
+        # A YAML double-quoted scalar holding the JSON (json.dumps twice); the hook's argo-cd chart runs extraObjects through
+        # Helm's tpl, and compact JSON never has two opening braces in a row.
+        "CLEARANCE_ROLLOUT_ORDER_CHECKS": json.dumps(json.dumps(checks, separators=(",", ":"))),
+        "CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS": json.dumps(names),
+        "CLEARANCE_ROLLOUT_ORDER_TIMEOUT": str(ROLLOUT_ORDER_TIMEOUT_SECONDS),
+        "CLEARANCE_ROLLOUT_ORDER_DEADLINE": str(ROLLOUT_ORDER_TIMEOUT_SECONDS + 120),
+    }
+
+
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
@@ -1487,7 +1547,8 @@ def render(v, out_dir, root=ROOT):
     v = dict(v, _dir=os.path.abspath(out_dir), _tenantDeleteGuard=guard["_tenantDeleteGuard"],
              **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)),
              _tenantSyncPaused=tenant_sync_paused_flags(lambda k, d=None: get(v, k, d))["_tenantSyncPaused"],
-             **agent_wait_previous_flag(lambda k, d=None: get(v, k, d)))
+             **agent_wait_previous_flag(lambda k, d=None: get(v, k, d)),
+             **rollout_order_flags(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):

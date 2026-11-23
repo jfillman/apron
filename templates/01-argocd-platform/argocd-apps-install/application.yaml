@@ -316,6 +316,266 @@ spec:
           securityContext:
             fsGroup: 999
 #@end
+#@if _rolloutOrder
+        # I-77, the rollout order of a Clearance release (README.md, "Rollout order for Clearance releases"). A release that
+        # changes the wait image changes three things that sync on their own: the policies that admit the wait Job
+        # (clearance-gate's clearance-protected-writes and, with Flight admission, kyverno-policies' flight-only-images), the
+        # agent (clearance-argocd-agent) and this repo-server's CLEARANCE_WAIT_IMAGE. The repo-server must go last: before the
+        # policies, a new-image wait Job is refused where admission enforces; before the agent, an old agent reports it as
+        # out-of-band. The root's sync waves cannot order them (the policies change inside their own Applications' sources, not
+        # in any Application the root applies, and Argo CD has no Application health since 1.8), so this Application holds its
+        # own sync: a PreSync hook Job that passes at once unless this sync changes the repo-server's wait image (or the
+        # repo-server is not there yet), and otherwise waits until every policy admits the new image and every agent
+        # Deployment runs it, rolled out and available. It fails after CLEARANCE_ROLLOUT_ORDER_TIMEOUT seconds; syncPolicy.retry
+        # below tries again. Off with clearance.gate.rolloutOrder: false. Helm runs extraObjects through tpl: no double
+        # opening braces anywhere below (tests/run.sh checks).
+        extraObjects:
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/sync-wave: "-1"
+          # Read only, and only the named objects: the repo-server and agent Deployments and the policies it checks.
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: clearance-rollout-order
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/sync-wave: "-1"
+            rules:
+              - apiGroups: [apps]
+                resources: [deployments]
+                verbs: [get]
+                resourceNames: @@CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS@@
+              - apiGroups: [admissionregistration.k8s.io]
+                resources: [validatingadmissionpolicies]
+                verbs: [get]
+                resourceNames: [clearance-protected-writes]
+#@end
+#@if _rolloutOrderFlight
+              - apiGroups: [policies.kyverno.io]
+                resources: [validatingpolicies]
+                verbs: [get]
+                resourceNames: [flight-only-images]
+#@end
+#@if _rolloutOrder
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: clearance-rollout-order
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/sync-wave: "-1"
+            roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: clearance-rollout-order}
+            subjects:
+              - {kind: ServiceAccount, name: clearance-rollout-order, namespace: argocd-apps}
+          - apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/sync-wave: "-1"
+            data:
+              order.py: |
+                """Hold argocd-apps-install's sync until a new Clearance wait image is safe for the repo-server (apron I-77).
+
+                CHECKS (JSON): waitImage, the image this sync gives the repo-server's clearance-cmp sidecar; repoServer and
+                container, where the live one is read; policies, each {name, kind (vap or kyverno), path}; agent, null or
+                {image, deployments}. Passes at once when the repo-server is not there (a first install: no old wait image
+                runs) or already has waitImage (this sync does not change it). Otherwise waits until every policy's spec
+                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready), and every
+                agent Deployment passes --wait-image=waitImage on the agent's image, rolled out and available. Exits 1 after
+                TIMEOUT_SECONDS. Standard library only; reads with the pod's own token.
+                """
+
+                import json
+                import os
+                import ssl
+                import sys
+                import time
+                import urllib.error
+                import urllib.request
+
+                SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+                API = "https://kubernetes.default.svc"
+
+
+                def get(path):
+                    """The object at path, or None when it does not exist."""
+                    with open(f"{SA}/token") as f:
+                        token = f.read().strip()
+                    req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
+                    ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+                    try:
+                        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                            return json.load(r)
+                    except urllib.error.HTTPError as e:
+                        if e.code == 404:
+                            return None
+                        raise
+
+
+                def deployment(ref):
+                    ns, name = ref.split("/", 1)
+                    return get(f"/apis/apps/v1/namespaces/{ns}/deployments/{name}")
+
+
+                def live_wait_image(dep, container):
+                    """The sidecar's CLEARANCE_WAIT_IMAGE, "" without one, None without the sidecar."""
+                    for c in dep["spec"]["template"]["spec"].get("containers") or []:
+                        if c.get("name") == container:
+                            for e in c.get("env") or []:
+                                if e.get("name") == "CLEARANCE_WAIT_IMAGE":
+                                    return e.get("value", "")
+                            return ""
+                    return None
+
+
+                def change(cfg):
+                    """Why this sync needs the order, or None when it does not."""
+                    dep = deployment(cfg["repoServer"])
+                    if dep is None:
+                        return None
+                    live = live_wait_image(dep, cfg["container"])
+                    if live == cfg["waitImage"]:
+                        return None
+                    return f"repo-server wait image {live or '(none)'} -> {cfg['waitImage']}"
+
+
+                def policy_pending(p, image):
+                    obj = get(p["path"])
+                    if obj is None:
+                        return f"{p['name']}: not found"
+                    if image not in json.dumps(obj.get("spec") or {}):
+                        return f"{p['name']}: does not admit {image} yet"
+                    st = obj.get("status") or {}
+                    if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
+                        return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
+                    if p["kind"] == "kyverno" and (st.get("conditionStatus") or {}).get("ready") is not True:
+                        return f"{p['name']}: not ready"
+                    return None
+
+
+                def agent_pending(ref, dep, image, wait):
+                    if dep is None:
+                        return f"{ref}: not found"
+                    cs = [c for c in dep["spec"]["template"]["spec"].get("containers") or []
+                          if any(a.startswith("--wait-image=") for a in c.get("args") or [])]
+                    if not cs:
+                        return f"{ref}: no container passes --wait-image"
+                    for c in cs:
+                        got = [a.split("=", 1)[1] for a in c["args"] if a.startswith("--wait-image=")]
+                        if got != [wait]:
+                            return f"{ref}: {c.get('name')} has --wait-image={','.join(got)}, not {wait}"
+                        if image and c.get("image") != image:
+                            return f"{ref}: {c.get('name')} runs {c.get('image')}, not {image}"
+                    want = dep["spec"].get("replicas", 1)
+                    st = dep.get("status") or {}
+                    if st.get("observedGeneration", 0) < dep["metadata"].get("generation", 0):
+                        return f"{ref}: generation {dep['metadata'].get('generation')} not observed yet"
+                    for k in ("updatedReplicas", "availableReplicas", "replicas"):
+                        if st.get(k, 0) != want:
+                            return f"{ref}: {k} {st.get(k, 0)} of {want}"
+                    return None
+
+
+                def pending(cfg):
+                    """What still stands between the policies and the agent and this sync, in rollout order."""
+                    out = []
+                    for p in cfg.get("policies") or []:
+                        out.append(policy_pending(p, cfg["waitImage"]))
+                    agent = cfg.get("agent") or {}
+                    for ref in agent.get("deployments") or []:
+                        out.append(agent_pending(ref, deployment(ref), agent.get("image"), cfg["waitImage"]))
+                    return [r for r in out if r]
+
+
+                def main(cfg, timeout, interval=10, clock=time.monotonic, sleep=time.sleep):
+                    why = change(cfg)
+                    if why is None:
+                        print("no wait-image change for the repo-server: nothing to order")
+                        return 0
+                    print(f"{why}: waiting for the policies, then the agent")
+                    deadline, last = clock() + timeout, None
+                    while True:
+                        try:
+                            left = pending(cfg)
+                        except Exception as e:  # a transient API error is one more wait, not a failed sync
+                            left = [f"API error: {e}"]
+                        if not left:
+                            print("policies admit the new wait image and the agent runs it: the repo-server may roll")
+                            return 0
+                        if left != last:
+                            print("waiting: " + "; ".join(left), flush=True)
+                            last = left
+                        if clock() >= deadline:
+                            print(f"gave up after {timeout}s: " + "; ".join(left), file=sys.stderr)
+                            return 1
+                        sleep(interval)
+
+
+                if __name__ == "__main__":
+                    sys.exit(main(json.loads(os.environ["CHECKS"]), int(os.environ.get("TIMEOUT_SECONDS", "600"))))
+          - apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                # Kept until the next sync, so its log says what it waited for.
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+            spec:
+              backoffLimit: 0
+              activeDeadlineSeconds: @@CLEARANCE_ROLLOUT_ORDER_DEADLINE@@
+              template:
+                metadata:
+                  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+                spec:
+                  serviceAccountName: clearance-rollout-order
+                  automountServiceAccountToken: true
+                  restartPolicy: Never
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 65534
+                    runAsGroup: 65534
+                    seccompProfile: {type: RuntimeDefault}
+                  containers:
+                    - name: order
+                      # Multi-arch index digest (linux/amd64 + linux/arm64 among others), the agentrun-reaper's.
+                      image: docker.io/library/python:3.13.18-alpine@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+                      command: ["python3", "-I", "/order/order.py"]
+                      env:
+                        - {name: CHECKS, value: @@CLEARANCE_ROLLOUT_ORDER_CHECKS@@}
+                        - {name: TIMEOUT_SECONDS, value: "@@CLEARANCE_ROLLOUT_ORDER_TIMEOUT@@"}
+                      resources:
+                        requests: {cpu: 10m, memory: 32Mi}
+                        limits: {memory: 64Mi}
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        capabilities: {drop: ["ALL"]}
+                      volumeMounts:
+                        - {name: order, mountPath: /order, readOnly: true}
+                  volumes:
+                    - name: order
+                      configMap: {name: clearance-rollout-order}
+#@end
         # One controller block for every cluster (it used to sit twice inside the
         # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
         # for the reason given at GOMEMLIMIT in 01-argocd-platform/install.yaml. This
@@ -773,3 +1033,11 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+#@if _rolloutOrder
+    # I-77: an automated sync is not retried on the same revision after it fails, so a rollout-order hook that gave up
+    # (above, extraObjects) would leave the repo-server change unsynced until the next commit. Retried instead, about an
+    # hour in all (5 tries, 1m doubling to 10m, each try waiting up to its timeout); then Sync by hand.
+    retry:
+      limit: 5
+      backoff: {duration: 1m, factor: 2, maxDuration: 10m}
+#@end
