@@ -205,6 +205,9 @@ environments that want the gate get their own set:
   cache keys on. With the chart first the carrier would be the chart repository at its pinned tag: the plugin would refuse
   the gitops repository (not on `CLEARANCE_CHART_REPOS`), and a release commit would not change the carrier's revision.
   tenant-onboarding keeps its order (chart first).
+- The gated set's `ref: appsrc` source has `path: .` (I-82). The agent copies the carrier's path into its plugin source, and
+  Argo CD refuses a source with no path, chart or ref (`InvalidSpecError`). With a path the source is no longer ref-only:
+  Argo CD generates it as the explicit Directory source it is, and `directory.exclude: "*"` keeps that empty.
 
 `gatedSet` needs `clearance.gate.tenantPlugin: false` (`render` refuses otherwise), except in the migration window. With the
 static plugin on, tenant-onboarding gives a covered environment the plugin source; handed over, that Application keeps it (the
@@ -259,9 +262,9 @@ flip outside the window deletes the workload (tests/appset records it), unless t
    only (the gated set's reconcile now fails at the `already owned` error before it clears the annotation).
    After both, every reconcile still to come resolves the new commit, and none that started earlier is still running.
 3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
-   `$appsrc` source first (the gated set's order; its ignore rule keeps the live sources on adoption, so the move is not
-   made for you):
-   `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
+   `$appsrc` source first, with `path: .` (the gated set's order and path; its ignore rule keeps the live sources on adoption,
+   so neither is made for you):
+   `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"add","path":"/spec/sources/1/path","value":"."},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
    The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
    carried on the gitops repository.
 4. Wait step 2's time again, now from the patch, then repeat step 1's refresh-annotation wait on both sets, then check
@@ -402,7 +405,7 @@ clearance `docs/gate.md`, "Annotation opt-in" and "The gate rule"):
    refuses the window otherwise), and, to gate it by the rule rather than by the gated set's annotation alone, a `rule.select`
    entry for that project and namespace. Then follow "Gated environments" above, steps 1 to 4, with one change in step 3: the
    Application is on one plugin source, so the patch does not move `$appsrc`; it replaces `spec.sources` with the gated set's
-   Helm sources (`ref: appsrc` first, the chart, then the configMapGenerator source if the environment has one), guarded by
+   Helm sources (`ref: appsrc` with `path: .` first, the chart, then the configMapGenerator source if the environment has one), guarded by
    `test` ops on the uid and on the plugin source, in the same patch that removes tenant-onboarding's owner reference. The
    gated set ignores `/spec/sources`, so the patch holds. From this patch until the agent switches the Application, it is on Helm
    sources and **ungated**: the pause is what keeps anything from deploying (do not sync it by hand).

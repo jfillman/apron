@@ -532,6 +532,18 @@ func carrier(srcs argov1alpha1.ApplicationSources) string {
 	return ""
 }
 
+// carrierPath is the path the agent copies from the carrier into its plugin source (clearance providers/argocd/agent
+// optin.go, carrier and desiredSource). Argo CD refuses a multi-source entry with no path, chart or ref (util/argo/argo.go
+// validateSourcePermissions), and the plugin source has neither chart nor ref, so this must not be empty (I-82).
+func carrierPath(srcs argov1alpha1.ApplicationSources) string {
+	for _, s := range srcs {
+		if s.Chart == "" && s.RepoURL != "" && !strings.HasPrefix(s.RepoURL, "oci://") {
+			return s.Path
+		}
+	}
+	return ""
+}
+
 func gitopsRepo(app string) string { return "https://example.test/gitops-" + app }
 
 const chartRepo = "https://example.test/charts.git"
@@ -571,7 +583,8 @@ func (w *world) agentSwitch(name string) {
 	a := w.app(name)
 	patch := map[string]any{
 		"metadata": map[string]any{"annotations": map[string]string{switched: "sources"}},
-		"spec":     map[string]any{"sources": []any{map[string]any{"repoURL": carrier(a.Spec.Sources), "targetRevision": "main", "plugin": map[string]any{"name": "clearance"}}}},
+		"spec": map[string]any{"sources": []any{map[string]any{"repoURL": carrier(a.Spec.Sources), "path": carrierPath(a.Spec.Sources),
+			"targetRevision": "main", "plugin": map[string]any{"name": "clearance"}}}},
 	}
 	b, _ := json.Marshal(patch)
 	if err := w.c.Patch(w.ctx, a, client.RawPatch(types.MergePatchType, b)); err != nil {
@@ -620,9 +633,11 @@ func handoverInto(t *testing.T, w *world) {
 			tenantUID = o.UID
 		}
 	}
-	// The same patch puts the $appsrc source first (the gated set's order): the set's ignore rule keeps the live sources on
-	// adoption, so without the move the agent's carrier would stay the chart repository.
+	// The same patch puts the $appsrc source first with path . (the gated set's order and path, README step 3): the set's
+	// ignore rule keeps the live sources on adoption, so without the move the agent's carrier would stay the chart
+	// repository, and without the path the agent's plugin source would have none (I-82).
 	jp := fmt.Sprintf(`[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":%q},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},`+
+		`{"op":"add","path":"/spec/sources/1/path","value":"."},`+
 		`{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]`, tenantUID)
 	if err := w.c.Patch(w.ctx, a, client.RawPatch(types.JSONPatchType, []byte(jp))); err != nil {
 		t.Fatal(err)
@@ -634,8 +649,8 @@ func handoverInto(t *testing.T, w *world) {
 	w.steady("shop-dev keeps the moved order under the gated set (carrier: its gitops repository)", 3*time.Second, func() (bool, string) {
 		a := w.app("shop-dev")
 		ok := len(a.Spec.Sources) == 2 && a.Spec.Sources[0].Ref == "appsrc" && a.Spec.Sources[0].RepoURL == gitopsRepo("shop") &&
-			a.Spec.Sources[1].RepoURL == chartRepo && carrier(a.Spec.Sources) == gitopsRepo("shop")
-		return ok, fmt.Sprintf("want [appsrc ref %s, chart %s], got %+v", gitopsRepo("shop"), chartRepo, a.Spec.Sources)
+			a.Spec.Sources[1].RepoURL == chartRepo && carrier(a.Spec.Sources) == gitopsRepo("shop") && carrierPath(a.Spec.Sources) == "."
+		return ok, fmt.Sprintf("want [appsrc ref %s path ., chart %s], got %+v", gitopsRepo("shop"), chartRepo, a.Spec.Sources)
 	})
 	w.eventually("shop-dev is opted in and lost the resources finalizer", func() (bool, string) {
 		a := w.app("shop-dev")
@@ -757,12 +772,18 @@ func TestGatedSet(t *testing.T) {
 			if a.Spec.Sources[0].Ref != "appsrc" || a.Spec.Sources[1].RepoURL != chartRepo {
 				t.Fatalf("%s: want [appsrc ref, chart, ...], got %+v", c.name, a.Spec.Sources)
 			}
+			// I-82: the carrier has `path: .`, so the agent's plugin source has a path (Argo CD refuses one without), and the
+			// explicit directory source with exclude "*" keeps the now-generated $appsrc source empty.
+			s0 := a.Spec.Sources[0]
+			if carrierPath(a.Spec.Sources) != "." || s0.Directory == nil || s0.Directory.Exclude != "*" || s0.Directory.Recurse {
+				t.Fatalf("%s: want the appsrc carrier at path . as a non-recursive directory excluding *, got %+v", c.name, s0)
+			}
 		}
 		if p := w.app("pay-prod"); len(p.Spec.Sources) != 3 || !strings.HasSuffix(p.Spec.Sources[2].Path, "/prod/configmap") {
 			t.Fatalf("pay-prod: want the configMapGenerator source third, got %+v", p.Spec.Sources)
 		}
 		d := w.app("shop-dev")
-		if len(d.Spec.Sources) != 2 || d.Spec.Sources[0].RepoURL != chartRepo || d.Spec.Sources[1].Ref != "appsrc" {
+		if len(d.Spec.Sources) != 2 || d.Spec.Sources[0].RepoURL != chartRepo || d.Spec.Sources[1].Ref != "appsrc" || d.Spec.Sources[1].Path != "" {
 			t.Fatalf("shop-dev (tenant-onboarding): want [chart, appsrc ref] as before, got %+v", d.Spec.Sources)
 		}
 	})
