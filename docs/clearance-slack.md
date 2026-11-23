@@ -90,7 +90,7 @@ setup, in the Clearance Cloud AWS account (the account that holds the zone, `<zo
 
 | Where it runs | Record | Value |
 |---|---|---|
-| Lab (today) | `slack.clearance.<domain>` `A` | the cluster Gateway's IP address (the lab's is a LAN address). A private address in public DNS is fine: only browsers on the LAN need the link pages, and Slack uses Socket Mode (outbound). Nothing is exposed |
+| Lab (today) | `slack.clearance.<domain>` `A` | the cluster Gateway's IP address (the lab's is a LAN address). With `transport: socket` (the default), a private address in public DNS is fine: only browsers on the LAN need the link pages, and Slack uses Socket Mode (outbound). Nothing is exposed. With `transport: events`, Slack must reach the host, so the address must be publicly reachable |
 | EKS (later) | `slack.clearance.<domain>` `A` (alias) or `CNAME` | the cluster's public endpoint: the Traefik Service's NLB. Change the record; nothing else moves |
 
 Do **not** create `_acme-challenge.slack...`: cert-manager creates and removes that TXT record itself.
