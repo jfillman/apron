@@ -139,6 +139,9 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 
 - argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
   container that mounts the clearance token (a projected service-account token, audience `clearance`).
+  The token volume is mode 0440 and the repo-server pod gets `fsGroup: 999` (the sidecar's uid), so `clearance-cmp doctor`'s `token`
+  check passes; the chart has no repo-server-only key for the pod securityContext, so that fsGroup is `global.securityContext`, on every
+  pod of argocd-apps. The sidecar's memory limit is 2560Mi (4 renders at 512Mi, plus 512Mi; doctor's `render-limits`), the canary's too.
   Its `CLEARANCE_CHART_REPOS` is the cluster's airframe repository plus `allowedChartRepos` from cluster.yaml (the same
   repositories as `defaultChart` and every tenant AppProject's `sourceRepos`, which now read that one list): the plugin, not Argo CD, fetches the chart, so it refuses any other `chartRepo`. It is
   an environment variable of the sidecar, not a plugin parameter, so no tenant value can widen it. An app whose

@@ -221,7 +221,10 @@ spec:
 #@if clearance.gate.enabled
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
-                limits: {memory: 512Mi}
+                # I-78: CLEARANCE_CMP_MAX_RENDERS (4) renders at once, each bounded at CLEARANCE_CMP_RENDER_MAX_MEMORY (512Mi): 2Gi,
+                # plus 512Mi for the plugin processes and the cmp-server (clearance docs/examples/argo-cd-repo-server-values.yaml;
+                # `clearance-cmp doctor` render-limits). Needs clearance-cmp from 0.57.1+.
+                limits: {memory: 2560Mi}
               volumeMounts:
                 - {name: var-files, mountPath: /var/run/argocd}
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
@@ -267,7 +270,10 @@ spec:
 #@if clearance.gate.enabled and clearance.gate.canary.image
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
-                limits: {memory: 512Mi}
+                # I-78: CLEARANCE_CMP_MAX_RENDERS (4) renders at once, each bounded at CLEARANCE_CMP_RENDER_MAX_MEMORY (512Mi): 2Gi,
+                # plus 512Mi for the plugin processes and the cmp-server (clearance docs/examples/argo-cd-repo-server-values.yaml;
+                # `clearance-cmp doctor` render-limits). Needs clearance-cmp from 0.57.1+.
+                limits: {memory: 2560Mi}
               volumeMounts:
                 - {name: var-files, mountPath: /var/run/argocd}
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
@@ -289,6 +295,9 @@ spec:
               projected:
                 sources:
                   - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance}
+                # I-78: not world-readable (`clearance-cmp doctor` token check). The pod's fsGroup 999 (global.securityContext below) is the
+                # sidecar's (uid 999) group, so 0440 leaves the token readable by the sidecar alone.
+                defaultMode: 0440
 #@end
 #@if clearance.gate.enabled and clearance.gate.caConfigMap
             - name: clearance-ca
@@ -301,6 +310,11 @@ spec:
         # repo-server-only key; the other components never use the name.
         global:
           hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
+          # I-78: the pod's fsGroup, so the token volume's group is the sidecar's (999). Chart 10.3.2 has no repo-server-only
+          # key for the pod securityContext (repoServer has no podSecurityContext), so this is global: every Argo CD pod of this
+          # instance gets supplementary group 999 and its volumes' group (clearance docs/examples/argo-cd-repo-server-values.yaml).
+          securityContext:
+            fsGroup: 999
 #@end
         # One controller block for every cluster (it used to sit twice inside the
         # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
