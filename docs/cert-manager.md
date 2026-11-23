@@ -48,6 +48,12 @@ egress allows them on the port you give. A resolver that lies can only delay or 
 issue a certificate, since the ACME server validates the challenge itself. The names are public once the certificate
 is in the Certificate Transparency logs anyway, but the timing and the resolver's view of them are not.
 
-Because `--dns01-recursive-nameservers-only` is set, cert-manager does not fall back to the cluster's DNS when the listed
-resolvers are unreachable: the challenge waits until one answers. The self-check can also take longer, since a recursive
-resolver may cache a negative or old answer until its TTL runs out.
+Because `--dns01-recursive-nameservers-only` is set, cert-manager does not fall back to the cluster's DNS, and the listed
+resolvers are not interchangeable for the final check:
+
+- the zone lookups (CNAME, SOA, NS) try the resolvers in order and use the first that answers;
+- the TXT check asks **every** listed resolver, and passes only when each one answers and returns the expected record. One
+  unreachable resolver keeps the challenge waiting even if the others answer, so a second resolver adds coverage, not
+  failover. List only resolvers the controller can always reach.
+
+The self-check can also take longer, since a recursive resolver may cache a negative or old answer until its TTL runs out.
