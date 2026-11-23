@@ -638,7 +638,47 @@ def clearance_gate_tokens(g):
             if g("components.clearance", False) and not any(_grants_protection(p) for p in (g("clearance.extraProviders", None) or []) if isinstance(p, dict)):
                 raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"{principal}={cluster}\"] "
                                  f"and {principal} among its principals (clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
+    # clearance.gate.agent.ownedProject {create: true}: apron renders the agent's own Namespaces and AppProjects
+    # (56-clearance-gate/agent/owned.yaml, a second source of the agent's Application), for a rehearsal whose project and namespaces nothing else makes. Off unless create is true.
+    owned_ns, owned_proj = "", ""
+    owned = g("clearance.gate.agent.ownedProject", None)
+    if on and g("clearance.gate.agent", None) and owned is not None:
+        if not isinstance(owned, dict):
+            raise ApronError("clearance.gate.agent.ownedProject is a map: {create: true, sourceRepos: [...]}")
+        for k in owned:
+            if k not in ("create", "sourceRepos"):
+                raise ApronError(f"clearance.gate.agent.ownedProject.{k} is not a setting (create, sourceRepos)")
+        if not isinstance(owned.get("create", False), bool):
+            raise ApronError("clearance.gate.agent.ownedProject.create is true or false")
+        if owned.get("create"):
+            dns = r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"
+            projs, nss = g("clearance.gate.agent.projects", None), g("clearance.gate.agent.protectedNamespaces", None)
+            for key, vals in (("projects", projs), ("protectedNamespaces", nss)):
+                if not isinstance(vals, list) or not all(isinstance(x, str) and re.fullmatch(dns, x) for x in vals):
+                    raise ApronError(f"clearance.gate.agent.ownedProject.create needs clearance.gate.agent.{key} to be a list of DNS labels")
+            if "default" in projs:
+                raise ApronError("clearance.gate.agent.ownedProject.create would own the AppProject 'default': name the agent's own projects")
+            repos = owned.get("sourceRepos", None)
+            if repos is None:
+                repos = [g("repoURL", "")]
+            if not isinstance(repos, list) or not repos or not all(isinstance(x, str) and x for x in repos):
+                raise ApronError("clearance.gate.agent.ownedProject.sourceRepos is a non-empty list of repository URLs (unset: this cluster's gitops repository)")
+            labels = "  labels:\n    hangar.io/component: cluster-config\n    hangar.io/subcomponent: policy\n"
+            # Prune=false,Delete=false: Argo CD never deletes these on a prune or when the Application goes (the agent labels the
+            # namespaces; a deleted namespace is the outage this was added for). Wave -1: the namespace before anything in it.
+            owned_ns = "---\n".join(
+                f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {json.dumps(n)}\n{labels}"
+                f"  annotations:\n    argocd.argoproj.io/sync-wave: \"-1\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n" for n in nss)
+            dests = "".join(f"    - {{server: https://kubernetes.default.svc, namespace: {json.dumps(n)}}}\n" for n in nss)
+            srcs = "".join(f"    - {json.dumps(r)}\n" for r in repos)
+            owned_proj = "---\n".join(
+                f"apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: {json.dumps(pr)}\n  namespace: argocd-apps\n{labels}"
+                f"  annotations:\n    argocd.argoproj.io/sync-wave: \"0\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n"
+                f"spec:\n  description: \"The Clearance agent's own project; it may deploy only into the agent's protected namespaces\"\n"
+                f"  sourceRepos:\n{srcs}  destinations:\n{dests}" for pr in projs)
     return {
+        "CLEARANCE_AGENT_OWNED_NAMESPACES": owned_ns,
+        "CLEARANCE_AGENT_OWNED_PROJECTS": owned_proj,
         "CLEARANCE_GATE_ENV_REGEX": regex,
         # gate.apps limits the plugin to those apps, so a cluster can turn the gate on one app at a time. Empty: every
         # app in a protected environment. No backslash: the regex sits in a Go-template double-quoted string.

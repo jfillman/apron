@@ -16,9 +16,24 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
+#@if clearance.gate.agent.ownedProject.create
+  # clearance.gate.agent.ownedProject.create: two sources in ONE sync, so the Namespaces and AppProjects of owned.yaml (this folder's
+  # other file; Namespaces wave -1) exist before the chart puts a Role in each protected namespace (wave 0). Sync waves order
+  # resources inside one Application, never one Application against another, so these are not a separate Application.
+  sources:
+  - repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 56-clearance-gate/agent
+    directory:
+      exclude: "application.yaml"
+  # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
+  - repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+#@end
+#@if not clearance.gate.agent.ownedProject.create
   source:
     # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
     repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+#@end
     chart: clearance-argocd-agent
     targetRevision: "@@CLEARANCE_AGENT_CHART_VERSION@@"
     helm:

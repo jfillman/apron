@@ -1,0 +1,5 @@
+# Rendered from clearance.gate.agent.protectedNamespaces (Namespaces) and clearance.gate.agent.projects (AppProjects);
+# see application.yaml in this folder.
+---
+@@CLEARANCE_AGENT_OWNED_NAMESPACES@@---
+@@CLEARANCE_AGENT_OWNED_PROJECTS@@

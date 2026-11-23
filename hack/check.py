@@ -299,6 +299,9 @@ def violations(v, fleet=None):
             add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
     if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
         add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
+    # clearance.gate.agent.ownedProject renders the agent's Namespaces and AppProjects: only with the gate and its agent (else it would silently do nothing).
+    if get(v, "clearance.gate.agent.ownedProject.create") and not (on("clearance.gate.enabled") and get(v, "clearance.gate.agent")):
+        add("clearance.gate.agent.ownedProject.create needs clearance.gate.enabled and clearance.gate.agent: the namespaces and projects it makes are the agent's")
     # The gate's clients' CA (A-19, plan steps 4 and 5b): the agent chart's tls.caConfigMap and waitJob.caConfigMap are 0.54.0's.
     if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and (get(v, "clearance.gate.caConfigMap") or on("clearance.gate.waitCAInject")):
         try:
