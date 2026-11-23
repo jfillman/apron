@@ -13,7 +13,8 @@ import sys
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_rule, gate_rule_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import (LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_migration_window, gate_rule, gate_rule_problems, get,  # noqa: E402
+                      lab_networking, load_yaml, parse_vkey, resolve, tenant_sync_paused)
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -334,6 +335,10 @@ def violations(v, fleet=None):
                 "clearance.gate.agent, and zone: upper or clearance.gate.lowerZone: true): otherwise nothing reads them")
         else:
             out.extend(gate_rule_problems(v))
+    # The migration off the static plugin (apron README, "Migrating off the static plugin"): the per-environment sync pause
+    # and the migration window. Unset: nothing renders and nothing is checked.
+    out.extend(tenant_sync_paused(lambda k, d=None: get(v, k, d))[0])
+    out.extend(gate_migration_window(lambda k, d=None: get(v, k, d))[0])
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
     if get(v, "clearance.gate.fsSandbox") is not None and get(v, "clearance.gate.fsSandbox") not in ("try", "require", "off"):
         add(f"clearance.gate.fsSandbox is {get(v, 'clearance.gate.fsSandbox')!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
@@ -629,6 +634,22 @@ def fleet_violations(fleet, v=None):
     return out
 
 
+def warnings(v):
+    """Settings that are valid but must not stay on unnoticed: printed by `apron check` and `render` on every run."""
+    g = lambda k, d=None: get(v, k, d)  # noqa: E731
+    out = []
+    probs, pairs = tenant_sync_paused(g)
+    if pairs and not probs:
+        out.append(f"tenantOnboarding.syncPaused: automated sync is off for {', '.join(pairs)}: no deploy reaches "
+                   f"{'these environments' if len(pairs) > 1 else 'this environment'} until it is removed")
+    probs, window, held = gate_migration_window(g)
+    if window and not probs:
+        out.append(f"clearance.gate.migration.window is open for {', '.join(window)}"
+                   + (f" ({', '.join(held)} held in tenant-onboarding)" if held else "")
+                   + ": close it (delete clearance.gate.migration) once each is switched, granted and labelled, and dropped from clearance.gate.apps")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--cluster", required=True)
@@ -647,6 +668,8 @@ def main():
         print(f"error: {b}", file=sys.stderr)
     if not bad:
         print(f"ok: {v.get('name')} ({v.get('profile')} on {get(v, 'runtime.type')}) passes every check")
+        for w in warnings(v):
+            print(f"warning: {w}", file=sys.stderr)
     return 1 if bad else 0
 
 

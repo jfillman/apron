@@ -21,7 +21,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apronlib import (LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, gate_agent_ceiling,  # noqa: E402
-                      gate_rule, get, lab_networking, parse_vkey, resolve)
+                      gate_migration_window, gate_rule, get, lab_networking, parse_vkey, resolve, tenant_sync_paused)
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -252,6 +252,9 @@ def tokens(v):
         # tenantOnboarding.deleteGuard (W-46 (d)): the binding's validationActions and the controller's username. Only used
         # in the tenant-onboarding chart's delete-guard.yaml, rendered only with tenantOnboarding.deleteGuard.enabled.
         **{k: x for k, x in tenant_delete_guard(g).items() if not k.startswith("_")},
+        # tenantOnboarding.syncPaused and clearance.gate.migration: only under their #@if lines in the tenant-onboarding template.
+        **{k: x for k, x in tenant_sync_paused_flags(g).items() if not k.startswith("_")},
+        **tenant_window_tokens(g),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
 
@@ -1384,6 +1387,9 @@ def tenant_gated_set_flags(g):
     for key, val in (("gatedSet", gated), ("gatedSetHandover", handover)):
         if val is not None and not isinstance(val, bool):
             raise ApronError(f"clearance.gate.agent.{key} is true or false")
+    wprobs, window, held = gate_migration_window(g)
+    if wprobs:
+        raise ApronError(wprobs[0])
     if gated:
         # Only where the agent runs the annotation opt-in: the gated set exists for the agent, and without it the set's
         # Applications would sit annotated with nothing to switch them (and nothing to un-switch them).
@@ -1395,13 +1401,35 @@ def tenant_gated_set_flags(g):
         # handover into the gated set keeps that source (its ignore rule preserves /spec/sources), so the agent refuses the
         # Application ("on the plugin and the agent did not put it there") and it stays on a static plugin source the gated set
         # never updates. Which environments are gated is data (identity.yaml), not known here, so the combination is refused.
-        if g("clearance.gate.tenantPlugin", None) is not False:
+        # The one exception is the migration window (clearance.gate.migration, apron README "Migrating off the static plugin"):
+        # it names the apps moving now, each by the runbook (paused, handed over, its sources put back on Helm by hand), and
+        # holds every other app of clearance.gate.apps in tenant-onboarding, so none of those can reach the gated set on the plugin.
+        if g("clearance.gate.tenantPlugin", None) is not False and not window:
             raise ApronError("clearance.gate.agent.gatedSet needs clearance.gate.tenantPlugin: false: an Application tenant-onboarding put on the "
                              "static plugin keeps that source when it is handed over to tenant-onboarding-gated, and the agent refuses to switch it "
-                             "(apron README, \"Gated environments\")")
+                             "(apron README, \"Gated environments\"; to move apps off the plugin one at a time, the migration window, "
+                             "clearance.gate.migration)")
     if handover and not gated:
         raise ApronError("clearance.gate.agent.gatedSetHandover is the handover window between tenant-onboarding and tenant-onboarding-gated: it needs clearance.gate.agent.gatedSet")
-    return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover)}
+    return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover),
+            "_tenantMigrationWindow": bool(window), "_tenantWindowHeld": bool(window and held)}
+
+
+def tenant_window_tokens(g):
+    """The migration window's one token: the apps of clearance.gate.apps outside the window, as a YAML flow list, for the
+    generator selectors that hold them in tenant-onboarding (only under `#@if _tenantWindowHeld`)."""
+    _, window, held = gate_migration_window(g)
+    return {"TENANT_WINDOW_HELD_APPS": json.dumps(held) if window else ""}
+
+
+def tenant_sync_paused_flags(g):
+    """tenantOnboarding.syncPaused: the `_tenantSyncPaused` flag the tenant-onboarding template's #@if lines read, and the
+    regex over "<appName>/<env>" its templatePatch matches (TENANT_SYNC_PAUSED_REGEX). Unset: off, and the chart is byte for
+    byte what it was. App and env are DNS labels (checked), so the regex needs no escaping."""
+    probs, pairs = tenant_sync_paused(g)
+    if probs:
+        raise ApronError(probs[0])
+    return {"_tenantSyncPaused": bool(pairs), "TENANT_SYNC_PAUSED_REGEX": f"^({'|'.join(pairs)})$" if pairs else ""}
 
 
 # The ServiceAccount argocd-apps-install's ApplicationSet controller runs as: the argo-cd chart's default
@@ -1458,6 +1486,7 @@ def render(v, out_dir, root=ROOT):
     guard = tenant_delete_guard(lambda k, d=None: get(v, k, d))
     v = dict(v, _dir=os.path.abspath(out_dir), _tenantDeleteGuard=guard["_tenantDeleteGuard"],
              **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)),
+             _tenantSyncPaused=tenant_sync_paused_flags(lambda k, d=None: get(v, k, d))["_tenantSyncPaused"],
              **agent_wait_previous_flag(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
@@ -1611,6 +1640,9 @@ def main():
     for label, lst in (("added", added), ("changed", changed), ("removed", removed)):
         for rel in lst:
             print(f"  {label:8} {rel}")
+    from check import warnings
+    for w in warnings(v):
+        print(f"warning: {w}", file=sys.stderr)
     return 0
 
 

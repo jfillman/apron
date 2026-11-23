@@ -164,7 +164,7 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.canary` | optional, off by default: try a new `clearance-cmp` on some apps first. `image` (a digest, `<repo>@sha256:<64 hex>`) and `apps` (a non-empty list, each also in `clearance.gate.apps` when that is set). Renders a second sidecar `clearance-cmp-canary` (same settings and security context as the first, its own `/tmp` volume; it registers the image's `config-canary/plugin.yaml` as plugin `clearance-canary`) and the ApplicationSet gives the listed apps `plugin.name: clearance-canary`, every other app `clearance`. Unset, the render is unchanged. Promote by moving `versions.clearance.cmpImage` to the new digest and deleting the block; roll back an app by removing it from `apps`, or delete the whole `clearance.gate.canary` block when it was the last one (an empty `apps` is refused). Needs a `clearance-cmp` image from the clearance release that ships `config-canary` (clearance `docs/gate.md`, "Rolling out a plugin release") |
 | `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces` (with `rule` set, either may be left out and is derived from the rule's literal values: see "The platform's gate rule" below); needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
 | `clearance.gate.agent.optIn` | default off. `true` turns on the agent's annotation opt-in (clearance `docs/gate.md`, "Annotation opt-in", G-ARGO-10c; chart `optIn.enabled`): an Application annotated `clearance.hangar.io/protect: "true"` in one of `projects` and targeting one of `protectedNamespaces` is switched to the plugin and its namespace labelled protected once its merged grant is active. Needs `versions.clearance.argocdAgentChart` 0.49.0 or later, and, on the cluster that runs the core, a `clearance.extraProviders` entry whose `protection` lists the agent's principal and this cluster (`["clearance-system/clearance-argocd-agent=<cluster>"]`) and whose own `principals` list that principal (`render` refuses without both): without them the core refuses the agent's reports. Order: the CRD (rendered with the gate, schema revision 2), then the agent, then `optIn`. **Tenant Applications only through the gated set** (`gatedSet` below): tenant-onboarding itself sets neither `ignoreApplicationDifferences` (`/spec/source`, `/spec/sources`) nor `preservedFields.annotations` (`clearance.hangar.io/switched`), so the agent blocks an Application it generated ("does not ignore /spec/source"); `projects` should name only the projects of Applications whose own ApplicationSet or app-of-apps says what clearance `docs/gate.md` "What the parent must say" asks |
-| `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`; and `clearance.gate.tenantPlugin: false`) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
+| `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`; and `clearance.gate.tenantPlugin: false`, or the migration window, `clearance.gate.migration`, below) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
 | `clearance.gate.agent.gatedSetHandover` | default off; needs `gatedSet`. The handover window: both sets render `syncPolicy.applicationsSync: create-update`, so neither deletes an Application it stops generating. Turn it on only for a handover and off again after |
 | `clearance.gate.agent.rule` | unset by default: nothing renders (byte for byte as without it; an empty mapping is the same). The platform's gate rule (W-42; clearance `docs/gate.md`, "The gate rule"), passed through verbatim as the agent chart's `gateRule`: `version: 1`, `select` entries `{name, projects, namespaces, labels}`, `exempt` entries `{application, reason, expires, ref}`. An Application it selects is gated as if it carried the opt-in annotation, and a team cannot opt out of it. Needs `optIn: true` and `versions.clearance.argocdAgentChart` 0.56.0+. `apron check` refuses a bad shape (unknown keys too: the agent reads the file strictly), and holds the rule to the agent's ceiling: `projects` and `protectedNamespaces` are derived from the rule's literal values when unset and checked against it when set. See "The platform's gate rule" below |
 | `clearance.gate.agent.ruleOptions` | unset by default (the chart's own bounds). The chart's `gateRuleOptions`, only the keys set: `exemptMax` (a Go duration, at most `2160h`), `releaseMax` (rule-caused releases an hour, at least 1), `exemptionRecheck` and `exemptionRecheckTimeout` (the timeout below the recheck). Needs `rule` |
@@ -175,6 +175,8 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 | `clearance.gate.agent.ha` | unset by default. `{enabled: true}`: two agent replicas behind a `coordination.k8s.io` Lease (only the holder runs the loops, every write fenced by it), RollingUpdate, a PDB and a spread. Needs the agent chart 0.55.0+. **The first switch overlaps:** the old single pod (no Lease) keeps its loops running until a new pod is Ready, so a sync that finishes in that window can be posted twice as `deploy.outcome` (the agent sends no `source.event_id`, so the core does not de-duplicate). For the first switch, keep protected Applications from syncing until the old pod has terminated, or turn off `selfHeal` on `clearance-argocd-agent`, scale its Deployment to 0, wait for the old pod to go, sync the HA change, and turn `selfHeal` back on (with `selfHeal` on, Argo CD would restore the old replica) |
 | `clearance.gate.agent.statusHeartbeat` | unset by default. A positive duration of one unit (`90s`, `5m`, `1h`): the agent refreshes `status.checkedAt` of every valid grant at that age, so its age shows a stalled expiry pass. Needs the agent chart 0.55.0+; below `15m` with `alerts` |
 | `clearance.gate.agent.alerts` | unset by default. `{enabled: true}`: a PrometheusRule (`ClearanceGrantStatusStale`, `ClearanceGrantExpiredButValid`, `ClearanceGrantExpiryNotSynced`) labelled `release: kube-prometheus-stack` (the stack's `ruleSelector`) and a PodMonitor for the grant-expiry pods. Needs `grantExpiry.enabled`, `statusHeartbeat` and `components.observability` (kube-prometheus-stack brings the CRDs and the Prometheus) |
+| `clearance.gate.migration` | unset by default: nothing renders. `{window: true, apps: [<app>, ...]}` is the migration window off the static plugin: `gatedSet` is allowed beside `tenantPlugin` (true or unset) for the listed apps only. See "Migrating off the static plugin" below |
+| `tenantOnboarding.syncPaused` | unset by default: nothing renders (an empty mapping is the same). `{<app>: [<env>, ...]}`: each listed environment's generated Application has no automated sync. See "Migrating off the static plugin" below |
 | `clearance.gate.tenantPlugin` | default true. `false`: the tenant-onboarding ApplicationSet gives no Application the plugin (the app regex is `^$`), so the gate covers only what opts in by annotation. `gate.apps` and `protectedEnvironments` then do nothing for tenant Applications |
 | `clearance.gate.lowerZone` | default off. `true` renders the ClearanceGrant CRD, the admission policies and the agent on a `zone: lower` cluster too (a rehearsal), not only on an upper one |
 
@@ -200,12 +202,12 @@ environments that want the gate get their own set:
   the gitops repository (not on `CLEARANCE_CHART_REPOS`), and a release commit would not change the carrier's revision.
   tenant-onboarding keeps its order (chart first).
 
-`gatedSet` needs `clearance.gate.tenantPlugin: false` (`render` refuses otherwise). With the static plugin on,
-tenant-onboarding gives a covered environment the plugin source; handed over, that Application keeps it (the gated set's
-ignore rule preserves `/spec/sources`) and the agent refuses it as "on the plugin and the agent did not put it there", so
-it stays on a static plugin source nothing updates. A cluster that uses the static plugin for tenant environments
-(hangar-prod's default) has no supported path into the gated set yet: turning `tenantPlugin` off there takes the plugin off
-every covered environment at once, which is its own decision.
+`gatedSet` needs `clearance.gate.tenantPlugin: false` (`render` refuses otherwise), except in the migration window. With the
+static plugin on, tenant-onboarding gives a covered environment the plugin source; handed over, that Application keeps it (the
+gated set's ignore rule preserves `/spec/sources`) and the agent refuses it as "on the plugin and the agent did not put it
+there", so it stays on a static plugin source nothing updates. A cluster that uses the static plugin for tenant environments
+(hangar-prod's default) moves its apps one at a time through the migration window ("Migrating off the static plugin", below):
+turning `tenantPlugin` off at once takes the plugin off every covered environment at once, which is its own decision.
 
 The two selectors are In / NotIn on one value, so every environment is generated by exactly one set. A gated
 Application's sources are not updated by its set after it is created (that is the ignore rule): a new default chart
@@ -341,8 +343,72 @@ gates it.
 **What is not checked here.** Whether an exemption's `expires` is within `exemptMax` of now (a render must not depend on the
 day it runs: the agent ignores, and reports, one that is too far out), and whether the core accepts an exemption (the core
 refuses one in a statically protected environment). The old path (`clearance.gate.apps`, the ApplicationSet's regexes and its
-plugin source) stays as it is: the rule is added beside it, and moving off it is a later, separate change (design note,
+plugin source) stays as it is: the rule is added beside it, and moving off it is the migration below (design note,
 section 6, step 7).
+
+### Migrating off the static plugin (`clearance.gate.migration`, `tenantOnboarding.syncPaused`)
+
+A cluster that gates tenant environments with the static plugin (`clearance.gate.apps`, `tenantPlugin` true) moves them to the
+agent one app at a time. An Application on the static plugin cannot just be handed over into the gated set: it keeps its plugin
+source there and the agent refuses it. So each one is paused, handed over, put back on its Helm sources by hand, and switched by
+the agent before it deploys again. Two settings make that possible; both default off, and unset the render is byte for byte
+what it was.
+
+```yaml
+tenantOnboarding:
+  syncPaused:                # {<app>: [<env>, ...]}: these environments get no automated sync
+    gate-api: [prod]
+clearance:
+  gate:
+    apps: [gate-api, backstage, flight-api]
+    agent:
+      gatedSet: true
+      gatedSetHandover: true # only for the handover itself, as for any handover
+    migration:
+      window: true
+      apps: [gate-api]       # the apps moving now; each must be in clearance.gate.apps
+```
+
+| `cluster.yaml` key | |
+|---|---|
+| `tenantOnboarding.syncPaused` | a mapping of app to a non-empty list of its environments (DNS labels, each once). The listed environments' Applications are generated with no `syncPolicy.automated` (the templatePatch sets `automated: null`, which the strategic merge deletes; `retry` and `syncOptions` stay), in whichever set generates them and whether or not they are on the plugin. Nothing reaches the environment until the entry is removed; a person can still sync by hand. A hand edit of the Application's sync policy does not work: the ApplicationSet puts it back. Unset or `{}`: off. `apron check` and `render` print a warning while it is set |
+| `clearance.gate.migration.window` | `true` opens the window: `gatedSet` is then allowed with `tenantPlugin` true or unset. Needs the gate, its agent and `gatedSet` on this cluster, and a non-empty `clearance.gate.apps` (with it empty every app in a protected environment is on the plugin, and none could be held back). `false` or unset: the refusal is as before. `apron check` and `render` print a warning while it is open |
+| `clearance.gate.migration.apps` | the apps moving now, each in `clearance.gate.apps`. `apron check` refuses an app outside `clearance.gate.apps`, an app whose project (tenant-onboarding's project is the app's name) is not in the agent's `projects` (or the rule's literal projects), an app with no namespace of its own (`app-<app>-<env>` or `infra-<app>-<env>`) in the agent's `protectedNamespaces`, an open window with no apps, and apps listed with the window closed |
+
+**The window holds every other app back.** apron cannot see which environments say `clearanceGate: true` (that is the tenants
+repository), so the window is enforced in the ApplicationSets themselves: while it is open, the apps of `clearance.gate.apps`
+outside it are *held*. `tenant-onboarding-gated` leaves them out (`appName NotIn [<held>]`), and `tenant-onboarding` takes
+them with a second git generator (`clearanceGate In ["true"]` and `appName In [<held>]`). A held app whose identity.yaml says
+`clearanceGate: true` stays in tenant-onboarding on the static plugin, still gated; every environment is still generated by
+exactly one set. Apps outside `clearance.gate.apps` are not on the plugin and move as they do with `tenantPlugin: false`.
+
+**Per app, in order, one pull request each** (hangar `specs/plans/gate-rule-design.md`, section 6, step 7; the agent's side is
+clearance `docs/gate.md`, "Annotation opt-in" and "The gate rule"):
+
+1. **Pause.** Add `tenantOnboarding.syncPaused: {<app>: [<env>]}`, render, merge, and sync the `tenant-onboarding` Application.
+   Check the Application has no `spec.syncPolicy.automated`. It is still on the static plugin, so it is still gated.
+2. **Hand over.** Open the window with the app (`clearance.gate.migration`), turn on `gatedSet` and `gatedSetHandover`, and make
+   sure the agent will act on it: its project in the agent's `projects` and its namespace in `protectedNamespaces` (`apron check`
+   refuses the window otherwise), and, to gate it by the rule rather than by the gated set's annotation alone, a `rule.select`
+   entry for that project and namespace. Then follow "Gated environments" above, steps 1 to 4, with one change in step 3: the
+   Application is on one plugin source, so the patch does not move `$appsrc`; it replaces `spec.sources` with the gated set's
+   Helm sources (`ref: appsrc` first, the chart, then the configMapGenerator source if the environment has one), guarded by
+   `test` ops on the uid and on the plugin source, in the same patch that removes tenant-onboarding's owner reference. The
+   gated set ignores `/spec/sources`, so the patch holds. From this patch until the agent switches the Application, it is on Helm
+   sources and **ungated**: the pause is what keeps anything from deploying (do not sync it by hand).
+3. **Wait for the agent.** The agent reports the pair, switches the Application to its plugin (annotation
+   `clearance.hangar.io/switched`), writes the merged grant and labels the namespace `clearance.hangar.io/protected=true`. Its
+   status ConfigMap shows the Application with reason `rule` (or `annotation`, without a rule entry).
+4. **Resume.** Remove the app's `syncPaused` entry, drop the app from `clearance.gate.apps` and from the window (close the window,
+   and `gatedSetHandover`, if no app is left in it). For the last app of `clearance.gate.apps`, set `tenantPlugin: false` in the
+   same change: an empty `clearance.gate.apps` puts every app in a protected environment on the static plugin, and `gatedSet`
+   with the static plugin and no window is refused.
+
+After the last app, remove the old path one pull request at a time (`canary.apps`, the static plugin source and its regexes,
+`tenantPlugin`, `protectedNamespaces` the rule now derives), as the design note's step 7 lists. Rollback of any step is the revert
+of its pull request; after step 2, handing the Application back is the "Back to tenant-onboarding" procedure above, with its rule entry removed
+first (a ruled Application stays gated without the annotation); the agent's opt-out restores the Helm sources, and
+tenant-onboarding then puts the static plugin source back while the app is still in `clearance.gate.apps`.
 
 ### Tenant delete guard (`tenantOnboarding.deleteGuard`, W-46 (d))
 
