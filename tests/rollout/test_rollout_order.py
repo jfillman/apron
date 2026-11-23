@@ -7,9 +7,14 @@ import http.client
 import json
 import os
 import pathlib
+import signal
 import ssl
+import tempfile
+import time
+import types
 import unittest
 import urllib.error
+import urllib.request
 
 import yaml
 
@@ -367,6 +372,59 @@ class Order(unittest.TestCase):
                 return fake(path, timeout)
             rc, _, _ = self.run_main(rs, timeout=600, t=t, fake=slow)
             self.assertEqual(rc, 1, rs)
+
+    # A hard limit on the whole request (CodeRabbit on gitops-hangar-dev#221): a response that keeps trickling in is cut off.
+    def test_bounded_stops_a_blocked_call(self):
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            self.ns["bounded"](0.2, lambda: time.sleep(5))
+        self.assertLess(time.monotonic() - start, 2)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+        self.assertIs(signal.getsignal(signal.SIGALRM), signal.SIG_DFL)
+
+    def test_bounded_returns_and_clears_its_timer(self):
+        self.assertEqual(self.ns["bounded"](5, lambda: 7), 7)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+        with self.assertRaises(ValueError):
+            self.ns["bounded"](5, lambda: int("x"))
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
+
+    def stub_api(self, body):
+        """get() against a stub urlopen: body() is what reading the response does."""
+        sa = tempfile.mkdtemp()
+        pathlib.Path(sa, "token").write_text("t")
+        self.ns["SA"] = sa
+        self.ns["ssl"] = types.SimpleNamespace(create_default_context=lambda cafile: None,
+                                               SSLCertVerificationError=ssl.SSLCertVerificationError)
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, *a):
+                return body()
+        self.ns["urllib"] = types.SimpleNamespace(
+            request=types.SimpleNamespace(Request=urllib.request.Request, urlopen=lambda req, context, timeout: Resp()),
+            error=urllib.error)
+
+    def test_get_stops_a_response_that_trickles_past_its_timeout(self):
+        # each socket read would stay under the per-call timeout; the whole response does not
+        def trickle():
+            time.sleep(5)
+            return b"{}"
+        self.stub_api(trickle)
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            self.ns["get"](VAP, timeout=0.3)
+        self.assertLess(time.monotonic() - start, 2)
+
+    def test_get_returns_a_prompt_response(self):
+        self.stub_api(lambda: json.dumps(vap([NEW])).encode())
+        self.assertEqual(self.ns["get"](VAP, timeout=5)["metadata"]["generation"], 4)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0)
 
     def test_no_retry_without_a_deadline(self):
         # pending() called on its own (no main): an error is raised at once, never slept on

@@ -513,8 +513,9 @@ limited to `get` on the named objects, its binding, a ConfigMap with the script,
 - a transient read error (an API server 5xx or 429, a timeout, a dropped connection) is read again after 1 s, doubling to
   8 s, within the same budget; a refusal (401, 403) is not. A poll in which any read was retried is not accepted, ready or
   not: what it read before the retry may be stale, so the next poll reads everything again. Nothing is accepted after the
-  600 s: a read that finishes past it (the socket timeout bounds each call, not the whole response), including the first
-  read of the repo-server, fails, and so does a ready result read past it;
+  600 s: each request, connect to parsed body, is cut off when the time left runs out (a real-time interval timer, since
+  the socket timeout bounds each blocking call only and a trickling response could outlast it); a read that finishes past
+  it, including the first read of the repo-server, fails, and so does a ready result read past it;
 - it gives up after 600 s, and the sync fails. An automated sync is not retried on the same revision without `retry`, so
   `argocd-apps-install` retries: `limit: 5` is five retries after the first try, six tries in all, each up to 10 min, with
   1 min doubling to 10 min between them (up to about 85 min). Once Argo CD reports the sync failed with its retries used up,

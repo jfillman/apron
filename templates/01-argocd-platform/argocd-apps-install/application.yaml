@@ -409,6 +409,7 @@ spec:
                 import http.client
                 import json
                 import os
+                import signal
                 import ssl
                 import sys
                 import time
@@ -436,19 +437,37 @@ spec:
                 RETRIES = 0
 
 
+                def bounded(seconds, fn):
+                    """fn(), stopped with TimeoutError once seconds have passed, wherever it is blocked. The socket timeout bounds each
+                    blocking call only, so a response that keeps trickling in could outlast it; a real-time interval timer bounds the whole
+                    request (connect, headers, body, JSON). SIGALRM: the hook is one thread, its main one."""
+                    def expired(signum, frame):
+                        raise TimeoutError(f"no complete response within {seconds:g}s")
+                    previous = signal.signal(signal.SIGALRM, expired)
+                    signal.setitimer(signal.ITIMER_REAL, seconds)
+                    try:
+                        return fn()
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+                        signal.signal(signal.SIGALRM, previous)
+
+
                 def get(path, timeout=30):
-                    """The object at path, or None when it does not exist."""
+                    """The object at path, or None when it does not exist; the whole request within timeout seconds (bounded)."""
                     with open(f"{SA}/token") as f:
                         token = f.read().strip()
                     req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
                     ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
-                    try:
-                        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
-                            return json.load(r)
-                    except urllib.error.HTTPError as e:
-                        if e.code == 404:
-                            return None
-                        raise
+
+                    def fetch():
+                        try:
+                            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+                                return json.load(r)
+                        except urllib.error.HTTPError as e:
+                            if e.code == 404:
+                                return None
+                            raise
+                    return bounded(timeout, fetch)
 
 
                 def transient(e):
@@ -463,8 +482,8 @@ spec:
 
                 def read(path):
                     """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises.
-                    No read starts once the deadline has passed, and none is given longer than what is left. The socket timeout bounds each
-                    blocking call, not the whole response, so a read that finishes past the deadline is refused too."""
+                    No read starts once the deadline has passed, and none is given longer than what is left: get bounds the whole request
+                    by that (bounded), and a read that still finishes past the deadline is refused too."""
                     global RETRIES
                     delay = 1
                     while True:
