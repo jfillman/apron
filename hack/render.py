@@ -639,7 +639,7 @@ def clearance_gate_tokens(g):
                 raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"{principal}={cluster}\"] "
                                  f"and {principal} among its principals (clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
     # clearance.gate.agent.ownedProject {create: true}: apron renders the agent's own Namespaces and AppProjects
-    # (56-clearance-gate/agent-project/), for a rehearsal whose project and namespaces nothing else makes. Off unless create is true.
+    # (56-clearance-gate/agent/owned.yaml, a second source of the agent's Application), for a rehearsal whose project and namespaces nothing else makes. Off unless create is true.
     owned_ns, owned_proj = "", ""
     owned = g("clearance.gate.agent.ownedProject", None)
     if on and g("clearance.gate.agent", None) and owned is not None:
@@ -667,12 +667,12 @@ def clearance_gate_tokens(g):
             # Prune=false,Delete=false: Argo CD never deletes these on a prune or when the Application goes (the agent labels the
             # namespaces; a deleted namespace is the outage this was added for). Wave -1: the namespace before anything in it.
             owned_ns = "---\n".join(
-                f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {n}\n{labels}"
+                f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {json.dumps(n)}\n{labels}"
                 f"  annotations:\n    argocd.argoproj.io/sync-wave: \"-1\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n" for n in nss)
-            dests = "".join(f"    - {{server: https://kubernetes.default.svc, namespace: {n}}}\n" for n in nss)
+            dests = "".join(f"    - {{server: https://kubernetes.default.svc, namespace: {json.dumps(n)}}}\n" for n in nss)
             srcs = "".join(f"    - {json.dumps(r)}\n" for r in repos)
             owned_proj = "---\n".join(
-                f"apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: {pr}\n  namespace: argocd-apps\n{labels}"
+                f"apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: {json.dumps(pr)}\n  namespace: argocd-apps\n{labels}"
                 f"  annotations:\n    argocd.argoproj.io/sync-wave: \"0\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n"
                 f"spec:\n  description: \"The Clearance agent's own project; it may deploy only into the agent's protected namespaces\"\n"
                 f"  sourceRepos:\n{srcs}  destinations:\n{dests}" for pr in projs)

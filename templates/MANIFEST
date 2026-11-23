@@ -128,8 +128,8 @@
 # clearance.gate.lowerZone puts the same stack on a lower cluster (a rehearsal; README, "Clearance gate"): unset, only an upper cluster has it.
 56-clearance-gate/                      (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled
 56-clearance-gate/agent/                (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent
-# clearance.gate.agent.ownedProject.create: the agent's own Namespaces and AppProjects (an Application of its own, wave -1, ahead of the agent's Roles); off by default
-56-clearance-gate/agent-project/        (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.ownedProject.create
+# clearance.gate.agent.ownedProject.create: the agent's own Namespaces and AppProjects, a second source of the agent's Application; off by default
+56-clearance-gate/agent/owned.yaml      (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.ownedProject.create
 
 # 56 the ledger's witness (clearance C-3): one witness on a protected cluster, run by someone the log's operator does not control
 56-clearance-witness/                   zone == 'upper' and clearance.witness.enabled
