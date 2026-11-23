@@ -461,7 +461,9 @@ spec:
 
                 def get(path, timeout=30):
                     """The object at path, or None when it does not exist; all of it, the token and TLS setup too, within timeout seconds
-                    (bounded), which read() takes from the deadline just before."""
+                    (bounded), which read() takes from the deadline just before. Known limit: a signal waits for native code, so OpenSSL
+                    loading the pod's own few-KB ca.crt is not interrupted (no network, well under a millisecond); a late result is still
+                    refused, and the Job's activeDeadlineSeconds is the outer stop."""
                     def fetch():
                         with open(f"{SA}/token") as f:
                             token = f.read().strip()
