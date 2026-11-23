@@ -68,6 +68,17 @@ spec:
         optIn:
           enabled: true
 #@end
+#@if clearance.gate.agent.rule
+        # The platform's gate rule (clearance.gate.agent.rule, W-42; clearance docs/gate.md, "The gate rule"; agent chart 0.56.0),
+        # passed through verbatim: an Application it selects is gated as if it carried the opt-in annotation, and removing the
+        # annotation does not release it. The chart renders it into the ConfigMap clearance-argocd-agent-gate-rule. It needs optIn
+        # above; projects and protectedNamespaces above are the ceiling it acts inside (apron check holds the rule to them).
+        gateRule: @@CLEARANCE_AGENT_GATE_RULE@@
+#@end
+#@if clearance.gate.agent.ruleOptions
+        # The rule's bounds (clearance.gate.agent.ruleOptions): exemptMax, releaseMax, exemptionRecheck, exemptionRecheckTimeout.
+        gateRuleOptions: @@CLEARANCE_AGENT_GATE_RULE_OPTIONS@@
+#@end
 #@if clearance.gate.enforce
         # The mode the admission policy runs in (clearance.gate.enforce), so the chart can refuse Deny without an enforcing
         # grant-expiry webhook (I-44; agent chart 0.55.0). Ignored by an older chart.

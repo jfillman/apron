@@ -13,7 +13,7 @@ import sys
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_rule_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -321,6 +321,15 @@ def violations(v, fleet=None):
     # The grant-expiry webhook, agent HA, the status heartbeat and the staleness alerts (I-44; agent chart 0.55.0). Unset: nothing renders.
     if on("clearance.gate.enabled") and get(v, "clearance.gate.agent"):
         out.extend(gate_agent_i44_problems(v))
+    # The platform's gate rule (W-42; agent chart 0.56.0 gateRule): its shape, the opt-in, the chart, and the project and
+    # namespace ceiling it acts inside (derived from its literal values when unset). Unset: nothing renders.
+    if get(v, "clearance.gate.agent.rule") is not None or get(v, "clearance.gate.agent.ruleOptions") is not None:
+        gate_here = get(v, "zone") == "upper" or on("clearance.gate.lowerZone")
+        if not (gate_here and on("clearance.gate.enabled") and get(v, "clearance.gate.agent")):
+            add("clearance.gate.agent.rule and ruleOptions need the gate and its agent on this cluster (clearance.gate.enabled, "
+                "clearance.gate.agent, and zone: upper or clearance.gate.lowerZone: true): otherwise nothing reads them")
+        else:
+            out.extend(gate_rule_problems(v))
     # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
     if get(v, "clearance.gate.fsSandbox") is not None and get(v, "clearance.gate.fsSandbox") not in ("try", "require", "off"):
         add(f"clearance.gate.fsSandbox is {get(v, 'clearance.gate.fsSandbox')!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
