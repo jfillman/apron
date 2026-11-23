@@ -321,7 +321,10 @@ username is the policy's first match condition, so a CEL error can only refuse t
   not stop), then `Deny`. The audit record is the API server's audit log (annotation
   `validation.policy.admission.k8s.io/validation_failure`). First check that the cluster's audit policy and backend
   record `delete` of `applications.argoproj.io` in `argocd-apps` at `Metadata` level or above: without that, a quiet week
-  says nothing about what `Deny` would refuse.
+  says nothing about what `Deny` would refuse. Then prove it end to end: a server-side dry-run delete as the controller
+  (`kubectl -n argocd-apps delete application <a tenant Application> --dry-run=server --as system:serviceaccount:argocd-apps:argocd-applicationset-controller`)
+  is admitted under `Audit`, and its audit event carries `validation.policy.admission.k8s.io/validation_failure` naming
+  `tenant-onboarding-no-set-delete`.
 - Rollback: set `validationActions: Audit`, render, merge, and sync the `tenant-onboarding` Application (argocd); then check
   the live binding (`kubectl get validatingadmissionpolicybinding tenant-onboarding-no-set-delete -o jsonpath='{.spec.validationActions}'`
   says `["Audit"]`). Until that sync, the controller's deletes stay refused. Turning `enabled` off removes the files, but

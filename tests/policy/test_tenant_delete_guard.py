@@ -98,8 +98,10 @@ def main():
         def in_force(mode):
             # A server-side dry run of the controller's delete of a tenant Application: refused once Deny applies,
             # admitted once Audit replaced it. Polled, so a slow admission informer is not a failure.
-            for _ in range(60):
-                ok, out = k.kubectl(["delete", "application", "probe", "-n", "argocd-apps", "--dry-run=server"], as_user=CONTROLLER)
+            deadline, out = time.monotonic() + 60, ""
+            while (left := deadline - time.monotonic()) > 0:
+                ok, out = k.kubectl(["delete", "application", "probe", "-n", "argocd-apps", "--dry-run=server",
+                                     f"--request-timeout={max(1, min(10, int(left)))}s"], as_user=CONTROLLER)
                 if (mode == "Deny" and not ok and "may not delete" in out) or (mode == "Audit" and ok):
                     return
                 time.sleep(1)

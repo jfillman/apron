@@ -1196,6 +1196,11 @@ if diff -r -x cluster.yaml -x .apron-rendered -x delete-guard.yaml "${LAB}/prod"
   && [ "$(diff <(sed 1d "${LAB}/prod/.apron-rendered") <(sed 1d "${DGS}/.apron-rendered") | grep -c '^[<>]')" = 1 ]; then
   ok "deleteGuard: turning it on adds only the guard's file"
 else bad "deleteGuard: turning it on changes more than the guard's file"; fi
+# A trailing newline would end up inside the policy's CEL string literal: refused (fullmatch, not match).
+mkdir -p "${TMP}/delete-guard-nl"
+{ cat "${LAB}/dev/cluster.yaml"; printf 'tenantOnboarding:\n  deleteGuard: {enabled: true, controllerServiceAccount: "appset-ctrl\\n"}\n'; } >"${TMP}/delete-guard-nl/cluster.yaml"
+BADERR="$(python3 hack/render.py --cluster "${TMP}/delete-guard-nl/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -qF -- "controllerServiceAccount is a ServiceAccount name" <<<"${BADERR}"; then ok "delete guard: a controllerServiceAccount with a trailing newline is refused"; else bad "delete guard: trailing newline: rc=${BADRC} ${BADERR}"; fi
 for BADP in "tenantOnboarding.deleteGuard.enabled=maybe|deleteGuard.enabled is true or false" \
             "tenantOnboarding.deleteGuard.validationActions=Warn|validationActions is Audit or Deny" \
             "tenantOnboarding.deleteGuard.controllerServiceAccount=x' or true or 'y|controllerServiceAccount is a ServiceAccount name" \
