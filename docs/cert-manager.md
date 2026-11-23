@@ -35,8 +35,9 @@ name or a bracketed IPv6 address such as `[2606:4700:4700::1111]:53`, and a port
 twice, and refuses a non-empty list without `components.certManager`. Plain DNS only: cert-manager also takes
 DNS-over-HTTPS URLs here, which Apron does not accept today.
 
-It changes only cert-manager's self-check. It does not change how pods resolve names, what CoreDNS forwards to, or how the
-ACME server validates the challenge (it always uses public DNS).
+It changes the DNS lookups cert-manager's controller makes for DNS-01 challenges: finding the challenge's zone, following
+CNAMEs and the propagation self-check. It does not change how pods resolve names, what CoreDNS forwards to, or how the ACME
+server validates the challenge (it always uses public DNS).
 
 ### Security note
 
@@ -51,9 +52,10 @@ is in the Certificate Transparency logs anyway, but the timing and the resolver'
 Because `--dns01-recursive-nameservers-only` is set, cert-manager does not fall back to the cluster's DNS, and the listed
 resolvers are not interchangeable for the final check:
 
-- finding the challenge's zone (the SOA lookup behind `Could not determine the zone`) and following CNAMEs try the resolvers
-  in order and use the first that answers;
-- the self-check itself skips the authoritative-nameserver step in this mode and asks **every** listed resolver for the TXT
+- finding the challenge's zone (an SOA lookup when the challenge is prepared) and following CNAMEs try the resolvers in
+  order and use the first that answers;
+- the self-check skips its authoritative-nameserver step in this mode (the zone and NS lookup whose failure reads
+  `Could not determine the zone ...` in the default mode) and asks **every** listed resolver for the TXT
   record. It passes only when each one answers and returns the expected value. One unreachable resolver keeps the challenge
   waiting even if the others answer, so a second resolver adds coverage, not failover. List only resolvers the controller
   can always reach.
