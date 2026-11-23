@@ -397,7 +397,7 @@ spec:
                 container, where the live one is read; policies, each {name, kind (vap or kyverno), path}; agent, null or
                 {image, deployments}. Passes at once when the repo-server is not there (a first install: no old wait image
                 runs) or already has waitImage (this sync does not change it). Otherwise waits until every policy's spec
-                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready), and every
+                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready and SETTLE), and every
                 agent Deployment passes --wait-image=waitImage on the agent's image, rolled out and available. Exits 1 after
                 TIMEOUT_SECONDS. Standard library only; reads with the pod's own token.
                 """
@@ -412,6 +412,11 @@ spec:
 
                 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
                 API = "https://kubernetes.default.svc"
+                # Kyverno's policy status has no observedGeneration (conditionStatus.ready is about its webhook and RBAC, not which spec it
+                # loaded), so a Kyverno policy counts only once this hook has seen its spec name the image for SETTLE seconds: longer than
+                # Kyverno's informer takes to pass a spec change to its admission controller (seconds), the same rule on every try.
+                SETTLE = 30
+                seen = {}
 
 
                 def get(path):
@@ -456,17 +461,21 @@ spec:
                     return f"repo-server wait image {live or '(none)'} -> {cfg['waitImage']}"
 
 
-                def policy_pending(p, image):
+                def policy_pending(p, image, now):
                     obj = get(p["path"])
                     if obj is None:
                         return f"{p['name']}: not found"
                     if image not in json.dumps(obj.get("spec") or {}):
+                        seen.pop(p["name"], None)
                         return f"{p['name']}: does not admit {image} yet"
+                    first = seen.setdefault(p["name"], now)
                     st = obj.get("status") or {}
                     if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
                         return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
                     if p["kind"] == "kyverno" and (st.get("conditionStatus") or {}).get("ready") is not True:
                         return f"{p['name']}: not ready"
+                    if p["kind"] == "kyverno" and now - first < SETTLE:
+                        return f"{p['name']}: admits {image}; settling ({int(now - first)}s of {SETTLE}s)"
                     return None
 
 
@@ -493,11 +502,11 @@ spec:
                     return None
 
 
-                def pending(cfg):
+                def pending(cfg, now):
                     """What still stands between the policies and the agent and this sync, in rollout order."""
                     out = []
                     for p in cfg.get("policies") or []:
-                        out.append(policy_pending(p, cfg["waitImage"]))
+                        out.append(policy_pending(p, cfg["waitImage"], now))
                     agent = cfg.get("agent") or {}
                     for ref in agent.get("deployments") or []:
                         out.append(agent_pending(ref, deployment(ref), agent.get("image"), cfg["waitImage"]))
@@ -513,7 +522,7 @@ spec:
                     deadline, last = clock() + timeout, None
                     while True:
                         try:
-                            left = pending(cfg)
+                            left = pending(cfg, clock())
                         except Exception as e:  # a transient API error is one more wait, not a failed sync
                             left = [f"API error: {e}"]
                         if not left:

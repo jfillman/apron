@@ -111,9 +111,27 @@ class Order(unittest.TestCase):
         self.assertEqual(fake.paths, [RS])
 
     # A wait-image change waits for the policies and the agent.
-    def test_change_with_everything_rolled_passes(self):
-        rc, _, sleeps = self.run_main(rolled())
-        self.assertEqual((rc, sleeps), (0, []))
+    def test_change_with_everything_rolled_passes_once_kyverno_settled(self):
+        rc, _, sleeps = self.run_main(rolled(), timeout=600)
+        self.assertEqual((rc, sum(sleeps)), (0, self.ns["SETTLE"]))
+
+    def test_kyverno_ready_alone_is_not_enough(self):
+        # Kyverno exposes no observedGeneration: a fresh spec with ready true from the previous one still settles first.
+        objs = rolled()
+        self.ns["get"] = Fake(objs)
+        self.assertIn("settling", self.ns["pending"](CHECKS, 0)[0])
+        self.assertIn("settling", self.ns["pending"](CHECKS, self.ns["SETTLE"] - 1)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, self.ns["SETTLE"]), [])
+
+    def test_settle_restarts_when_the_image_leaves_the_spec(self):
+        objs = rolled()
+        self.ns["get"] = Fake(objs)
+        self.ns["pending"](CHECKS, 0)
+        objs[KY] = kyverno([OLD])
+        self.ns["pending"](CHECKS, 10)
+        objs[KY] = kyverno([NEW])
+        self.assertIn("settling", self.ns["pending"](CHECKS, 35)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, 65), [])
 
     def test_gate_turned_on_is_a_change(self):
         objs = rolled()
@@ -122,8 +140,10 @@ class Order(unittest.TestCase):
         self.assertIn("(none)", self.ns["change"](CHECKS))
 
     def pending(self, objs):
+        """What holds, once any Kyverno policy that admits the image has settled."""
         self.ns["get"] = Fake(objs)
-        return self.ns["pending"](CHECKS)
+        self.ns["pending"](CHECKS, 0)
+        return self.ns["pending"](CHECKS, self.ns["SETTLE"])
 
     def test_policy_without_the_new_image_holds(self):
         objs = rolled()
@@ -174,10 +194,10 @@ class Order(unittest.TestCase):
         objs[AG] = agent(OLD)
 
         def tick(n, o):
-            if n == 3:
+            if n == 5:
                 o[AG] = agent(NEW)
         rc, _, sleeps = self.run_main(objs, timeout=600, ticks=tick)
-        self.assertEqual((rc, len(sleeps)), (0, 3))
+        self.assertEqual((rc, len(sleeps)), (0, 5))
 
     def test_gives_up_after_the_timeout(self):
         objs = rolled()
@@ -193,7 +213,8 @@ class Order(unittest.TestCase):
         def tick(n, o):
             o[KY] = kyverno([NEW])
         rc, _, sleeps = self.run_main(objs, timeout=600, ticks=tick)
-        self.assertEqual((rc, len(sleeps)), (0, 1))
+        # one wait for the error, then the settle from the first good read
+        self.assertEqual((rc, sum(sleeps)), (0, 10 + self.ns["SETTLE"]))
 
     def test_unreadable_repo_server_fails_closed(self):
         objs = {RS: urllib.error.HTTPError(RS, 403, "forbidden", {}, None)}
