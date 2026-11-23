@@ -16,7 +16,7 @@ versions:
     imageDigest: sha256:74a0c85b39ab4813ca79e4d952a98a7b4a61197a968aea14143f62b35b724c50
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
-    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:82021a1e587ad9604aa83de1a063805461b3644264eedcc7a85657c3d4a667c3
+    cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:8ccd8537a7ee75c2713220e1c10eac5b5255a8633f9e12293e24a3b30d543df9
     waitImage: ghcr.io/jfillman/clearance-wait@sha256:c62b86efe0f02f249574159d1ee6c1cf5fa9faa128d5012368c55c4334f6fce3
     # One release only (remove at the next wait-image change): the v0.57.0 wait image, admitted beside waitImage by the gate policy's
     # wait-Job exemption and Flight admission's allow-list, so a held release whose wait Job still runs it stays admitted.
