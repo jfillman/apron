@@ -10,6 +10,14 @@ metadata:
   name: clearance-slack
   namespace: @@CLEARANCE_NAMESPACE@@
   labels: {hangar.io/component: clearance, hangar.io/subcomponent: clearance-slack}
+#@if clearance.slack.tls.mode == 'dns01-route53'
+  # After the Issuer (wave 1) and the Certificate (wave 2) in slack-tls.yaml. The https listener is not Programmed until
+  # cert-manager has written its Secret, and until then this route is not Accepted (NoMatchingParent): Argo CD counts it
+  # Degraded and would never start a later wave, so in wave 0 it held back the very Certificate it waits for. With
+  # gateway-existing the route attaches to the Gateway's ordinary listener and needs no wave.
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+#@end
 spec:
   parentRefs:
     - name: @@GATEWAY_NAME@@
