@@ -6,10 +6,11 @@
 //
 //	APRON_GATED_RENDER=<apron render with gatedSet> APRON_GATED_HANDOVER_RENDER=<the same with gatedSetHandover> \
 //	APRON_DELETE_GUARD_RENDER=<gatedSet with tenantOnboarding.deleteGuard, validationActions Deny> \
+//	APRON_WINDOW_RENDER=<gatedSet with clearance.gate.migration and tenantOnboarding.syncPaused> \
 //	KUBEBUILDER_ASSETS=$(setup-envtest use 1.36.2 -p path) go test ./...
 //
-// TestGatedSet runs without the delete guard, TestDeleteGuard with it (W-46 (d)). tests/run.sh sets all four. Without them
-// the tests skip, unless APRON_REQUIRE_ENVTEST=1 (CI), where they fail.
+// TestGatedSet runs without the delete guard, TestDeleteGuard with it (W-46 (d)), TestMigrationWindow on the migration
+// window's render. tests/run.sh sets all five. Without them the tests skip, unless APRON_REQUIRE_ENVTEST=1 (CI), where they fail.
 package appset
 
 import (
@@ -251,9 +252,18 @@ type world struct {
 // delete-guard.yaml) is installed, and the controller runs as the user the guard names: the username is the render
 // parameter, so the rendered policy is used exactly as rendered.
 func start(t *testing.T, guarded bool) *world {
-	need := []string{"KUBEBUILDER_ASSETS", "APRON_GATED_RENDER", "APRON_GATED_HANDOVER_RENDER"}
 	if guarded {
-		need = append(need, "APRON_DELETE_GUARD_RENDER")
+		return startWith(t, "APRON_DELETE_GUARD_RENDER", true)
+	}
+	return startWith(t, "APRON_GATED_RENDER", false)
+}
+
+// startWith runs the controller on the sets of the render named by the environment variable setsEnv (with the delete guard's
+// objects from it when guarded).
+func startWith(t *testing.T, setsEnv string, guarded bool) *world {
+	need := []string{"KUBEBUILDER_ASSETS", "APRON_GATED_RENDER", "APRON_GATED_HANDOVER_RENDER"}
+	if !has(need, setsEnv) {
+		need = append(need, setsEnv)
 	}
 	for _, e := range need {
 		if os.Getenv(e) == "" {
@@ -266,10 +276,7 @@ func start(t *testing.T, guarded bool) *world {
 	log.SetLevel(log.WarnLevel)
 	ctrl.SetLogger(logr.Discard())
 	w := &world{t: t, repo: &tenantsRepo{files: map[string]string{}}}
-	setsRender := os.Getenv("APRON_GATED_RENDER")
-	if guarded {
-		setsRender = os.Getenv("APRON_DELETE_GUARD_RENDER")
-	}
+	setsRender := os.Getenv(setsEnv)
 	w.sets = setsFrom(t, setsRender)
 	w.hsets = setsFrom(t, os.Getenv("APRON_GATED_HANDOVER_RENDER"))
 
@@ -980,5 +987,119 @@ func TestDeleteGuard(t *testing.T) {
 			}
 			return true, ""
 		})
+	})
+}
+
+// automated reports whether the Application has automated sync, and that the rest of its sync policy (retry) is intact.
+func (w *world) automated(name string) (bool, string) {
+	a := w.app(name)
+	switch {
+	case a == nil:
+		return false, name + " is gone"
+	case a.Spec.SyncPolicy == nil || a.Spec.SyncPolicy.Retry == nil:
+		return false, name + " lost its sync policy's retry"
+	}
+	return a.Spec.SyncPolicy.Automated != nil, fmt.Sprintf("%s automated: %+v", name, a.Spec.SyncPolicy.Automated)
+}
+
+func (w *world) paused(name string) func() (bool, string) {
+	return func() (bool, string) {
+		on, why := w.automated(name)
+		if strings.Contains(why, "lost") || strings.Contains(why, "gone") {
+			return false, why
+		}
+		return !on, why
+	}
+}
+
+func (w *world) syncing(name string) func() (bool, string) {
+	return func() (bool, string) {
+		on, why := w.automated(name)
+		if !on {
+			return false, why
+		}
+		a := w.app(name).Spec.SyncPolicy.Automated
+		return a.Prune != nil && *a.Prune && a.SelfHeal != nil && *a.SelfHeal, why
+	}
+}
+
+// withPausedRegex is the set with its templatePatch's syncPaused regex replaced (a re-render with another tenantOnboarding.syncPaused).
+func withPausedRegex(t *testing.T, as *argov1alpha1.ApplicationSet, from, to string) *argov1alpha1.ApplicationSet {
+	t.Helper()
+	c := as.DeepCopy()
+	if c.Spec.TemplatePatch == nil || !strings.Contains(*c.Spec.TemplatePatch, from) {
+		t.Fatalf("%s: templatePatch has no %q", c.Name, from)
+	}
+	p := strings.Replace(*c.Spec.TemplatePatch, from, to, 1)
+	c.Spec.TemplatePatch = &p
+	return c
+}
+
+// TestMigrationWindow: the migration window off the static plugin (clearance.gate.migration) and the per-environment sync
+// pause (tenantOnboarding.syncPaused), apron README "Migrating off the static plugin". The render (tests/run.sh, gate-window)
+// has clearance.gate.apps [shop, pay] on the static plugin for */prod, the window open for shop only, and syncPaused
+// {shop: [dev, prod, qa], pay: [prod]}.
+func TestMigrationWindow(t *testing.T) {
+	w := startWith(t, "APRON_WINDOW_RENDER", false)
+	seed(w)
+	// shop-qa: tenant-onboarding's configMapGenerator branch (not protected, so not on the plugin).
+	w.repo.set("tenants/shop/qa/identity.yaml", identity("shop", "qa", "configMapGenerator: true\n"))
+	w.refresh()
+	want := map[string]string{"shop-dev": tenantSet, "shop-qa": tenantSet, "pay-dev": tenantSet, "shop-prod": gatedSet, "pay-prod": tenantSet}
+
+	t.Run("the window moves only its apps: a held app with clearanceGate stays in tenant-onboarding, on the plugin", func(t *testing.T) {
+		w.t = t
+		for name, set := range want {
+			w.eventually(name+" owned by "+set, live(w, name, set, ""))
+		}
+		w.steady("no set reports an error", 3*time.Second, func() (bool, string) {
+			for _, s := range []string{tenantSet, gatedSet} {
+				if m := w.setCondition(s); m != "" {
+					return false, s + ": " + m
+				}
+			}
+			return true, ""
+		})
+		var all argov1alpha1.ApplicationList
+		if err := w.c.List(w.ctx, &all, client.InNamespace(ns)); err != nil {
+			t.Fatal(err)
+		}
+		if len(all.Items) != len(want) {
+			t.Fatalf("want %d Applications, got %d", len(want), len(all.Items))
+		}
+		p := w.app("pay-prod")
+		if len(p.Spec.Sources) != 1 || p.Spec.Sources[0].Plugin == nil || p.Spec.Sources[0].Plugin.Name != "clearance" {
+			t.Fatalf("pay-prod (held): want the static plugin source, got %+v", p.Spec.Sources)
+		}
+		if _, ok := p.Annotations[protect]; ok || !has(p.Finalizers, finalizer) {
+			t.Fatalf("pay-prod (held): want tenant-onboarding's Application, annotations %v finalizers %v", p.Annotations, p.Finalizers)
+		}
+		g := w.app("shop-prod")
+		if g.Annotations[protect] != "true" || g.Spec.Sources[0].Ref != "appsrc" || g.Spec.Sources[0].Plugin != nil {
+			t.Fatalf("shop-prod (window): want the gated set's Application on Helm sources, appsrc first; annotations %v sources %+v", g.Annotations, g.Spec.Sources)
+		}
+	})
+
+	t.Run("a paused environment has no automated sync in every templatePatch branch; the others keep it", func(t *testing.T) {
+		w.t = t
+		for _, name := range []string{"pay-prod", "shop-prod", "shop-dev", "shop-qa"} { // plugin, gated {}, tenant {}, configMapGenerator
+			w.eventually(name+" paused", w.paused(name))
+		}
+		if q := w.app("shop-qa"); len(q.Spec.Sources) != 3 || !strings.HasSuffix(q.Spec.Sources[2].Path, "/qa/configmap") {
+			t.Fatalf("shop-qa: the pause dropped the configMapGenerator source: %+v", q.Spec.Sources)
+		}
+		w.eventually("pay-dev syncing (prune, selfHeal)", w.syncing("pay-dev"))
+	})
+
+	t.Run("pausing and resuming an existing Application", func(t *testing.T) {
+		w.t = t
+		uid := w.app("pay-dev").UID
+		w.apply(withPausedRegex(t, w.sets[tenantSet], "^(shop/dev|", "^(pay/dev|shop/dev|"))
+		w.refresh()
+		w.eventually("pay-dev paused", w.paused("pay-dev"))
+		w.apply(w.sets[tenantSet])
+		w.refresh()
+		w.eventually("pay-dev resumed", w.syncing("pay-dev"))
+		w.steady("pay-dev is the same Application", time.Second, live(w, "pay-dev", tenantSet, uid))
 	})
 }

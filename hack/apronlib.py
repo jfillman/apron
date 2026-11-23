@@ -657,6 +657,90 @@ def gate_agent_ceiling(g):
     return list(projs or []), list(nss or [])
 
 
+_DNS_LABEL = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+
+
+def tenant_sync_paused(g):
+    """tenantOnboarding.syncPaused: {<app>: [<env>, ...]}, the tenant environments whose generated Application renders with
+    no automated sync (a migration step: no deploy reaches the environment while it moves). Unset or an empty mapping: nothing
+    renders. Returns (problems, ["<app>/<env>", ...]); both app and env are DNS labels, as identity.yaml's appName and env are."""
+    raw = g("tenantOnboarding.syncPaused", None)
+    if raw is None or raw == {}:
+        return [], []
+    if not isinstance(raw, dict):
+        return ["tenantOnboarding.syncPaused is a mapping of app to its paused environments: {<app>: [<env>, ...]}"], []
+    probs, pairs = [], []
+    for app, envs in raw.items():
+        if not (isinstance(app, str) and _DNS_LABEL.fullmatch(app)):
+            probs.append(f"tenantOnboarding.syncPaused: {app!r} is not an app name (a DNS label, as identity.yaml's appName)")
+            continue
+        if not (isinstance(envs, list) and envs and all(isinstance(e, str) and _DNS_LABEL.fullmatch(e) for e in envs)
+                and len(set(envs)) == len(envs)):
+            probs.append(f"tenantOnboarding.syncPaused.{app} is a non-empty list of environment names (DNS labels, each once)")
+            continue
+        pairs.extend(f"{app}/{e}" for e in envs)
+    return probs, pairs
+
+
+def gate_migration_window(g):
+    """clearance.gate.migration: {window: true, apps: [...]}, the migration window off the static plugin (apron README,
+    "Migrating off the static plugin"). With it open, clearance.gate.agent.gatedSet is allowed beside the static plugin
+    (clearance.gate.tenantPlugin true or unset), for the listed apps only: every other app in clearance.gate.apps is held in
+    tenant-onboarding even when its identity.yaml says clearanceGate: true. Returns (problems, window apps, held apps); with
+    the window closed or unset, ([...], [], [])."""
+    block = g("clearance.gate.migration", None)
+    if block is None:
+        return [], [], []
+    if not isinstance(block, dict):
+        return ["clearance.gate.migration is a mapping: {window: true, apps: [<app>, ...]}"], [], []
+    probs = [f"clearance.gate.migration.{k} is not a setting (window, apps)" for k in sorted(set(block) - {"window", "apps"})]
+    window, apps = block.get("window", None), block.get("apps", None)
+    if window is not None and not isinstance(window, bool):
+        probs.append("clearance.gate.migration.window is true or false")
+        window = None
+    if apps is not None and not (isinstance(apps, list) and all(isinstance(a, str) and _DNS_LABEL.fullmatch(a) for a in apps)
+                                 and len(set(apps)) == len(apps)):
+        probs.append("clearance.gate.migration.apps is a list of app names (DNS labels, each once)")
+        apps = None
+    if not window:
+        if apps:
+            probs.append("clearance.gate.migration.apps names apps but the window is closed: delete the list with the window "
+                         "(clearance.gate.migration), or open it with window: true")
+        return probs, [], []
+    if not apps:
+        probs.append("clearance.gate.migration.window is open with no apps: close it (delete clearance.gate.migration) or name "
+                     "the apps moving now in clearance.gate.migration.apps")
+        return probs, [], []
+    gate_on = g("clearance.gate.enabled", False) is True and (g("zone", "") == "upper" or g("clearance.gate.lowerZone", False) is True)
+    if not (gate_on and g("clearance.gate.agent", None) and g("clearance.gate.agent.gatedSet", False) is True):
+        probs.append("clearance.gate.migration.window needs the gate, its agent and clearance.gate.agent.gatedSet on this cluster: "
+                     "the window moves apps from the static plugin into tenant-onboarding-gated")
+    if g("clearance.gate.tenantPlugin", None) is False:
+        probs.append("clearance.gate.migration.window is for a cluster on the static plugin: with clearance.gate.tenantPlugin: false "
+                     "no tenant Application is on it, and gatedSet needs no window")
+    gate_apps = g("clearance.gate.apps", None) or []
+    if not (isinstance(gate_apps, list) and gate_apps):
+        probs.append("clearance.gate.migration.window needs clearance.gate.apps: with it empty every app in a protected environment "
+                     "is on the static plugin, and the window could not hold the others back")
+        gate_apps = []
+    projs, nss = gate_agent_ceiling(g)
+    for a in apps:
+        if gate_apps and a not in gate_apps:
+            probs.append(f"clearance.gate.migration.apps names {a}, which clearance.gate.apps leaves out: only an app on the static "
+                         "plugin moves through the window")
+        # tenant-onboarding puts <app>'s Applications in the AppProject <app> and the namespace <type>-<app>-<env>: the agent
+        # must see that project and may label only its protectedNamespaces, or the app is never switched once it is off the plugin.
+        if "*" not in projs and a not in projs:
+            probs.append(f"clearance.gate.migration.apps names {a}, but the agent's projects (clearance.gate.agent.projects, or the "
+                         f"rule's literal projects) leave out its project {a}: the agent would never switch it, and it would be ungated "
+                         "once its sources are back on Helm")
+        if not any(str(n).startswith((f"app-{a}-", f"infra-{a}-")) for n in nss):
+            probs.append(f"clearance.gate.migration.apps names {a}, but no namespace of the agent's protectedNamespaces is one of its "
+                         f"environments (app-{a}-<env> or infra-{a}-<env>): the agent could not label it, so it would never be gated")
+    held = [a for a in gate_apps if a not in apps]
+    return probs, list(apps), held
+
+
 GO_DURATION_MAX_NS = (1 << 63) - 1   # time.Duration is an int64 of nanoseconds
 
 

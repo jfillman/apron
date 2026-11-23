@@ -20,6 +20,8 @@ the render with `file:line`.
 | `@@TENANTS_REPO_NAME@@` | the tenants repo's bare name (prose in an AppProject description) |
 | `@@TENANT_DELETE_GUARD_ACTIONS@@` | `tenantOnboarding.deleteGuard.validationActions`, `Audit` (default) or `Deny`: the tenant-onboarding delete guard's binding (W-46 (d); rendered only with `tenantOnboarding.deleteGuard.enabled`) |
 | `@@TENANT_DELETE_GUARD_USER@@` | `system:serviceaccount:argocd-apps:<tenantOnboarding.deleteGuard.controllerServiceAccount>`, default `argocd-applicationset-controller` (argocd-apps-install's ApplicationSet controller): the one requester the delete guard matches |
+| `@@TENANT_SYNC_PAUSED_REGEX@@` | `tenantOnboarding.syncPaused` as one regex over `<appName>/<env>`, e.g. `^(gate-api/prod)$`: the tenant environments whose generated Application has no automated sync (the templatePatch's `$syncPaused`; rendered only with `syncPaused` set) |
+| `@@TENANT_WINDOW_HELD_APPS@@` | the apps of `clearance.gate.apps` outside `clearance.gate.migration.apps`, as a YAML flow list (`["backstage", "flight-api"]`): the generator selectors that hold them in tenant-onboarding during the migration window (rendered only with the window open and at least one app held) |
 
 ## SCM and registry (no default owner)
 
