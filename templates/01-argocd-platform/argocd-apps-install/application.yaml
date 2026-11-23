@@ -432,6 +432,8 @@ spec:
                 seen = {}
                 # Set by main: the transient-error retries stop at the deadline. Without one (a direct call) nothing is retried.
                 CLOCK, SLEEP, DEADLINE = time.monotonic, time.sleep, None
+                # Reads that were read again. A poll with one is not accepted (main): what it read before the retry may be stale by now.
+                RETRIES = 0
 
 
                 def get(path, timeout=30):
@@ -461,21 +463,28 @@ spec:
 
                 def read(path):
                     """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises.
-                    No read starts once the deadline has passed, and none is given longer than what is left."""
+                    No read starts once the deadline has passed, and none is given longer than what is left. The socket timeout bounds each
+                    blocking call, not the whole response, so a read that finishes past the deadline is refused too."""
+                    global RETRIES
                     delay = 1
                     while True:
                         left = None if DEADLINE is None else DEADLINE - CLOCK()
                         if left is not None and left <= 0:
                             raise TimeoutError(f"{path}: not read, the deadline has passed")
                         try:
-                            return get(path, timeout=30 if left is None else min(30, left))
+                            obj = get(path, timeout=30 if left is None else min(30, left))
                         except Exception as e:
                             left = None if DEADLINE is None else DEADLINE - CLOCK()
                             if not transient(e) or left is None or left <= delay:
                                 raise
                             print(f"{path}: {e}; reading again in {delay}s", flush=True)
                             SLEEP(delay)
+                            RETRIES += 1
                             delay = min(2 * delay, 8)
+                            continue
+                        if DEADLINE is not None and CLOCK() > DEADLINE:
+                            raise TimeoutError(f"{path}: read finished after the deadline")
+                        return obj
 
 
                 def deployment(ref):
@@ -573,6 +582,9 @@ spec:
                     except Exception as e:  # unreadable past its retries: fail closed, the repo-server does not roll
                         print(f"cannot read the repo-server: {e}", file=sys.stderr)
                         return 1
+                    if clock() > deadline:  # a late result is not accepted, here as in the polling loop
+                        print(f"gave up after {timeout}s: the repo-server read finished after the deadline", file=sys.stderr)
+                        return 1
                     if why is None:
                         print("no wait-image change for the repo-server: nothing to order")
                         return 0
@@ -582,10 +594,13 @@ spec:
                         if clock() >= deadline:  # no poll starts once the budget is spent
                             print(f"gave up after {timeout}s: " + "; ".join(last or ["no poll finished in time"]), file=sys.stderr)
                             return 1
+                        before = RETRIES
                         try:
                             left = pending(cfg, clock)
                         except Exception as e:  # past its retries, or not transient: one more wait, not a failed sync
                             left = [f"API error: {e}"]
+                        if not left and RETRIES != before:  # what this poll read before the retry may be stale: poll again
+                            left = ["a read was retried during this poll; polling again"]
                         now = clock()
                         if now > deadline:  # a result that came in late is not accepted, ready or not
                             print(f"gave up after {timeout}s: " + ("; ".join(left) or "ready only after the deadline"), file=sys.stderr)
