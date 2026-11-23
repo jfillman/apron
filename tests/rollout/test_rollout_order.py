@@ -3,9 +3,11 @@ carry, loaded from a rendered application.yaml (ROLLOUT_ORDER_RENDER, set by tes
 No cluster needed."""
 
 import copy
+import http.client
 import json
 import os
 import pathlib
+import ssl
 import unittest
 import urllib.error
 
@@ -58,13 +60,21 @@ class Fake:
     def __init__(self, objs):
         self.objs = objs
         self.paths = []
+        self.timeouts = []
 
-    def __call__(self, path):
+    def __call__(self, path, timeout=30):
         self.paths.append(path)
+        self.timeouts.append(timeout)
         v = self.objs.get(path)
+        if isinstance(v, list):  # a sequence of answers, the last one repeated
+            v = v.pop(0) if len(v) > 1 else v[0]
         if isinstance(v, Exception):
             raise v
         return copy.deepcopy(v)
+
+
+def err(path, code):
+    return urllib.error.HTTPError(path, code, "error", {}, None)
 
 
 RS = "/apis/apps/v1/namespaces/argocd-apps/deployments/argocd-apps-repo-server"
@@ -85,10 +95,10 @@ class Order(unittest.TestCase):
         self.ns = {"__name__": "order"}
         exec(compile(SCRIPT, "order.py", "exec"), self.ns)
 
-    def run_main(self, objs, timeout=0, ticks=None):
-        fake = Fake(objs)
+    def run_main(self, objs, timeout=600, ticks=None, t=None, fake=None):
+        fake = fake or Fake(objs)
         self.ns["get"] = fake
-        t = {"now": 0}
+        t = t if t is not None else {"now": 0}
         sleeps = []
 
         def sleep(s):
@@ -157,7 +167,7 @@ class Order(unittest.TestCase):
         objs = rolled()
         t = {"now": 0, "slow": True}
 
-        def slow_get(path):
+        def slow_get(path, timeout=30):
             if path == KY and t["slow"]:
                 t["now"] += 20
                 t["slow"] = False
@@ -240,20 +250,126 @@ class Order(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(sum(sleeps), 60)
 
-    def test_api_error_while_waiting_is_one_more_wait(self):
+    # I-79 (3): a transient read error is read again with backoff, inside the poll and inside the budget.
+    def test_transient_error_while_waiting_is_read_again(self):
         objs = rolled()
-        objs[KY] = urllib.error.HTTPError(KY, 503, "unavailable", {}, None)
+        objs[KY] = [err(KY, 503), kyverno(["ghcr.io/cloudnative-pg/", NEW, OLD])]
+        rc, fake, sleeps = self.run_main(objs, timeout=600)
+        # one 1s backoff for the error, then the settle timed from the good read (at 1s)
+        self.assertEqual((rc, sleeps[0], sum(sleeps)), (0, 1, 1 + self.ns["SETTLE"]))
+        self.assertEqual(fake.paths.count(KY), 5)
 
-        def tick(n, o):
-            o[KY] = kyverno([NEW])
-        rc, _, sleeps = self.run_main(objs, timeout=600, ticks=tick)
-        # one wait for the error, then the settle from the first good read
-        self.assertEqual((rc, sum(sleeps)), (0, 10 + self.ns["SETTLE"]))
+    def test_transient_repo_server_read_is_read_again(self):
+        for e in (err(RS, 500), err(RS, 429), ConnectionResetError("reset"), TimeoutError("timed out"),
+                  urllib.error.URLError(ConnectionRefusedError("refused")), http.client.RemoteDisconnected("gone")):
+            rc, fake, sleeps = self.run_main({RS: [e, e, repo_server(NEW)]}, timeout=600)
+            self.assertEqual((rc, sleeps, fake.paths), (0, [1, 2], [RS, RS, RS]), e)
 
     def test_unreadable_repo_server_fails_closed(self):
-        objs = {RS: urllib.error.HTTPError(RS, 403, "forbidden", {}, None)}
+        # a refusal is not transient: no retry, and the sync fails rather than letting the repo-server roll
+        rc, fake, sleeps = self.run_main({RS: err(RS, 403)}, timeout=600)
+        self.assertEqual((rc, sleeps, fake.paths), (1, [], [RS]))
+
+    def test_repo_server_down_past_the_budget_fails_closed(self):
+        rc, fake, sleeps = self.run_main({RS: err(RS, 503)}, timeout=60)
+        self.assertEqual(rc, 1)
+        self.assertEqual(sleeps[:5], [1, 2, 4, 8, 8])
+        self.assertLessEqual(sum(sleeps), 60)
+
+    def test_persistent_transient_error_stays_within_the_budget(self):
+        objs = rolled()
+        objs[KY] = err(KY, 502)
+        t = {"now": 0}
+        fake = Fake(objs)
+        rc, _, sleeps = self.run_main(objs, timeout=120, t=t, fake=fake)
+        self.assertEqual(rc, 1)
+        self.assertLessEqual(t["now"], 120)
+        self.assertTrue(all(0 < x <= 30 for x in fake.timeouts), fake.timeouts)
+
+    def test_read_timeout_is_held_to_what_is_left(self):
+        objs = rolled()
+        objs[AG] = agent(OLD)
+        fake = Fake(objs)
+        self.run_main(objs, timeout=45, fake=fake)
+        self.assertEqual(fake.timeouts[0], 30)
+        self.assertEqual(min(fake.timeouts), 5)  # the poll at 40s: only the 5s left, and no read at or past 45s
+
+    def test_refusal_while_waiting_is_not_retried(self):
+        objs = rolled()
+        objs[KY] = err(KY, 403)
+        rc, _, sleeps = self.run_main(objs, timeout=30)
+        self.assertEqual((rc, sleeps), (1, [10, 10, 10]))
+
+    def test_transient_classification(self):
+        tr = self.ns["transient"]
+        for e in (err(RS, 500), err(RS, 503), err(RS, 429), ConnectionResetError(), ConnectionRefusedError(), TimeoutError(),
+                  http.client.RemoteDisconnected(), http.client.IncompleteRead(b""), urllib.error.URLError("dns")):
+            self.assertTrue(tr(e), e)
+        for e in (err(RS, 400), err(RS, 401), err(RS, 403), err(RS, 409), ValueError("bad json"),
+                  urllib.error.URLError(ssl.SSLCertVerificationError("bad cert"))):
+            self.assertFalse(tr(e), e)
+
+    def test_no_read_starts_past_the_deadline(self):
+        fake = Fake({VAP: vap([NEW])})
+        self.ns["get"] = fake
+        self.ns["CLOCK"], self.ns["DEADLINE"] = (lambda: 10), 10
+        with self.assertRaises(TimeoutError):
+            self.ns["read"](VAP)
+        self.assertEqual(fake.paths, [])
+        self.ns["DEADLINE"] = 10.25
+        self.assertEqual(self.ns["read"](VAP)["metadata"]["generation"], 4)
+        self.assertEqual(fake.timeouts, [0.25])  # what is left, no floor
+
+    def test_no_retry_without_a_deadline(self):
+        # pending() called on its own (no main): an error is raised at once, never slept on
+        self.ns["get"] = Fake({VAP: err(VAP, 503)})
         with self.assertRaises(urllib.error.HTTPError):
-            self.run_main(objs)
+            self.ns["read"](VAP)
+
+    # I-79 (4): nothing is accepted past the deadline.
+    def test_ready_read_past_the_deadline_is_not_accepted(self):
+        objs = rolled()
+        t = {"now": 0}
+        fake = Fake(objs)
+
+        def slow(path, timeout=30):
+            if t["now"] == 30 and path == AG:  # the poll that would pass starts in budget and ends after it
+                t["now"] = 40
+            return fake(path, timeout)
+        rc, _, _ = self.run_main(objs, timeout=35, t=t, fake=slow)
+        self.assertEqual((rc, t["now"]), (1, 40))
+        # the same poll in budget passes
+        self.ns["seen"].clear()
+        rc, _, _ = self.run_main(rolled(), timeout=35)
+        self.assertEqual(rc, 0)
+
+    def test_last_sleep_is_held_to_the_deadline(self):
+        objs = rolled()
+        objs[VAP] = vap([OLD])
+        rc, _, sleeps = self.run_main(objs, timeout=25)
+        self.assertEqual((rc, sleeps), (1, [10, 10, 5]))
+
+    # I-79 (1): a ValidatingAdmissionPolicy's observedGeneration is not taken as its admission plugin having loaded the spec.
+    def test_vap_observed_alone_is_not_enough(self):
+        objs = rolled()
+        objs[VAP] = vap([NEW], generation=5, observed=4)
+        self.ns["get"] = Fake(objs)
+        self.assertIn("not observed yet", self.ns["pending"](CHECKS, lambda: 0)[0])
+        objs[VAP] = vap([NEW], generation=5, observed=5)
+        S = self.ns["SETTLE"]
+        self.assertIn("clearance-protected-writes: admits", self.ns["pending"](CHECKS, lambda: 10)[0])
+        self.assertIn("settling", self.ns["pending"](CHECKS, lambda: 10 + S - 1)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, lambda: 10 + S), [])
+
+    def test_vap_settle_restarts_on_a_new_generation(self):
+        objs = rolled()
+        self.ns["get"] = Fake(objs)
+        S = self.ns["SETTLE"]
+        self.ns["pending"](CHECKS, lambda: 0)
+        self.assertEqual(self.ns["pending"](CHECKS, lambda: S), [])
+        objs[VAP] = vap([NEW], generation=6, observed=6)
+        self.assertIn("clearance-protected-writes: admits", self.ns["pending"](CHECKS, lambda: S + 1)[0])
+        self.assertEqual(self.ns["pending"](CHECKS, lambda: 2 * S + 1), [])
 
 
 class Rendered(unittest.TestCase):
@@ -276,9 +392,12 @@ class Rendered(unittest.TestCase):
         for o in EXTRA:
             ann = o["metadata"]["annotations"]
             self.assertEqual(ann["argocd.argoproj.io/hook"], "PreSync", o["kind"])
-            self.assertEqual(ann["argocd.argoproj.io/hook-delete-policy"], "BeforeHookCreation", o["kind"])
+            # I-79 (2): nothing privileged outlives the sync operation; the Job only when it failed (for its log)
+            want = "BeforeHookCreation,HookSucceeded" if o["kind"] == "Job" else "BeforeHookCreation,HookSucceeded,HookFailed"
+            self.assertEqual(ann["argocd.argoproj.io/hook-delete-policy"], want, o["kind"])
             self.assertEqual(ann.get("argocd.argoproj.io/sync-wave"), None if o["kind"] == "Job" else "-1", o["kind"])
         self.assertEqual(JOB["spec"]["backoffLimit"], 0)
+        self.assertEqual(JOB["spec"]["ttlSecondsAfterFinished"], 86400)
         self.assertGreater(JOB["spec"]["activeDeadlineSeconds"], int(next(
             e["value"] for e in JOB["spec"]["template"]["spec"]["containers"][0]["env"] if e["name"] == "TIMEOUT_SECONDS")))
 

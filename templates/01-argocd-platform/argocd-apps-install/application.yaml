@@ -328,7 +328,10 @@ spec:
         # repo-server is not there yet), and otherwise waits until every policy admits the new image and every agent
         # Deployment runs it, rolled out and available. It fails after CLEARANCE_ROLLOUT_ORDER_TIMEOUT seconds; syncPolicy.retry
         # below tries again. Off with clearance.gate.rolloutOrder: false. Helm runs extraObjects through tpl: no double
-        # opening braces anywhere below (tests/run.sh checks).
+        # opening braces anywhere below (tests/run.sh checks). I-79: the ServiceAccount, its ClusterRole and binding and the
+        # ConfigMap are deleted when each sync operation ends, passed or failed (Argo CD deletes a hook only then, after
+        # every hook has finished), and created again by the next sync; the Job is deleted with them when it passed. A
+        # revert of the hook leaves no RBAC behind: Argo CD never prunes a live hook, and this Application does not prune.
         extraObjects:
           - apiVersion: v1
             kind: ServiceAccount
@@ -338,7 +341,7 @@ spec:
               labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
               annotations:
                 argocd.argoproj.io/hook: PreSync
-                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
                 argocd.argoproj.io/sync-wave: "-1"
           # Read only, and only the named objects: the repo-server and agent Deployments and the policies it checks.
           - apiVersion: rbac.authorization.k8s.io/v1
@@ -348,7 +351,7 @@ spec:
               labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
               annotations:
                 argocd.argoproj.io/hook: PreSync
-                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
                 argocd.argoproj.io/sync-wave: "-1"
             rules:
               - apiGroups: [apps]
@@ -374,7 +377,7 @@ spec:
               labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
               annotations:
                 argocd.argoproj.io/hook: PreSync
-                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
                 argocd.argoproj.io/sync-wave: "-1"
             roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: clearance-rollout-order}
             subjects:
@@ -387,7 +390,7 @@ spec:
               labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
               annotations:
                 argocd.argoproj.io/hook: PreSync
-                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
                 argocd.argoproj.io/sync-wave: "-1"
             data:
               order.py: |
@@ -397,11 +400,13 @@ spec:
                 container, where the live one is read; policies, each {name, kind (vap or kyverno), path}; agent, null or
                 {image, deployments}. Passes at once when the repo-server is not there (a first install: no old wait image
                 runs) or already has waitImage (this sync does not change it). Otherwise waits until every policy's spec
-                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready and SETTLE), and every
-                agent Deployment passes --wait-image=waitImage on the agent's image, rolled out and available. Exits 1 after
-                TIMEOUT_SECONDS. Standard library only; reads with the pod's own token.
+                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready, then SETTLE for both),
+                and every agent Deployment passes --wait-image=waitImage on the agent's image, rolled out and available. A transient
+                read error (5xx, 429, a timeout, a dropped connection) is read again with backoff; nothing runs or is accepted past
+                TIMEOUT_SECONDS, then it exits 1. Standard library only; reads with the pod's own token.
                 """
 
+                import http.client
                 import json
                 import os
                 import ssl
@@ -412,22 +417,31 @@ spec:
 
                 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
                 API = "https://kubernetes.default.svc"
-                # Kyverno's policy status has no observedGeneration (conditionStatus.ready is about its webhook and RBAC, not which spec it
-                # loaded), so a Kyverno policy counts only once this hook has seen the same object (uid) at the same generation name the
-                # image for SETTLE seconds, timed from after each read: longer than Kyverno's informer takes to pass a spec change to its
-                # admission controller (seconds). A heuristic, not proof; a delete, a re-create or any later spec change restarts it.
+                # A policy counts only once this hook has seen the same object (uid) at the same generation name the image, loaded, for
+                # SETTLE seconds, timed from after each read; a delete, a re-create or any later spec change restarts it. Kyverno's status
+                # has no observedGeneration (conditionStatus.ready is about its webhook and RBAC, not which spec it loaded). A
+                # ValidatingAdmissionPolicy's observedGeneration is set by kube-controller-manager's status controller once it has type
+                # checked that generation, but each API server's admission plugin loads the policy from its own informer, so it can still
+                # be on the previous spec for a moment (watch latency, under a second). SETTLE is longer than either informer takes: a
+                # heuristic, not proof. A server-side dry-run create of a wait Job was not used instead (apron I-79): the gate policy
+                # matches only Argo CD's application controller (its matchConditions), so a dry run as this hook is never evaluated by it,
+                # and one as the controller needs `impersonate` on that service account, which is the controller's cluster-wide write
+                # rights (RBAC cannot limit a create to dry runs); it would also need a protected namespace with an active grant and would
+                # still reach only one API server.
                 SETTLE = 30
                 seen = {}
+                # Set by main: the transient-error retries stop at the deadline. Without one (a direct call) nothing is retried.
+                CLOCK, SLEEP, DEADLINE = time.monotonic, time.sleep, None
 
 
-                def get(path):
+                def get(path, timeout=30):
                     """The object at path, or None when it does not exist."""
                     with open(f"{SA}/token") as f:
                         token = f.read().strip()
                     req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
                     ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
                     try:
-                        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
                             return json.load(r)
                     except urllib.error.HTTPError as e:
                         if e.code == 404:
@@ -435,9 +449,38 @@ spec:
                         raise
 
 
+                def transient(e):
+                    """An error worth reading again: the API server busy or briefly away. A refusal (401, 403, 4xx) or a bad
+                    certificate is not."""
+                    if isinstance(e, urllib.error.HTTPError):
+                        return e.code == 429 or e.code >= 500
+                    if isinstance(e, urllib.error.URLError):
+                        return not isinstance(e.reason, ssl.SSLCertVerificationError)
+                    return isinstance(e, (TimeoutError, ConnectionError, http.client.HTTPException))
+
+
+                def read(path):
+                    """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises.
+                    No read starts once the deadline has passed, and none is given longer than what is left."""
+                    delay = 1
+                    while True:
+                        left = None if DEADLINE is None else DEADLINE - CLOCK()
+                        if left is not None and left <= 0:
+                            raise TimeoutError(f"{path}: not read, the deadline has passed")
+                        try:
+                            return get(path, timeout=30 if left is None else min(30, left))
+                        except Exception as e:
+                            left = None if DEADLINE is None else DEADLINE - CLOCK()
+                            if not transient(e) or left is None or left <= delay:
+                                raise
+                            print(f"{path}: {e}; reading again in {delay}s", flush=True)
+                            SLEEP(delay)
+                            delay = min(2 * delay, 8)
+
+
                 def deployment(ref):
                     ns, name = ref.split("/", 1)
-                    return get(f"/apis/apps/v1/namespaces/{ns}/deployments/{name}")
+                    return read(f"/apis/apps/v1/namespaces/{ns}/deployments/{name}")
 
 
                 def live_wait_image(dep, container):
@@ -463,7 +506,7 @@ spec:
 
 
                 def policy_pending(p, image, clock):
-                    obj = get(p["path"])
+                    obj = read(p["path"])
                     now = clock()
                     if obj is None:
                         seen.pop(p["name"], None)
@@ -471,16 +514,18 @@ spec:
                     if image not in json.dumps(obj.get("spec") or {}):
                         seen.pop(p["name"], None)
                         return f"{p['name']}: does not admit {image} yet"
+                    st = obj.get("status") or {}
+                    if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
+                    if p["kind"] == "kyverno" and (st.get("conditionStatus") or {}).get("ready") is not True:
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: not ready"
                     ident = (obj["metadata"].get("uid"), obj["metadata"].get("generation"))
                     if seen.get(p["name"], (None, 0))[0] != ident:
                         seen[p["name"]] = (ident, now)
                     first = seen[p["name"]][1]
-                    st = obj.get("status") or {}
-                    if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
-                        return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
-                    if p["kind"] == "kyverno" and (st.get("conditionStatus") or {}).get("ready") is not True:
-                        return f"{p['name']}: not ready"
-                    if p["kind"] == "kyverno" and now - first < SETTLE:
+                    if now - first < SETTLE:
                         return f"{p['name']}: admits {image}; settling ({int(now - first)}s of {SETTLE}s)"
                     return None
 
@@ -520,27 +565,41 @@ spec:
 
 
                 def main(cfg, timeout, interval=10, clock=time.monotonic, sleep=time.sleep):
-                    why = change(cfg)
+                    global CLOCK, SLEEP, DEADLINE
+                    deadline = clock() + timeout
+                    CLOCK, SLEEP, DEADLINE = clock, sleep, deadline
+                    try:
+                        why = change(cfg)
+                    except Exception as e:  # unreadable past its retries: fail closed, the repo-server does not roll
+                        print(f"cannot read the repo-server: {e}", file=sys.stderr)
+                        return 1
                     if why is None:
                         print("no wait-image change for the repo-server: nothing to order")
                         return 0
                     print(f"{why}: waiting for the policies, then the agent")
-                    deadline, last = clock() + timeout, None
+                    last = None
                     while True:
+                        if clock() >= deadline:  # no poll starts once the budget is spent
+                            print(f"gave up after {timeout}s: " + "; ".join(last or ["no poll finished in time"]), file=sys.stderr)
+                            return 1
                         try:
                             left = pending(cfg, clock)
-                        except Exception as e:  # a transient API error is one more wait, not a failed sync
+                        except Exception as e:  # past its retries, or not transient: one more wait, not a failed sync
                             left = [f"API error: {e}"]
+                        now = clock()
+                        if now > deadline:  # a result that came in late is not accepted, ready or not
+                            print(f"gave up after {timeout}s: " + ("; ".join(left) or "ready only after the deadline"), file=sys.stderr)
+                            return 1
                         if not left:
                             print("policies admit the new wait image and the agent runs it: the repo-server may roll")
                             return 0
                         if left != last:
                             print("waiting: " + "; ".join(left), flush=True)
                             last = left
-                        if clock() >= deadline:
+                        if now >= deadline:
                             print(f"gave up after {timeout}s: " + "; ".join(left), file=sys.stderr)
                             return 1
-                        sleep(interval)
+                        sleep(min(interval, deadline - now))
 
 
                 if __name__ == "__main__":
@@ -553,10 +612,12 @@ spec:
               labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
               annotations:
                 argocd.argoproj.io/hook: PreSync
-                # Kept until the next sync, so its log says what it waited for.
-                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+                # Deleted when a sync it let through ends. One that failed is kept, with its log of what it waited for, until
+                # the next sync replaces it or a day has passed (ttlSecondsAfterFinished), so a revert leaves nothing for long.
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
             spec:
               backoffLimit: 0
+              ttlSecondsAfterFinished: 86400
               activeDeadlineSeconds: @@CLEARANCE_ROLLOUT_ORDER_DEADLINE@@
               template:
                 metadata:
@@ -1050,8 +1111,9 @@ spec:
       - CreateNamespace=true
 #@if _rolloutOrder
     # I-77: an automated sync is not retried on the same revision after it fails, so a rollout-order hook that gave up
-    # (above, extraObjects) would leave the repo-server change unsynced until the next commit. Retried instead, about an
-    # hour in all (5 tries, 1m doubling to 10m, each try waiting up to its timeout); then Sync by hand.
+    # (above, extraObjects) would leave the repo-server change unsynced until the next commit. Retried instead: limit 5 is
+    # five retries after the first try, six tries in all, each waiting up to its timeout (10m), with 1m doubling to 10m
+    # between them (25m), so up to about 85 minutes; once Argo CD reports the sync failed with its retries used up, Sync by hand.
     retry:
       limit: 5
       backoff: {duration: 1m, factor: 2, maxDuration: 10m}
