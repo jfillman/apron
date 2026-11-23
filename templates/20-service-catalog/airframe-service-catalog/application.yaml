@@ -603,6 +603,8 @@ spec:
     # CI namespace). Nothing else changed.
     # 2026-11-16: v0.3.175 -> v0.3.176. airframe#149: the SLO composition scopes every query to the SLO's own namespace and
     # refuses namespace/__name__ matchers. Nothing else changed.
+    # 2026-11-23: v0.3.176 -> v0.3.177. airframe#151: the ApplicationEnvironment XRD gains spec.clearanceGate (W-43): the
+    # composition writes clearanceGate: true into the tenant's identity.yaml. Nothing else changed.
     targetRevision: @@AIRFRAME_CATALOG_VERSION@@
     path: .
     directory:
