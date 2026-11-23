@@ -499,17 +499,32 @@ limited to `get` on the named objects, its binding, a ConfigMap with the script,
 - it passes at once when the repo-server is not there yet (a first install: no old wait image runs) or its sidecar
   already has the wait image this sync sets (the sync does not change it: almost every sync);
 - otherwise it waits until each policy's spec names the new wait image and is loaded (a ValidatingAdmissionPolicy's
-  `status.observedGeneration`; Kyverno's `status.conditionStatus.ready`, and, because Kyverno's status carries no
-  observedGeneration, 30 s of the hook seeing the same object at the same generation name the new image, timed after each
-  read and restarted by a delete, re-create or later spec change: longer than Kyverno's informer takes to load a spec, a
-  heuristic rather than proof), and each agent Deployment
+  `status.observedGeneration`, or Kyverno's `status.conditionStatus.ready`), then 30 s more of the hook seeing the same
+  object at the same generation, timed after each read and restarted by a delete, re-create or later spec change. Kyverno's
+  status carries no observedGeneration; a ValidatingAdmissionPolicy's is set by kube-controller-manager once it has type
+  checked the spec, while each API server's admission plugin loads the spec from its own informer and can lag it briefly.
+  The 30 s is longer than either informer takes: a heuristic rather than proof. A server-side dry-run of a wait Job was
+  considered instead and not used (I-79): `clearance-protected-writes` matches only Argo CD's application controller, so a
+  dry run as the hook is never evaluated by it, and a dry run as the controller needs `impersonate` on its service account,
+  that is, its cluster-wide write rights (RBAC cannot limit a create to dry runs). Then each agent Deployment
   (`clearance-argocd-agent`, and `clearance-grant-expiry` with `grantExpiry.enabled`) passes `--wait-image=<new>` on the
   agent image the agent Application sets, with every replica updated and available. Then the sync goes on and the
   repo-server rolls;
+- a transient read error (an API server 5xx or 429, a timeout, a dropped connection) is read again after 1 s, doubling to
+  8 s, within the same budget; a refusal (401, 403) is not. Nothing is accepted after the 600 s: a ready result read past
+  it still fails;
 - it gives up after 600 s, and the sync fails. An automated sync is not retried on the same revision without `retry`, so
-  `argocd-apps-install` retries 5 times (1 min doubling to 10 min, about an hour in all). After that, Sync it by hand
-  once the agent is Ready. The Job's log (`kubectl -n argocd-apps logs job/clearance-rollout-order`; the Job stays until
-  the next sync) says what it waited for.
+  `argocd-apps-install` retries: `limit: 5` is five retries after the first try, six tries in all, each up to 10 min, with
+  1 min doubling to 10 min between them (up to about 85 min). Once Argo CD reports the sync failed with its retries used up,
+  Sync it by hand once the agent is Ready. The Job's log (`kubectl -n argocd-apps logs job/clearance-rollout-order`) says
+  what it waited for: a Job that failed stays until the next sync or for a day (`ttlSecondsAfterFinished`).
+
+**Lifecycle (I-79).** The ServiceAccount, ClusterRole, binding and ConfigMap are deleted when each sync operation ends,
+passed or failed (`HookSucceeded,HookFailed`; Argo CD deletes a hook only once the operation is over), and the next sync
+creates them again (`BeforeHookCreation`). The Job is deleted too when it passed. So turning the hook off, or reverting it,
+leaves no RBAC behind, which matters because Argo CD never prunes a live hook and `argocd-apps-install` does not prune. An
+operation terminated by hand while the Job runs can leave them; the next sync with the hook on replaces them, or delete
+`clearance-rollout-order` (ServiceAccount, ConfigMap and Job in `argocd-apps`, ClusterRole and ClusterRoleBinding).
 
 `clearance.gate.rolloutOrder: false` turns it off (no hook, no retry): the escape hatch if the agent cannot become Ready
 and the repo-server must roll anyway. Without the gate, or on a cluster without its policies, nothing renders and

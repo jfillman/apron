@@ -2825,6 +2825,14 @@ i44 ro-full --set clearance.gate.agent.grantExpiry.enabled=true \
 render_ok "${TMP}/ro-full" "rollout order with the agent, grant-expiry and Flight admission"
 has "${TMP}/ro-full/${ROF}" '^    retry:$' "rollout order: argocd-apps-install retries a sync the hook failed"
 has "${TMP}/ro-full/${ROF}" '^                resourceNames: \[flight-only-images\]$' "rollout order with Flight admission: may read flight-only-images"
+# I-79: the hook's RBAC and ConfigMap go when every sync operation ends, passed or failed, so a revert leaves no ClusterRoleBinding
+# (Argo CD never prunes a live hook); the Job goes when it passed, and a failed one is kept for its log no longer than a day.
+ro_life="$(awk '/^        extraObjects:$/,/^        controller:$/' "${TMP}/ro-full/${ROF}" | grep -E 'hook-delete-policy:|^            kind: |ttlSecondsAfterFinished:' | sed 's/^ *//' | tr '\n' ' ')"
+if [ "${ro_life}" = "kind: ServiceAccount argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ClusterRole argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ClusterRoleBinding argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ConfigMap argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: Job argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded ttlSecondsAfterFinished: 86400 " ]; then
+  ok "rollout order lifecycle: RBAC and ConfigMap deleted at the end of every sync, the Job when it passed (a failed one after a day)"
+else
+  bad "rollout order lifecycle: got ${ro_life}"
+fi
 # Helm runs the argo-cd chart's extraObjects through tpl: a double opening brace would be read as a template action.
 if awk '/^        extraObjects:$/,/^#@end|^        controller:$/' "${TMP}/ro-full/${ROF}" | grep -qF '{{'; then bad "rollout order: extraObjects hold a double opening brace (Helm tpl)"; else ok "rollout order: no double opening brace in extraObjects (Helm tpl)"; fi
 i44 ro-off --set clearance.gate.rolloutOrder=false
