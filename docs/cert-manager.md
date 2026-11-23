@@ -51,9 +51,11 @@ is in the Certificate Transparency logs anyway, but the timing and the resolver'
 Because `--dns01-recursive-nameservers-only` is set, cert-manager does not fall back to the cluster's DNS, and the listed
 resolvers are not interchangeable for the final check:
 
-- the zone lookups (CNAME, SOA, NS) try the resolvers in order and use the first that answers;
-- the TXT check asks **every** listed resolver, and passes only when each one answers and returns the expected record. One
-  unreachable resolver keeps the challenge waiting even if the others answer, so a second resolver adds coverage, not
-  failover. List only resolvers the controller can always reach.
+- finding the challenge's zone (the SOA lookup behind `Could not determine the zone`) and following CNAMEs try the resolvers
+  in order and use the first that answers;
+- the self-check itself skips the authoritative-nameserver step in this mode and asks **every** listed resolver for the TXT
+  record. It passes only when each one answers and returns the expected value. One unreachable resolver keeps the challenge
+  waiting even if the others answer, so a second resolver adds coverage, not failover. List only resolvers the controller
+  can always reach.
 
 The self-check can also take longer, since a recursive resolver may cache a negative or old answer until its TTL runs out.
