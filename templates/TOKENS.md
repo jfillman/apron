@@ -83,6 +83,12 @@ the render with `file:line`.
 | `@@CP_LEASE_DURATION@@`, `@@CP_RENEW_DEADLINE@@`, `@@CP_RETRY_PERIOD@@` | `runtime.controlPlane.leaderElection.leaseDuration` / `renewDeadline` / `retryPeriod` (60s/40s/10s on kind and kiac) |
 | `@@KIND_HOST_HTTP_PORT@@`, `@@KIND_HOST_HTTPS_PORT@@` | `runtime.kind.hostHttpPort` / `hostHttpsPort` (80/443) |
 
+## cert-manager (cluster.yaml `certManager:`; the component itself is `components.certManager`)
+
+| Token | Value from |
+|---|---|
+| `@@CERT_MANAGER_DNS01_RECURSIVE_NAMESERVERS@@` | `certManager.dns01RecursiveNameservers` joined with commas (`1.1.1.1:53,8.8.8.8:53`): the recursive resolvers cert-manager's DNS-01 propagation self-check asks, and only them (docs/cert-manager.md). Only under `#@if certManager.dns01RecursiveNameservers`; unset, nothing renders |
+
 ## Versions (versions.yaml)
 
 | Token | Value from |

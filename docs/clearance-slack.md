@@ -227,6 +227,9 @@ serve it (one Socket Mode connection: run it on one cluster at a time, and turn 
   OutOfSync, the cause is elsewhere: look at the route's diff. The `traefik` Application shows
   Degraded for the same reason (the listener's `InvalidCertificateRef`) until the Secret exists. `gateway-existing` has no
   certificate and no wave.
+- **Challenge stuck on `Could not determine the zone ... SERVFAIL` (`dns01-route53`).** cert-manager's propagation self-check
+  could not get the zone's SOA through the cluster's DNS (CoreDNS and whatever it forwards to), even though the TXT record is in
+  Route 53. Point the self-check at public resolvers with `certManager.dns01RecursiveNameservers` ([cert-manager](cert-manager.md)).
 - The link flow needs the browser to reach both `https://slack.clearance.hangarplatform.dev` and people-dex (`dex.<domain>`).
 - The service's database is not in the nightly dump of `clearance-pg`: it holds links and message ids, never evidence; people
   re-link after a rebuild.

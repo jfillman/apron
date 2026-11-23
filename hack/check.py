@@ -90,6 +90,52 @@ def gate_agent_i44_problems(v):
     return out
 
 
+HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*\.?")
+
+
+def host_port_problem(s):
+    """None when s is host:port (an IPv4 address, a DNS name or a bracketed IPv6 address, and a port 1-65535), else why not."""
+    import ipaddress
+    m = re.fullmatch(r"\[([^\]]+)\]:([0-9]+)", s) or re.fullmatch(r"([^:\[\]]+):([0-9]+)", s)
+    if not m:
+        return "not host:port (an IPv6 address goes in brackets: [2606:4700:4700::1111]:53)"
+    host, port = m.groups()
+    if not 1 <= int(port) <= 65535:
+        return f"port {port} is not 1-65535"
+    if s.startswith("["):
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            return f"{host} is not an IPv6 address"
+    elif re.fullmatch(r"[0-9.]+", host):
+        try:
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            return f"{host} is not an IPv4 address"
+    elif not HOSTNAME.fullmatch(host):
+        return f"{host} is not a DNS name"
+    return None
+
+
+def certmanager_dns01_problems(v):
+    """certManager.dns01RecursiveNameservers: a list of host:port resolvers, set only with components.certManager."""
+    val = get(v, "certManager.dns01RecursiveNameservers")
+    if val is None:
+        return []
+    out = []
+    if not isinstance(val, list):
+        return [f"certManager.dns01RecursiveNameservers is a list of host:port resolvers (e.g. [\"1.1.1.1:53\", \"8.8.8.8:53\"]), got {val!r}"]
+    if val and get(v, "components.certManager") is not True:
+        out.append("certManager.dns01RecursiveNameservers needs components.certManager: it configures cert-manager's controller")
+    for x in val:
+        why = host_port_problem(x) if isinstance(x, str) else "not a string"
+        if why:
+            out.append(f"certManager.dns01RecursiveNameservers entry {x!r}: {why}")
+    if len(set(map(str, val))) != len(val):
+        out.append("certManager.dns01RecursiveNameservers lists a resolver twice")
+    return out
+
+
 def violations(v, fleet=None):
     out = []
     add = out.append
@@ -298,6 +344,8 @@ def violations(v, fleet=None):
             add("components.trustManager needs versions.trustManager.chart, a chart version (vX.Y.Z)")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, "versions.trustManager.imageDigest") or "")):
             add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
+    # cert-manager's DNS-01 propagation self-check resolvers (docs/cert-manager.md)
+    out.extend(certmanager_dns01_problems(v))
     if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
         add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
     # clearance.gate.agent.ownedProject renders the agent's Namespaces and AppProjects: only with the gate and its agent (else it would silently do nothing).

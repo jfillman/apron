@@ -17,6 +17,12 @@ spec:
       valuesObject:
         crds:
           enabled: true
+#@if certManager.dns01RecursiveNameservers
+        # certManager.dns01RecursiveNameservers (docs/cert-manager.md): the DNS-01 propagation self-check asks only these
+        # recursive resolvers, not the pod's resolv.conf (split-horizon or unreliable in-cluster DNS).
+        dns01RecursiveNameservers: "@@CERT_MANAGER_DNS01_RECURSIVE_NAMESERVERS@@"
+        dns01RecursiveNameserversOnly: true
+#@end
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
