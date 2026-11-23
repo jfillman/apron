@@ -1062,6 +1062,14 @@ else
   ok "gate off: no sidecar and no plugin source"
 fi
 if grep -q 'CLEARANCE_CHART_REPOS' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml"; then bad "gate off: the chart allow list leaked into a cluster that did not ask for it"; else ok "gate off: no chart allow list"; fi
+# I-78 (`clearance-cmp doctor`): the token is not world-readable, the pod's fsGroup is the sidecar's group, and the memory limit fits the
+# default 4 renders x 512Mi. The canary sidecar carries the same limit (checked with the canary render below).
+CMPAPP="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
+has "${CMPAPP}" "defaultMode: 0440" "gate: the projected clearance token is mode 0440"
+has "${CMPAPP}" "fsGroup: 999" "gate: the pod's fsGroup is 999 (the sidecar's uid/group)"
+[ "$(grep -c 'limits: {memory: 2560Mi}' "${CMPAPP}")" = 1 ] && ok "gate: the clearance-cmp limit is 2560Mi (4 renders x 512Mi + 512Mi)" || bad "gate: the clearance-cmp memory limit is not 2560Mi"
+if grep -q 'limits: {memory: 512Mi}' "${CMPAPP}"; then bad "gate: a sidecar still has the 512Mi limit"; else ok "gate: no sidecar keeps the 512Mi limit"; fi
+if grep -q 'defaultMode: 0440\|fsGroup: 999' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml"; then bad "gate off: the token mode or fsGroup leaked"; else ok "gate off: no token mode or fsGroup"; fi
 # clearance.gate.canary: a second sidecar from another image, named by the listed apps only. Unset, nothing differs.
 CANARY=ghcr.io/acme/clearance-cmp@sha256:2222222222222222222222222222222222222222222222222222222222222222
 CMPAPP="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
@@ -1073,6 +1081,7 @@ render_ok "${TMP}/gate-canary" "gate on with a canary plugin"
 CA="${TMP}/gate-canary/01-argocd-platform/argocd-apps-install/application.yaml"
 CAS="${TMP}/gate-canary/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
 has "${CA}" "name: clearance-cmp-canary" "canary: a second sidecar"
+[ "$(grep -c 'limits: {memory: 2560Mi}' "${CA}")" = 2 ] && ok "canary: both sidecars carry the 2560Mi limit" || bad "canary: the sidecar limits are not both 2560Mi"
 has "${CA}" "image: ${CANARY}" "canary: it runs the canary image"
 has "${CA}" "image: ghcr.io/acme/clearance-cmp@sha256:aaaa" "canary: the first sidecar keeps the default image"
 has "${CA}" "command: \[/var/run/argocd/argocd-cmp-server, --config-dir-path, /home/argocd/cmp-server/config-canary\]" "canary: it registers the image's canary plugin.yaml"
