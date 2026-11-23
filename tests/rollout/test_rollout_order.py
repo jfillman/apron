@@ -95,7 +95,7 @@ class Order(unittest.TestCase):
         self.ns = {"__name__": "order"}
         exec(compile(SCRIPT, "order.py", "exec"), self.ns)
 
-    def run_main(self, objs, timeout=0, ticks=None, t=None, fake=None):
+    def run_main(self, objs, timeout=600, ticks=None, t=None, fake=None):
         fake = fake or Fake(objs)
         self.ns["get"] = fake
         t = t if t is not None else {"now": 0}
@@ -284,7 +284,7 @@ class Order(unittest.TestCase):
         rc, _, sleeps = self.run_main(objs, timeout=120, t=t, fake=fake)
         self.assertEqual(rc, 1)
         self.assertLessEqual(t["now"], 120)
-        self.assertTrue(all(1 <= x <= 30 for x in fake.timeouts), fake.timeouts)
+        self.assertTrue(all(0 < x <= 30 for x in fake.timeouts), fake.timeouts)
 
     def test_read_timeout_is_held_to_what_is_left(self):
         objs = rolled()
@@ -292,7 +292,7 @@ class Order(unittest.TestCase):
         fake = Fake(objs)
         self.run_main(objs, timeout=45, fake=fake)
         self.assertEqual(fake.timeouts[0], 30)
-        self.assertEqual(min(fake.timeouts), 1)  # reads at the deadline get the 1s floor, not 30s
+        self.assertEqual(min(fake.timeouts), 5)  # the poll at 40s: only the 5s left, and no read at or past 45s
 
     def test_refusal_while_waiting_is_not_retried(self):
         objs = rolled()
@@ -308,6 +308,17 @@ class Order(unittest.TestCase):
         for e in (err(RS, 400), err(RS, 401), err(RS, 403), err(RS, 409), ValueError("bad json"),
                   urllib.error.URLError(ssl.SSLCertVerificationError("bad cert"))):
             self.assertFalse(tr(e), e)
+
+    def test_no_read_starts_past_the_deadline(self):
+        fake = Fake({VAP: vap([NEW])})
+        self.ns["get"] = fake
+        self.ns["CLOCK"], self.ns["DEADLINE"] = (lambda: 10), 10
+        with self.assertRaises(TimeoutError):
+            self.ns["read"](VAP)
+        self.assertEqual(fake.paths, [])
+        self.ns["DEADLINE"] = 10.25
+        self.assertEqual(self.ns["read"](VAP)["metadata"]["generation"], 4)
+        self.assertEqual(fake.timeouts, [0.25])  # what is left, no floor
 
     def test_no_retry_without_a_deadline(self):
         # pending() called on its own (no main): an error is raised at once, never slept on

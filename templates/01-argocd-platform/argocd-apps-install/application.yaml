@@ -460,12 +460,15 @@ spec:
 
 
                 def read(path):
-                    """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises."""
+                    """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises.
+                    No read starts once the deadline has passed, and none is given longer than what is left."""
                     delay = 1
                     while True:
                         left = None if DEADLINE is None else DEADLINE - CLOCK()
+                        if left is not None and left <= 0:
+                            raise TimeoutError(f"{path}: not read, the deadline has passed")
                         try:
-                            return get(path, timeout=30 if left is None else max(1, min(30, left)))
+                            return get(path, timeout=30 if left is None else min(30, left))
                         except Exception as e:
                             left = None if DEADLINE is None else DEADLINE - CLOCK()
                             if not transient(e) or left is None or left <= delay:
@@ -576,6 +579,9 @@ spec:
                     print(f"{why}: waiting for the policies, then the agent")
                     last = None
                     while True:
+                        if clock() >= deadline:  # no poll starts once the budget is spent
+                            print(f"gave up after {timeout}s: " + "; ".join(last or ["no poll finished in time"]), file=sys.stderr)
+                            return 1
                         try:
                             left = pending(cfg, clock)
                         except Exception as e:  # past its retries, or not transient: one more wait, not a failed sync
