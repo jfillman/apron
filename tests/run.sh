@@ -1886,7 +1886,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:44f6663d' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:f422dd02' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"
