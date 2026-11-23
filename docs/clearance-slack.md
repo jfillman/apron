@@ -215,10 +215,18 @@ serve it (one Socket Mode connection: run it on one cluster at a time, and turn 
 
 ## Things to know
 
-- **Not verified live.** Apron's tests render and parse every object; nothing here has run against a cluster, a Route 53 zone or a
-  Slack workspace. Three things worth watching on the first apply: the `Secret` `clearance-slack` carries `dsn` (the ExternalSecret
-  merges it from the generated Secret with `templateFrom`), the pod reaches `dex.<domain>` (the issuer URL it discovers and posts
-  the code to; `idp.hostAlias`/`idp.cidrs`), and the certificate's first DNS-01 challenge.
+- **First live apply (lab).** The ExternalSecrets synced, the `Secret` `clearance-slack` carries `dsn` (merged from the generated
+  Secret with `templateFrom`), and the pod connected over Socket Mode. Still worth watching: the pod reaching `dex.<domain>` (the
+  issuer URL it discovers and posts the code to; `idp.hostAlias`/`idp.cidrs`) and the certificate's first DNS-01 challenge.
+- **Sync order (`dns01-route53`).** In `clearance-config`, the Issuer is wave 1, the Certificate wave 2 and the route wave 3. The
+  https listener is not Programmed until cert-manager writes `clearance-slack-tls`, and a route on it is not Accepted until then;
+  Argo CD counts that route Degraded and starts no later wave. With the route in wave 0 (before this order) the Certificate was
+  never created and the sync retried forever. A route that stays OutOfSync after a merge usually means the sync has not reached
+  wave 3 yet: read the Application's sync result first (which wave and resource it is waiting on), then the Certificate
+  (`kubectl -n <gateway-namespace> get certificate,order,challenge`). If the Certificate is Ready and the route is still
+  OutOfSync, the cause is elsewhere: look at the route's diff. The `traefik` Application shows
+  Degraded for the same reason (the listener's `InvalidCertificateRef`) until the Secret exists. `gateway-existing` has no
+  certificate and no wave.
 - The link flow needs the browser to reach both `https://slack.clearance.hangarplatform.dev` and people-dex (`dex.<domain>`).
 - The service's database is not in the nightly dump of `clearance-pg`: it holds links and message ids, never evidence; people
   re-link after a rebuild.

@@ -1945,6 +1945,25 @@ assert app["networkPolicy"]["slack"]["extraEgress"][1]["ports"][0]["port"] == 80
 PY
   then ok "slack on: objects parse, the Gateway has web + the https listener, values are structured"; else bad "slack on: structure check failed"; fi
 fi
+# Sync order: the route on the https listener is Degraded (not Accepted) until the Certificate's Secret exists, and Argo CD
+# starts no later wave past a Degraded one, so it must come after the Issuer and the Certificate (route > Certificate > Issuer).
+slack_waves() { # slack_waves DIR LABEL
+  python3 - "$1" <<'PY' && ok "$2: sync waves route > Certificate > Issuer" || bad "$2: sync waves out of order"
+import re, sys
+d = sys.argv[1] + "/55-clearance/clearance-config/"
+def wave(text, kind):
+    for doc in text.split("\n---\n"):
+        if re.search(rf"^kind: {kind}$", doc, re.M):
+            m = re.search(r'argocd\.argoproj\.io/sync-wave: "(-?\d+)"', doc)
+            return int(m.group(1)) if m else 0
+    raise SystemExit(f"no {kind}")
+tls = open(d + "slack-tls.yaml").read()
+issuer, cert, route = wave(tls, "Issuer"), wave(tls, "Certificate"), wave(open(d + "slack-route.yaml").read(), "HTTPRoute")
+print(f"    Issuer {issuer}, Certificate {cert}, HTTPRoute {route}")
+assert route > cert > issuer, (issuer, cert, route)
+PY
+}
+slack_waves "${SL}" "slack on (dns01, serviceAccount)"
 
 new "${TMP}/slack-static" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
   "${SLACK_COMMON[@]}" --set clearance.slack.tls.mode=dns01-route53 --set clearance.slack.tls.dns01.hostedZoneID=Z0123456789ABC \
@@ -1957,6 +1976,7 @@ has "${SS}/${CC}/slack-tls.yaml" 'key: clearance-dns01-route53-access-key-id\}' 
 has "${SS}/${CC}/slack-tls.yaml" 'key: clearance-dns01-route53-secret-access-key\}' "slack static: the Infisical secret access key"
 has "${SS}/${CC}/slack-tls.yaml" 'acme-staging-v02' "slack static: the ACME server is the one asked for"
 if grep -qE 'serviceAccountRef|kind: Role$' "${SS}/${CC}/slack-tls.yaml"; then bad "slack static: the service-account path rendered"; else ok "slack static: no service-account token path"; fi
+slack_waves "${SS}" "slack static (dns01, static key)"
 has "${SS}/${CA}" 'transport: events$' "slack events: the chart's transport"
 has "${SS}/${CC}/slack-secret.yaml" 'key: clearance-slack-signing-secret\}' "slack events: the signing secret is read"
 if grep -q 'secretKey: app-token' "${SS}/${CC}/slack-secret.yaml"; then bad "slack events: the app token is asked for"; else ok "slack events: no app token"; fi
@@ -1969,6 +1989,7 @@ render_ok "${TMP}/slack-eks" "slack on (gateway-existing, https gateway, web UI)
 SE="${TMP}/slack-eks"
 expect "${SE}" "slack gateway-existing" ${CC}/slack-secret.yaml ${CC}/slack-route.yaml "!${CC}/slack-tls.yaml"
 if grep -q 'clearance-slack-https' "${SE}/10-crds-operators/traefik/gateway.yaml" "${SE}/${CC}/slack-route.yaml"; then bad "slack gateway-existing: an https listener or sectionName rendered"; else ok "slack gateway-existing: the Gateway and the route are the ordinary ones"; fi
+if grep -q 'sync-wave' "${SE}/${CC}/slack-route.yaml"; then bad "slack gateway-existing: the route has a sync wave (no certificate to wait for)"; else ok "slack gateway-existing: the route has no sync wave"; fi
 has "${SE}/${CA}" 'webUrl: "https://clearance\.hangar-dev\.local/changes/\{id\}"' "slack + web UI: tier 3 links to the web UI by default"
 has "${SE}/${CA}" 'port: 443' "slack on an https gateway: IdP egress on 443"
 if grep -q 'trustedPeers: \["clearance-web"\]' "${SE}/55-identity/people-dex/dex.yaml" && grep -q 'id: clearance-slack$' "${SE}/55-identity/people-dex/dex.yaml"; then ok "slack + web UI: both Dex clients"; else bad "slack + web UI: Dex clients missing"; fi
