@@ -12,8 +12,8 @@ versions:
   # Clearance (55-clearance): the chart from oci://ghcr.io/jfillman/charts, and the image index it runs (the chart's
   # default tag pinned by digest). Cut by the clearance release workflow; bump both together.
   clearance:
-    chart: 0.57.1
-    imageDigest: sha256:74a0c85b39ab4813ca79e4d952a98a7b4a61197a968aea14143f62b35b724c50
+    chart: 0.57.3
+    imageDigest: sha256:90f91b4aa5235f2de82ace321a8a188ead47c737ec29a8e8bcf95934b29c1bc2
     # The Argo CD gate's images (clearance.gate.enabled; G-ARGO-4/5): ghcr.io/<owner>/clearance-cmp and clearance-wait
     # by digest, first published by clearance v0.33.0. Used only where clearance.gate.enabled.
     cmpImage: ghcr.io/jfillman/clearance-cmp@sha256:8ccd8537a7ee75c2713220e1c10eac5b5255a8633f9e12293e24a3b30d543df9
@@ -28,8 +28,8 @@ versions:
     # digest (v0.57.1's index). Needs versions.clearance.chart 0.47.1 or later, which `apron check` says.
     slackImageDigest: sha256:f422dd02f362bf8b97fc70a5c19768e2e25cff7763dc9281ba94fb33ad5e7536
     # The Kubernetes audit collector (O-3; clearance.observe.enabled), first published by clearance v0.38.0.
-    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:c12dfcae45ab39d309e290a26d6d699578859169ebb8a6840afbf2baf896b1bf
-    observeK8sChart: 0.57.1
+    observeK8sImage: ghcr.io/jfillman/clearance-observe-k8s@sha256:633349cdd43fd42d7adea142ffb06e985db406eae8af2bf55058d829da50abce
+    observeK8sChart: 0.57.3
     # The AWS collector (clearance.observeAWS.enabled), first published by clearance v0.39.2; 0.39.3 renders its own rule set.
     observeAWSImage: ghcr.io/jfillman/clearance-observe-aws@sha256:aee955a97400735604af735af1db3b0ab409fd0367f346321a6ca354815f534b
     observeAWSChart: 0.57.1
