@@ -12,3 +12,17 @@ cicdRunAdmission:
     values-check: [render]
   pusherTasks:
     build: [push-image]
+  recordWriterTasks:
+    bypass-merge-check: [mark-release-merged, itsm-implement]
+    clearance-gate-check: [join-release]
+    itsm-check: [verify-change, verify-change-advisory]
+    release: [open-release-pr]
+    release-outcome-notify: [itsm-close]
+    release-rollback-notify: [itsm-close-rolled-back]
+  clearanceTasks:
+    agent-definitions-check: [review]
+    agent-gates-check: [agent-gates]
+    agent-release: [release]
+    clearance-gate-check: [fetch, register, register-advisory, render-check]
+  testRunnerTasks:
+    test: [run-testworkflow]

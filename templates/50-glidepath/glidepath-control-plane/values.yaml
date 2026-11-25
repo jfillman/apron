@@ -162,6 +162,14 @@ agentToken:
     - system:serviceaccount:autopilot-system:autopilot-gateway
 #@end
 
+#@if itsm.provider == 'webhook'
+# Pipeline trust T4 step 3: the catalog has a change-management provider (glidepath-catalog's itsm, same condition), so each app's
+# glidepath-app (forwarded as itsm.enabled) maps the release-outcome and rollback itsm close tasks to release-record-writer. Left out
+# (false) with no provider: those Pipelines lack the tasks and Tekton refuses a run that names one. Needs Glidepath with #281.
+itsm:
+  enabled: true
+#@end
+
 #@if glidepath.gateConcurrency or glidepath.gitopsRepoProvenance
 # Pipelines-as-Code's per-repository settings for every app's Repository CRs, from cluster.yaml (one block: a key may appear once, and
 # #@if does not nest). Charts that do not know a value ignore it (glidepath#262 adds the first, the gitops-pipeline-provenance PR the second).

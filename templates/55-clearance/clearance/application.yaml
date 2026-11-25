@@ -207,6 +207,19 @@ spec:
           routes: @@CLEARANCE_SLACK_ROUTES@@
           hostAliases: @@CLEARANCE_SLACK_HOST_ALIASES@@
 #@end
+#@if clearance.tls.enabled
+        # TLS (clearance I-43, docs/tls.md; A-19): the core and the API also serve https on 8443, with cert-manager
+        # certificates signed by @@CLEARANCE_TLS_ISSUER_DESC@@, 90 days each, renewed 30 days
+        # before they end (the servers reload a renewed pair without a restart). plainHttp keeps the 8080 listener; the chart's
+        # NetworkPolicies admit 8443 from the same peers as 8080. Turning this on restarts the core once (Recreate).
+        tls:
+          enabled: true
+          plainHttp: @@CLEARANCE_TLS_PLAIN_HTTP@@
+          certManager:
+            issuerRef: @@CLEARANCE_TLS_ISSUER_REF@@
+            duration: 2160h
+            renewBefore: 720h
+#@end
         database:
           existingSecret: clearance-pg-app
           key: uri
@@ -214,6 +227,11 @@ spec:
             existingSecret: clearance-pg-reader
             key: uri
         core:
+#@if clearance.core.startupSeconds
+          # How long the core may take to start (chart core.startupSeconds, default 300): it verifies the whole chain from
+          # genesis before it listens, so a long chain on a slow node needs more. Only where cluster.yaml sets it.
+          startupSeconds: @@CLEARANCE_CORE_STARTUP_SECONDS@@
+#@end
 #@if runtime.labNetworking and tower.hostAliasIP
           hostAliases: [{ip: "@@TOWER_HOST_ALIAS_IP@@", hostnames: ["backstage.@@TOWER_CLUSTER@@.local"@@CLEARANCE_LEDGER_TOWER_HOSTNAMES_MORE@@]}@@CLEARANCE_LEDGER_HOST_ALIASES_MORE@@]
 #@end
@@ -227,12 +245,13 @@ spec:
         api:
           replicas: 2
           # Headroom (2026-11-15): the chart default (64Mi/256Mi) was OOMKilled in a loop. GOMEMLIMIT is about 80% of the limit
-          # so the Go runtime collects before the kernel kills.
+          # so the Go runtime collects before the kernel kills. Set with the chart's goMemLimit, NOT extraEnv: chart 0.54.0
+          # adds its own GOMEMLIMIT, and an extraEnv one made the container carry the name twice, which fails Argo CD's
+          # strategic-merge dry run ("The order in patch list ... doesn't match $setElementOrder list").
           resources:
             requests: {cpu: 25m, memory: 128Mi}
             limits: {memory: 512Mi}
-          extraEnv:
-            - {name: GOMEMLIMIT, value: 400MiB}
+          goMemLimit: 400MiB
 #@if clearance.api.coverageCacheSeconds
           # Coverage result cache (clearance 0.51.0+, CLEARANCE_API_COVERAGE_CACHE_SECONDS): off in the chart; on only where
           # cluster.yaml sets clearance.api.coverageCacheSeconds. A statement shown can be up to this many seconds old.
@@ -300,6 +319,17 @@ spec:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-aws}}
 #@end
+#@if clearance.gate.enabled
+              # The Argo CD gate on this cluster (clearance.gate.enabled with the core here): the repo-server's clearance-cmp sidecar
+              # registers every render with the core. Where the gate is on another cluster the call comes through the Gateway.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: argocd-apps}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: argocd-repo-server}}
+#@end
+#@if clearance.gate.enabled and clearance.gate.agent
+              # The gate's agent (56-clearance-gate/agent): outcomes, exceptions and, with the opt-in, its protected-pair reports.
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-argocd-agent}}
+#@end
               # The cluster's Gateway: GitHub's webhooks, clearance register, Tower's clear/deny.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: @@GATEWAY_NAMESPACE@@}}
           api:
@@ -314,6 +344,11 @@ spec:
               # The AWS collector: outcomes from clearance-api.
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: clearance-observe-aws}}
+#@end
+#@if clearance.gate.enabled and clearance.gate.agent
+              # The gate's agent on this cluster: the signed grant feed and the keys (clearance.feedReaders names it).
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: clearance-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: clearance-argocd-agent}}
 #@end
 #@if clearance.web.enabled
           web:

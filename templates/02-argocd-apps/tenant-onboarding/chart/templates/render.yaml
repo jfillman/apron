@@ -5,7 +5,12 @@ verbatim to airframe-application as serviceNamespacePattern for env[].fromServic
 namespaces with the same pattern (glidepath-app.envNamespacePattern): change both together. */ -}}
 {{- $nsPattern := "{type}-{app}-{env}" -}}
 {{- $destNamespace := $nsPattern | replace "{type}" `{{ dig "type" "app" . }}` | replace "{app}" "{{.appName}}" | replace "{env}" "{{.env}}" -}}
+#@if not _tenantGatedSet
 {{- .Files.Get "applicationset.tmpl.yaml"
+#@end
+#@if _tenantGatedSet
+{{- $t := .Files.Get "applicationset.tmpl.yaml"
+#@end
   | replace "__SERVICE_NAMESPACE_PATTERN__" $nsPattern
   | replace "__DESTINATION_NAMESPACE__" $destNamespace
   | replace "__DEFAULT_CHART_REPO_URL__" (required "defaultChart.repoURL" $c.repoURL)
@@ -13,3 +18,21 @@ namespaces with the same pattern (glidepath-app.envNamespacePattern): change bot
   | replace "__DEFAULT_CHART_TARGET_REVISION__" (required "defaultChart.targetRevision" $c.targetRevision)
   | replace "__OBS_NAMESPACE__" (dig "namespace" "" (.Values.observability | default dict))
   | replace "__OBS_INSTRUMENTATION__" (dig "instrumentation" "" (.Values.observability | default dict)) }}
+#@if _tenantGatedSet
+{{- /* W-43 (clearance.gate.agent.gatedSet): the same ApplicationSet twice. tenant-onboarding generates the environments whose
+identity.yaml does not say clearanceGate: true, tenant-onboarding-gated exactly those that do, so every environment comes from
+one of them. A line marked __GATED_SET_ONLY__ or __TENANT_SET_ONLY__ in the template is a YAML comment in the other set. */}}
+{{ $t
+  | replace "__SET_NAME__" "tenant-onboarding"
+  | replace "__SET_SELECTOR_OPERATOR__" "NotIn"
+  | replace "__SET_STATIC_PLUGIN__" "true"
+  | replace "__TENANT_SET_ONLY__" ""
+  | replace "__GATED_SET_ONLY__" "# " }}
+---
+{{ $t
+  | replace "__SET_NAME__" "tenant-onboarding-gated"
+  | replace "__SET_SELECTOR_OPERATOR__" "In"
+  | replace "__SET_STATIC_PLUGIN__" "false"
+  | replace "__TENANT_SET_ONLY__" "# "
+  | replace "__GATED_SET_ONLY__" "" }}
+#@end

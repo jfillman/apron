@@ -2,6 +2,10 @@
 # refuse an Argo CD write to a protected namespace unless Clearance's grant lists it. Plain-manifest directory source,
 # its own Application so a gate change never touches another component's sync. Rendered only when
 # clearance.gate.enabled on a zone == 'upper' cluster (templates/MANIFEST).
+#
+# NO resources-finalizer on purpose. A cascade delete of this Application would delete the ClearanceGrant CRD and, with it,
+# every stored ClearanceGrant, and (with enforce Deny) leave the policies' paramKind unresolvable for a moment. Removing the
+# gate is a deliberate, ordered, manual act; README.md, "Clearance gate", "Removing the gate", has the order.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

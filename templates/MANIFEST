@@ -12,6 +12,8 @@
 
 # 02 argocd-apps
 02-argocd-apps/xr-requests/             components.serviceCatalog.enabled
+# W-46 (d): the ApplicationSet controller may not delete a tenant-onboarding Application (tenantOnboarding.deleteGuard.enabled; off: unchanged)
+02-argocd-apps/tenant-onboarding/chart/templates/delete-guard.yaml   _tenantDeleteGuard
 02-argocd-apps/repo-creds/notifications-relay-token-external-secret.yaml   not isControlPlane
 
 # 10 crds-operators
@@ -20,6 +22,9 @@
 10-crds-operators/argo-rollouts/notifications-external-secret.yaml    components.argoRollouts and not isControlPlane
 10-crds-operators/argo-rollouts/notifications-prune.yaml              components.argoRollouts and not isControlPlane
 10-crds-operators/cert-manager/         components.certManager
+# trust-manager and the cluster CA it publishes (A-19): off by default; apron check holds each to cert-manager
+10-crds-operators/trust-manager/        components.trustManager
+10-crds-operators/cluster-ca/           components.clusterCA
 10-crds-operators/cloudnative-pg/       components.cloudnativePg
 10-crds-operators/metrics-server/       components.metricsServer
 10-crds-operators/opentelemetry-operator/   components.observability and (observability.full or observability.tracing) and components.certManager
@@ -106,8 +111,11 @@
 55-clearance/                           components.clearance
 55-clearance/clearance-config/routes.yaml      components.clearance and components.gatewayRoutes
 55-clearance/clearance-config/github-app.yaml  components.clearance and (clearance.githubApp or autopilot.githubApp) and components.gatewayRoutes
+# The Gateway re-encrypts to the core's and the API's https port (clearance.tls.gatewayBackendTLS, A-19): off by default
+55-clearance/clearance-config/backend-tls.yaml  components.clearance and clearance.tls.gatewayBackendTLS and components.gatewayRoutes
 55-clearance/clearance-config/web-secret.yaml  components.clearance and clearance.web.enabled
 55-identity/people-dex/clearance-web-secret.yaml  clearance.web.enabled
+55-identity/people-dex/tls.yaml  autopilot.peopleTls
 # Clearance Slack (clearance chart slack.*, 0.47.1+; docs/clearance-slack.md): off by default
 55-clearance/clearance-config/slack-secret.yaml  components.clearance and clearance.slack.enabled
 55-clearance/clearance-config/slack-route.yaml   components.clearance and clearance.slack.enabled and components.gatewayRoutes
@@ -118,9 +126,12 @@
 55-clearance/clearance-config/backup.yaml  components.clearance and clearance.backup.enabled
 55-clearance/clearance-config/attest-trust.yaml  components.clearance and clearance.attestation.keyless and signing.trustedRoot
 
-# 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce
-56-clearance-gate/                      zone == 'upper' and clearance.gate.enabled
-56-clearance-gate/agent/                zone == 'upper' and clearance.gate.enabled and clearance.gate.agent
+# 56 the Clearance gate (clearance G-ARGO-2): the ClearanceGrant CRD + admission policies on an upper cluster; Warn until clearance.gate.enforce.
+# clearance.gate.lowerZone puts the same stack on a lower cluster (a rehearsal; README, "Clearance gate"): unset, only an upper cluster has it.
+56-clearance-gate/                      (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled
+56-clearance-gate/agent/                (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent
+# clearance.gate.agent.ownedProject.create: the agent's own Namespaces and AppProjects, a second source of the agent's Application; off by default
+56-clearance-gate/agent/owned.yaml      (zone == 'upper' or clearance.gate.lowerZone) and clearance.gate.enabled and clearance.gate.agent and clearance.gate.agent.ownedProject.create
 
 # 56 the ledger's witness (clearance C-3): one witness on a protected cluster, run by someone the log's operator does not control
 56-clearance-witness/                   zone == 'upper' and clearance.witness.enabled

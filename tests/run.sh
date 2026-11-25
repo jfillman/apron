@@ -9,7 +9,8 @@
 #   4. TOKENS.md lists exactly the tokens templates use.
 #   5. the AgentRun confinement policy admits a run's objects and refuses everything D15 forbids, and Clearance's
 #      argo.sync.lower grant admits only a sync of a -lower Application (skipped without envtest binaries in
-#      KUBEBUILDER_ASSETS: tests/policy/test_agentrun_grants.py, test_argo_sync.py).
+#      KUBEBUILDER_ASSETS: tests/policy/test_agentrun_grants.py, test_argo_sync.py), and the tenant-onboarding delete guard
+#      refuses only the ApplicationSet controller's delete of a tenant Application (test_tenant_delete_guard.py).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 APRON="$(pwd)"
@@ -215,7 +216,9 @@ has "${LAB}/dev/55-clearance/clearance/application.yaml" 'principals": \["autopi
 # clearance-api headroom: 512Mi limit, 128Mi request, GOMEMLIMIT below the limit (the chart default OOMKilled in a loop)
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'limits: \{memory: 512Mi\}' "lab: clearance-api memory limit is 512Mi"
 has "${LAB}/dev/55-clearance/clearance/application.yaml" 'requests: \{cpu: 25m, memory: 128Mi\}' "lab: clearance-api memory request is 128Mi"
-has "${LAB}/dev/55-clearance/clearance/application.yaml" 'name: GOMEMLIMIT, value: 400MiB' "lab: clearance-api sets GOMEMLIMIT"
+has "${LAB}/dev/55-clearance/clearance/application.yaml" '^          goMemLimit: 400MiB$' "lab: clearance-api sets GOMEMLIMIT with the chart's goMemLimit"
+# Chart 0.54.0 adds its own GOMEMLIMIT: one from extraEnv too makes the env name repeat, and Argo CD's dry run refuses the patch.
+if grep -rqE 'name: GOMEMLIMIT' "${LAB}/dev/55-clearance/clearance/application.yaml"; then bad "lab: clearance sets GOMEMLIMIT in extraEnv (duplicate env name with the chart's)"; else ok "lab: clearance has no extraEnv GOMEMLIMIT"; fi
 has "${LAB}/dev/10-crds-operators/crossplane/functions.yaml" 'function-agentrun@sha256:30324c992ab970427abe6a9f959c5d6199ab39bece35393593e9037932b065e9' "lab: function-agentrun v0.4.0"
 # Autopilot's hardened tier: off by default (hardened runs Rejected), on with autopilot.hardenedRuntime: gvisor
 expect "${K}/dev" "eks-dev" '!55-autopilot/sandbox-runtime'
@@ -342,10 +345,12 @@ if hack/build-trust-root.sh "${TMP}/bt" --new-start 2026-11-10T00:00:00Z --legac
 # Clearance gate (clearance G-ARGO-2, 56-clearance-gate): upper clusters only, off by default; Warn, then Deny + Allow->Deny.
 expect "${LAB}/prod" "prod/kind" '!56-clearance-gate/admission.yaml'
 G="${TMP}/gate"
-mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/warn/cluster.yaml"
-{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/enforce/cluster.yaml"
-{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111"}}'; } >"${G}/dev/cluster.yaml"
+mkdir -p "${G}/warn" "${G}/enforce" "${G}/dev" "${G}/ca" "${G}/ca-empty" "${G}/ca-bad"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/warn/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, agentServiceAccount: "clearance-system:the-agent"}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/enforce/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'clearance: {gate: {enabled: true}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/dev/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: hangar-cluster-ca}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca/cluster.yaml"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, waitCAConfigMap: ""}}'; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-empty/cluster.yaml"
 render_ok "${G}/warn" "prod clearance gate warn"
 render_ok "${G}/enforce" "prod clearance gate enforce"
 render_ok "${G}/dev" "dev clearance gate key"
@@ -361,7 +366,7 @@ if [ "${HAVE_YAML}" = true ]; then
 import sys, yaml
 m = yaml.safe_load(open(sys.argv[1]))["metadata"]
 a = m.get("annotations") or {}
-want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "2"}
+want = {"argocd.argoproj.io/sync-wave": "0", "clearance.hangar.io/schema-revision": "3"}
 bad = [k for k, v in want.items() if a.get(k) != v]
 bad += [k for k in want if k in (m.get("labels") or {})]
 if bad:
@@ -369,7 +374,7 @@ if bad:
     sys.exit(1)
 PY
   )"; then
-    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 2"
+    ok "clearance gate: the CRD's metadata.annotations hold sync-wave 0 and schema-revision 3"
   else
     bad "clearance gate: the CRD's metadata.annotations ${out}"
   fi
@@ -382,11 +387,256 @@ has "${G}/warn/${GP}" "== 'system:serviceaccount:clearance-system:clearance-argo
 has "${G}/enforce/${GP}" 'validationActions: \[Deny, Audit\]' "clearance gate: enforce denies"
 has "${G}/enforce/${GP}" 'parameterNotFoundAction: Deny' "clearance gate: enforce flips parameterNotFoundAction too"
 has "${G}/enforce/${GP}" "clearance-system:the-agent'" "clearance gate: the agent account is configurable"
-if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" 2>&1)"; then
+# clearance.gate.waitCAConfigMap (I-43, A-17): off (unset or empty) the policy is byte for byte the one without the key; on, it
+# admits only the plugin's CA volume of that ConfigMap; a name that is not a ConfigMap name is refused before it reaches the CEL.
+render_ok "${G}/ca" "prod clearance gate enforce + waitCAConfigMap"
+render_ok "${G}/ca-empty" "prod clearance gate enforce + empty waitCAConfigMap"
+sed 's/clearance-system:the-agent/clearance-system:clearance-argocd-agent/' "${G}/enforce/${GP}" | cmp -s - "${G}/ca-empty/${GP}" \
+  && ok "clearance gate: the waitCAConfigMap-off policy is the enforce policy byte for byte (bar the agent account)" \
+  || bad "clearance gate: the waitCAConfigMap-off policy differs from the enforce policy"
+nca() { grep -c "$1" "$2" 2>/dev/null || true; }
+[ "$(nca 'clearance-ca' "${G}/warn/${GP}")" = 0 ] && [ "$(nca 'clearance-ca' "${G}/enforce/${GP}")" = 0 ] \
+  && ok "clearance gate: no CA volume is admitted without waitCAConfigMap" || bad "clearance gate: the CA exemption renders without waitCAConfigMap"
+has "${G}/ca/${GP}" "configMap.name == 'hangar-cluster-ca'" "clearance gate: the CA exemption pins the ConfigMap from waitCAConfigMap"
+has "${G}/ca/${GP}" "mountPath == '/etc/clearance-ca'" "clearance gate: the CA exemption pins the mount path"
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, waitCAConfigMap: \"x' || true || 'y\"}}"; echo 'versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'; } >"${G}/ca-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/ca-bad/cluster.yaml" 2>&1)" && bad "clearance gate: a waitCAConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'waitCAConfigMap' <<<"${out}" && ok "clearance gate: a waitCAConfigMap that is not a ConfigMap name is refused" || bad "clearance gate: bad waitCAConfigMap refusal text: ${out}"; }
+# clearance.gate.previousURL (A-19): one release only; off, the URL test is the single == as before; on, exactly the two URLs.
+WIMG='versions: {clearance: {cmpImage: "ghcr.io/acme/clearance-cmp@sha256:aaaa", waitImage: "registry.invalid/clearance-wait@sha256:1111111111111111111111111111111111111111111111111111111111111111", previousWaitImage: ""}}'
+mkdir -p "${G}/prev" "${G}/prev-same" "${G}/prev-bad" "${G}/inject-noca"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, enforce: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://clearance-core.clearance-system.svc:8080"}}'; echo "${WIMG}"; } >"${G}/prev/cluster.yaml"
+render_ok "${G}/prev" "prod clearance gate enforce + previousURL"
+has "${G}/prev/${GP}" "variables.waitctr.env\[0\].value in \['https://clearance-core.clearance-system.svc:8443', 'http://clearance-core.clearance-system.svc:8080'\] &&" "previousURL: the exemption admits the current and the previous URL"
+has "${G}/enforce/${GP}" "variables.waitctr.env\[0\].value == '" "no previousURL: the single-URL test as before"
+if grep -q 'env\[0\].value in' "${G}/enforce/${GP}" "${G}/warn/${GP}"; then bad "no previousURL: the URL test renders a list"; else ok "no previousURL: no URL list"; fi
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "http://clearance.hangar-dev.local", previousURL: "http://clearance.hangar-dev.local"}}'; echo "${WIMG}"; } >"${G}/prev-same/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-same/cluster.yaml" 2>&1)" && bad "previousURL equal to gate.url rendered" \
+  || { grep -q 'previousURL equals' <<<"${out}" && ok "previousURL equal to gate.url is refused" || bad "previousURL equal: ${out}"; }
+{ cat "${LAB}/prod/cluster.yaml"; echo "clearance: {gate: {enabled: true, previousURL: \"http://x' || true || 'y\"}}"; echo "${WIMG}"; } >"${G}/prev-bad/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/prev-bad/cluster.yaml" 2>&1)" && bad "a previousURL that is not a URL rendered" \
+  || { grep -q 'clearance.gate.previousURL is' <<<"${out}" && ok "a previousURL that could reach the CEL is refused" || bad "bad previousURL: ${out}"; }
+mkdir -p "${G}/prev-v6"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, url: "https://clearance-core.clearance-system.svc:8443", previousURL: "http://[2001:db8::1]:8080"}}'; echo "${WIMG}"; } >"${G}/prev-v6/cluster.yaml"
+python3 hack/render.py --cluster "${G}/prev-v6/cluster.yaml" >/dev/null 2>&1 \
+  && has "${G}/prev-v6/${GP}" "'http://\[2001:db8::1\]:8080'\] &&" "previousURL: an IPv6 host renders (CodeRabbit on #271)" || bad "previousURL: an IPv6 URL was refused"
+{ cat "${LAB}/prod/cluster.yaml"; echo 'clearance: {gate: {enabled: true, waitCAInject: true}}'; echo "${WIMG}"; } >"${G}/inject-noca/cluster.yaml"
+out="$(python3 hack/render.py --cluster "${G}/inject-noca/cluster.yaml" 2>&1)" && bad "waitCAInject without waitCAConfigMap rendered" \
+  || { grep -q 'waitCAInject needs clearance.gate.waitCAConfigMap' <<<"${out}" && ok "waitCAInject without waitCAConfigMap is refused" || bad "waitCAInject without the policy key: ${out}"; }
+if out="$(python3 tests/policy/test_clearance_gate.py "${G}/warn" "${G}/enforce" "${G}/ca" "${G}/prev" 2>&1)"; then
   ok "clearance gate admission: $(tail -1 <<<"${out}")"
 else
   bad "clearance gate admission: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
 fi
+
+echo "== 1-ca. trust-manager and the cluster CA (A-19)"
+# Off by default: neither renders. On: the chart and its image are pinned (the image by digest), no public-CA package image runs,
+# the CA is ECDSA P-256 with its key never rotated, and the Bundle writes ConfigMap hangar-cluster-ca (key ca.crt) to every namespace.
+expect "${LAB}/dev" "dev/kiac default" '!10-crds-operators/trust-manager/application.yaml' '!10-crds-operators/cluster-ca/ca.yaml'
+expect "${LAB}/prod" "prod/kind default" '!10-crds-operators/trust-manager/application.yaml' '!10-crds-operators/cluster-ca/ca.yaml'
+CAD="${TMP}/cluster-ca"
+new "${CAD}/on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.trustManager=true --set components.clusterCA=true
+render_ok "${CAD}/on" "dev trustManager + clusterCA"
+TMA="${CAD}/on/10-crds-operators/trust-manager/application.yaml"
+CAY="${CAD}/on/10-crds-operators/cluster-ca/ca.yaml"
+TMV="$(sed -n 's/^    chart: \(v[0-9.]*\)$/\1/p' <(sed -n '/^  trustManager:/,/imageDigest/p' versions.yaml))"
+TMD="$(sed -n 's/^    imageDigest: \(sha256:[0-9a-f]*\)$/\1/p' <(sed -n '/^  trustManager:/,/imageDigest/p' versions.yaml))"
+[ -n "${TMV}" ] && [ -n "${TMD}" ] && ok "versions.trustManager: chart ${TMV}, image ${TMD:0:19}..." || bad "versions.trustManager: no chart or digest read"
+has "${TMA}" "targetRevision: ${TMV}$" "trust-manager: the chart is pinned from versions.trustManager.chart"
+has "${TMA}" "tag: \"${TMV}\"" "trust-manager: the image tag is the chart version"
+has "${TMA}" "digest: \"${TMD}\"" "trust-manager: the image index is pinned by digest"
+has "${TMA}" 'namespace: cert-manager$' "trust-manager: installs into cert-manager, its trust namespace"
+grep -A1 'defaultPackage:' "${TMA}" | grep -q 'enabled: false' && ok "trust-manager: no public-CA package image" || bad "trust-manager: defaultPackage is not off"
+grep -A1 'secretTargets:' "${TMA}" | grep -q 'enabled: false' && ok "trust-manager: no Secret targets" || bad "trust-manager: secretTargets is not off"
+has "${CAD}/on/10-crds-operators/cluster-ca/application.yaml" 'path: 10-crds-operators/cluster-ca$' "cluster CA: its own Application"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${CAY}" <<'PY' 2>&1
+import sys, yaml
+docs = {(d["kind"], d["metadata"]["name"]): d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+bad = []
+ca = docs[("Certificate", "hangar-cluster-ca")]
+s = ca["spec"]
+if not (s.get("isCA") is True and s.get("secretName") == "hangar-cluster-ca" and ca["metadata"].get("namespace") == "cert-manager"):
+    bad.append("the CA Certificate is not isCA hangar-cluster-ca in cert-manager")
+if s.get("privateKey") != {"algorithm": "ECDSA", "size": 256, "rotationPolicy": "Never"}:
+    bad.append(f"CA key {s.get('privateKey')}")
+if s.get("duration") != "87600h":
+    bad.append("CA duration is not 10 years")
+if s.get("issuerRef", {}).get("name") != "hangar-cluster-ca-bootstrap" or s["issuerRef"].get("kind") != "ClusterIssuer":
+    bad.append("the CA is not signed by the bootstrap ClusterIssuer")
+if docs[("ClusterIssuer", "hangar-cluster-ca-bootstrap")]["spec"] != {"selfSigned": {}}:
+    bad.append("the bootstrap issuer is not self-signed")
+if docs[("ClusterIssuer", "hangar-cluster-ca")]["spec"] != {"ca": {"secretName": "hangar-cluster-ca"}}:
+    bad.append("the CA ClusterIssuer does not sign with hangar-cluster-ca")
+b = docs[("Bundle", "hangar-cluster-ca")]
+if b["apiVersion"] != "trust.cert-manager.io/v1alpha1":
+    bad.append("Bundle apiVersion " + b["apiVersion"])
+if b["spec"].get("sources") != [{"secret": {"name": "hangar-cluster-ca", "key": "ca.crt"}}]:
+    bad.append(f"Bundle sources {b['spec'].get('sources')} (want only the CA Secret's ca.crt)")
+if b["spec"].get("target") != {"configMap": {"key": "ca.crt"}}:
+    bad.append(f"Bundle target {b['spec'].get('target')} (want a ConfigMap, key ca.crt, every namespace: no namespaceSelector)")
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "cluster CA: self-signed bootstrap -> CA (P-256, 10y, key kept) -> CA ClusterIssuer; the Bundle publishes only ca.crt to every namespace"
+  else
+    bad "cluster CA: ${out}"
+  fi
+fi
+for c in "components.clusterCA=true:components.clusterCA needs components.certManager" \
+         "components.trustManager=true:components.trustManager needs components.certManager"; do
+  new "${CAD}/bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+    --set components.certManager=false --set "${c%%:*}" --set components.trustManager=true
+  out="$(python3 hack/render.py --cluster "${CAD}/bad/cluster.yaml" 2>&1)" && bad "${c%%:*} without cert-manager rendered" \
+    || { grep -qF "${c#*:}" <<<"${out}" && ok "${c%%:*} without cert-manager is refused" || bad "${c%%:*} without cert-manager: ${out}"; }
+done
+new "${CAD}/notm" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.clusterCA=true
+out="$(python3 hack/render.py --cluster "${CAD}/notm/cluster.yaml" 2>&1)" && bad "clusterCA without trustManager rendered" \
+  || { grep -qF "components.clusterCA needs" <<<"${out}" && ok "clusterCA without trustManager is refused" || bad "clusterCA without trustManager: ${out}"; }
+new "${CAD}/nodig" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set components.trustManager=true --set versions.trustManager.imageDigest=latest
+out="$(python3 hack/render.py --cluster "${CAD}/nodig/cluster.yaml" 2>&1)" && bad "trustManager with no image digest rendered" \
+  || { grep -qF "versions.trustManager.imageDigest" <<<"${out}" && ok "trustManager without an image digest is refused" || bad "trustManager without a digest: ${out}"; }
+
+echo "== 1-cm. cert-manager's DNS-01 self-check resolvers (certManager.dns01RecursiveNameservers, off by default)"
+# Unset: the cert-manager Application carries neither chart value (the pod's resolv.conf, as before). Set: the chart's
+# dns01RecursiveNameservers (the list, comma-joined) and dns01RecursiveNameserversOnly, which render the controller's
+# --dns01-recursive-nameservers and --dns01-recursive-nameservers-only. apron check refuses anything but a list of host:port.
+CMA="10-crds-operators/cert-manager/application.yaml"
+for d in "${LAB}/dev" "${LAB}/prod"; do
+  if grep -q 'dns01Recursive' "${d}/${CMA}"; then bad "cert-manager default (${d##*/}): resolver values rendered"
+  else ok "cert-manager default (${d##*/}): no resolver values (resolv.conf)"; fi
+done
+CMD="${TMP}/certmanager-dns01"
+new "${CMD}/on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set 'certManager.dns01RecursiveNameservers=["192.0.2.53:53", "[2001:db8::53]:53", "resolver.example.net:5353"]'
+render_ok "${CMD}/on" "dev certManager.dns01RecursiveNameservers"
+has "${CMD}/on/${CMA}" '^        dns01RecursiveNameservers: "192\.0\.2\.53:53,\[2001:db8::53\]:53,resolver\.example\.net:5353"$' \
+  "cert-manager: the resolvers render comma-joined in list order"
+has "${CMD}/on/${CMA}" '^        dns01RecursiveNameserversOnly: true$' "cert-manager: the self-check uses only those resolvers"
+if [ "${HAVE_YAML}" = true ]; then
+  out="$(python3 - "${CMD}/on/${CMA}" "${LAB}/dev/${CMA}" <<'PY' 2>&1
+import sys, yaml
+on, off = (yaml.safe_load(open(p))["spec"]["source"]["helm"]["valuesObject"] for p in sys.argv[1:])
+want = dict(off, dns01RecursiveNameservers="192.0.2.53:53,[2001:db8::53]:53,resolver.example.net:5353", dns01RecursiveNameserversOnly=True)
+if on != want:
+    print(f"valuesObject {on} (want {want})")
+    sys.exit(1)
+PY
+  )" && ok "cert-manager: the knob adds exactly the two chart values" || bad "cert-manager: ${out}"
+fi
+new "${CMD}/empty" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set 'certManager.dns01RecursiveNameservers=[]'
+render_ok "${CMD}/empty" "dev certManager.dns01RecursiveNameservers: []"
+grep -q 'dns01Recursive' "${CMD}/empty/${CMA}" && bad "cert-manager: an empty list rendered resolver values" \
+  || ok "cert-manager: an empty list renders nothing"
+cm_refused() { # cm_refused LABEL WANT --set ...
+  local label="$1" want="$2"; shift 2
+  new "${CMD}/bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "$@"
+  out="$(python3 hack/render.py --cluster "${CMD}/bad/cluster.yaml" 2>&1)" && bad "${label} rendered" \
+    || { grep -qF -- "${want}" <<<"${out}" && ok "${label} is refused" || bad "${label}: ${out}"; }
+}
+cm_refused "a resolver without a port" "entry '192.0.2.53': not host:port" --set 'certManager.dns01RecursiveNameservers=["192.0.2.53"]'
+cm_refused "a port out of range" "port 65536 is not 1-65535" --set 'certManager.dns01RecursiveNameservers=["192.0.2.53:65536"]'
+cm_refused "a bad IPv4 address" "192.0.2.300 is not an IPv4 address" --set 'certManager.dns01RecursiveNameservers=["192.0.2.300:53"]'
+cm_refused "an unbracketed IPv6 address" "not host:port" --set 'certManager.dns01RecursiveNameservers=["2001:db8::53:53"]'
+cm_refused "a DoH URL" "not host:port" --set 'certManager.dns01RecursiveNameservers=["https://resolver.example.net/dns-query"]'
+cm_refused "a resolver listed twice" "lists a resolver twice" --set 'certManager.dns01RecursiveNameservers=["192.0.2.53:53", "192.0.2.53:53"]'
+cm_refused "a string, not a list" "is a list of host:port resolvers" --set 'certManager.dns01RecursiveNameservers=192.0.2.53:53'
+cm_refused "resolvers without cert-manager" "needs components.certManager" --set components.certManager=false \
+  --set 'certManager.dns01RecursiveNameservers=["192.0.2.53:53"]'
+
+echo "== 1-tls. the Clearance core's and API's https (clearance.tls, A-19)"
+# Off: no tls block, the routes on 8080, no BackendTLSPolicy, Traefik's status rule as before. On: the chart's tls.* with the cluster
+# CA's ClusterIssuer and 90/30 days; gatewayBackendTLS moves exactly the core's and the API's routes to 8443 behind a v1 policy.
+CLR="55-clearance/clearance/application.yaml"
+TLSDIR="${TMP}/ctls"
+TLS_BASE=(--repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set components.clearance=true)
+new "${TLSDIR}/off" dev hangar-dev kiac "${TLS_BASE[@]}"
+render_ok "${TLSDIR}/off" "dev clearance, tls off"
+if grep -q '^        tls:' "${TLSDIR}/off/${CLR}"; then bad "tls off: the Clearance Application has a tls block"; else ok "tls off: no tls block"; fi
+[ "$(grep -c 'port: 8080' "${TLSDIR}/off/55-clearance/clearance-config/routes.yaml")" -ge 2 ] && ok "tls off: the routes send to 8080" || bad "tls off: the routes do not send to 8080"
+expect "${TLSDIR}/off" "tls off" '!55-clearance/clearance-config/backend-tls.yaml'
+if grep -q 'backendtlspolicies/status' "${TLSDIR}/off/10-crds-operators/traefik/gateway.yaml"; then bad "tls off: Traefik's status rule changed"; else ok "tls off: Traefik's status rule as before"; fi
+new "${TLSDIR}/on" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true
+render_ok "${TLSDIR}/on" "dev clearance tls + gatewayBackendTLS"
+has "${TLSDIR}/on/${CLR}" '^          plainHttp: true$' "tls on: plain http stays by default"
+has "${TLSDIR}/on/${CLR}" 'issuerRef: \{"name": "hangar-cluster-ca", "kind": "ClusterIssuer"\}' "tls on: the cluster CA's ClusterIssuer signs the leaves"
+has "${TLSDIR}/on/${CLR}" '^            duration: 2160h$' "tls on: 90-day leaves"
+has "${TLSDIR}/on/${CLR}" '^            renewBefore: 720h$' "tls on: renewed 30 days early"
+[ "$(grep -c 'port: 8080' "${TLSDIR}/on/55-clearance/clearance-config/routes.yaml")" = 0 ] && [ "$(grep -c 'port: 8443' "${TLSDIR}/on/55-clearance/clearance-config/routes.yaml")" -ge 2 ] \
+  && ok "gatewayBackendTLS: every core and API route sends to 8443" || bad "gatewayBackendTLS: a route still sends to 8080"
+has "${TLSDIR}/on/10-crds-operators/traefik/gateway.yaml" 'tlsroutes/status, backendtlspolicies/status\]' "gatewayBackendTLS: Traefik may report the policies' status"
+BTP="${TLSDIR}/on/55-clearance/clearance-config/backend-tls.yaml"
+if [ "${HAVE_YAML}" = true ]; then
+  if out="$(python3 - "${BTP}" <<'PY' 2>&1
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+bad = []
+if sorted(d["metadata"]["name"] for d in docs) != ["clearance-api", "clearance-core"]:
+    bad.append("want two policies, clearance-core and clearance-api")
+for d in docs:
+    n = d["metadata"]["name"]
+    if d["apiVersion"] != "gateway.networking.k8s.io/v1" or d["kind"] != "BackendTLSPolicy":
+        bad.append(f"{n}: {d['apiVersion']} {d['kind']}")
+    if d["spec"]["targetRefs"] != [{"group": "", "kind": "Service", "name": n, "sectionName": "https"}]:
+        bad.append(f"{n}: targetRefs {d['spec']['targetRefs']}")
+    want = {"caCertificateRefs": [{"group": "", "kind": "ConfigMap", "name": "hangar-cluster-ca"}], "hostname": f"{n}.clearance-system.svc"}
+    if d["spec"]["validation"] != want:
+        bad.append(f"{n}: validation {d['spec']['validation']}")
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+PY
+  )"; then
+    ok "gatewayBackendTLS: a v1 BackendTLSPolicy per Service, section https, verified against hangar-cluster-ca for <service>.<ns>.svc"
+  else
+    bad "gatewayBackendTLS: ${out}"
+  fi
+fi
+new "${TLSDIR}/own" dev hangar-dev kiac "${TLS_BASE[@]}" --set clearance.tls.enabled=true
+render_ok "${TLSDIR}/own" "dev clearance tls without the cluster CA"
+has "${TLSDIR}/own/${CLR}" 'issuerRef: \{"name": "", "kind": "Issuer"\}' "tls without components.clusterCA: the chart's own CA"
+[ "$(grep -c 'port: 8443' "${TLSDIR}/own/55-clearance/clearance-config/routes.yaml")" = 0 ] && ok "tls without gatewayBackendTLS: the routes stay on 8080" || bad "tls without gatewayBackendTLS moved a route"
+tls_refused() { # tls_refused LABEL WANT --set ...
+  local label="$1" want="$2"; shift 2
+  new "${TLSDIR}/bad" dev hangar-dev kiac "${TLS_BASE[@]}" "$@"
+  local out
+  out="$(python3 hack/render.py --cluster "${TLSDIR}/bad/cluster.yaml" 2>&1)" && { bad "${label}: rendered"; return; }
+  grep -qF "${want}" <<<"${out}" && ok "${label}: refused" || bad "${label}: refusal text: ${out}"
+}
+tls_refused "gatewayBackendTLS without tls" "clearance.tls.gatewayBackendTLS needs clearance.tls.enabled" --set components.trustManager=true --set components.clusterCA=true --set clearance.tls.gatewayBackendTLS=true
+tls_refused "gatewayBackendTLS without the cluster CA" "needs components.clusterCA" --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true
+tls_refused "tls on an older chart" "versions.clearance.chart 0.54.0 or later" --set clearance.tls.enabled=true --set versions.clearance.chart=0.53.0
+tls_refused "tls without cert-manager" "clearance.tls.enabled needs components.certManager" --set clearance.tls.enabled=true --set components.certManager=false
+tls_refused "tls.enabled not a bool" "clearance.tls.enabled is true or false" --set clearance.tls.enabled=yes-please
+tls_refused "plainHttp false with plain-http routes" "the Gateway's routes (set clearance.tls.gatewayBackendTLS)" --set clearance.tls.enabled=true --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Autopilot" "the Autopilot gateway and read API" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false without tls" "clearance.tls.plainHttp false needs clearance.tls.enabled" --set clearance.tls.plainHttp=false
+tls_refused "plainHttp false with Glidepath" "Glidepath's agent gates and deployment gate" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false
+# The callers of clearance.gate.url are refused only while that URL is plain http (CodeRabbit on #270).
+new "${TLSDIR}/gurl" dev hangar-dev kiac "${TLS_BASE[@]}" --set components.trustManager=true --set components.clusterCA=true \
+  --set clearance.tls.enabled=true --set clearance.tls.gatewayBackendTLS=true --set clearance.tls.plainHttp=false --set clearance.targets.enabled=true
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+grep -qF "the target registry publisher (clearance.gate.url is plain http)" <<<"${out}" && ok "plainHttp false: the publisher on a plain-http gate.url is named" || bad "plainHttp false, publisher on http: ${out}"
+python3 - "${TLSDIR}/gurl/cluster.yaml" <<'PYG'
+import sys, yaml
+p = sys.argv[1]; d = yaml.safe_load(open(p))
+d["clearance"].setdefault("gate", {})["url"] = "https://clearance-core.clearance-system.svc:8443"
+yaml.safe_dump(d, open(p, "w"), sort_keys=False)
+PYG
+out="$(python3 hack/check.py --cluster "${TLSDIR}/gurl/cluster.yaml" 2>&1)"
+if grep -qF "target registry publisher (clearance.gate.url is plain http)" <<<"${out}"; then bad "plainHttp false: the publisher is named as a plain-http caller although gate.url is https"; else ok "plainHttp false: the publisher on an https gate.url is not a plain-http caller"; fi
+# ...but an https gate.url to the in-cluster core is refused while the publisher (or the audit collector) cannot trust its private CA.
+grep -qF "the target registry publisher (clearance.targets.enabled) has no CA setting" <<<"${out}" \
+  && ok "https gate.url to the in-cluster core: refused while the publisher has no CA setting (CodeRabbit on #270)" || bad "https gate.url, publisher without a CA: ${out}"
 
 echo "== 1a. glidepath-api's PipelineRun policies (pipeline trust T5)"
 GA="${TMP}/gpapi"
@@ -399,8 +649,20 @@ has "${LAB}/dev/${GW}" 'name: glidepath-api-pipelinerun-source-isolation' "glide
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"build-source\", \"unit-test\", \"build-image\", \"build-python-wheel-artifact\", \"build-go-binary-artifact\"\], \"clearance-gate-check\": \[\"render\"\], \"policy-validation-check\": \[\"render\"\], \"test\": \[\"run-integration-script\"\], \"values-check\": \[\"render\"\]\}'" "glidepath-api: the source tasks come from versions.glidepathRunTasks"
 has "${LAB}/dev/${GW}" "expression: '\{\"build\": \[\"push-image\"\]\}'" "glidepath-api: the pusher task"
 has "${LAB}/dev/${GW}" "expression: '\{\"deploy\": \[\"deploy-aws-lambda\", \"deploy-aws-ecs\"\]\}'" "glidepath-api: the cloud deployer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"bypass-merge-check\": \[\"mark-release-merged\", \"itsm-implement\"\], \"clearance-gate-check\": \[\"join-release\"\], \"itsm-check\": \[\"verify-change\", \"verify-change-advisory\"\], \"release\": \[\"open-release-pr\"\], \"release-outcome-notify\": \[\"itsm-close\"\], \"release-rollback-notify\": \[\"itsm-close-rolled-back\"\]\}'" "glidepath-api: the release-record-writer tasks"
+has "${LAB}/dev/${GW}" "expression: '\{\"test\": \[\"run-testworkflow\"\]\}'" "glidepath-api: the test-runner task"
+has "${LAB}/dev/${GW}" "s.serviceAccountName == 'clearance-gate' && variables.pipelineName in variables.clearanceTasks" "glidepath-api: clearance-gate is allowed on its own tasks, by exact name"
 has "${LAB}/dev/${GW}" '^  validationActions: \[Deny\]$' "glidepath-api: deny by default"
 has "${LAB}/dev/${CPV}" '^  sourceIsolationActions: \[Deny\]$' "glidepath control plane: source isolation Deny by default"
+# itsm.enabled (glidepath-app, pipeline trust T4 step 3) follows itsm.provider: true with the webhook provider (hangar-dev's mock), absent without.
+mkdir -p "${GA}/itsm" "${GA}/noitsm"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: webhook, webhookUrl: "http://itsm-mock.platform-system.svc.cluster.local:8080/webhook"}'; } >"${GA}/itsm/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'itsm: {provider: null, webhookUrl: null}'; } >"${GA}/noitsm/cluster.yaml"
+render_ok "${GA}/itsm" "dev with the webhook ITSM provider"
+render_ok "${GA}/noitsm" "dev with no ITSM provider"
+for d in itsm noitsm; do [ -f "${GA}/${d}/${CPV}" ] || bad "glidepath control plane: the ${d} render has no ${CPV} to check"; done
+if awk '/^itsm:$/{f=1;next} f&&/^  enabled: true$/{ok=1} f&&/^[^ #]/{f=0} END{exit !ok}' "${GA}/itsm/${CPV}"; then ok "glidepath control plane: the webhook ITSM provider renders itsm.enabled: true"; else bad "glidepath control plane: the webhook ITSM provider does not render itsm.enabled: true"; fi
+if grep -q '^itsm:' "${GA}/noitsm/${CPV}"; then bad "glidepath control plane: no ITSM provider still renders itsm.enabled"; else ok "glidepath control plane: no ITSM provider leaves itsm.enabled out (false)"; fi
 has "${LAB}/dev/${CPV}" '^  concurrencyLimit: 3$' "glidepath control plane: the dev profile queues Pipelines-as-Code runs at 3 per repository"
 mkdir -p "${GA}/nogate"
 { cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateConcurrency: null, gitopsRepoProvenance: null}'; } >"${GA}/nogate/cluster.yaml"
@@ -464,6 +726,37 @@ if python3 hack/check.py --cluster "${GA}/rp-bad/cluster.yaml" >/dev/null 2>"${G
 else
   grep -q 'glidepath.refProtection' "${GA}/rp-bad/err" && ok "glidepath.refProtection: an unknown value is refused by apron check" || bad "refProtection refusal: $(cat "${GA}/rp-bad/err")"
 fi
+# promotion.gateLedger.writer (W-8): who writes the gate ledger. Unset renders no gateLedger key (the catalog's direct stands); api renders it.
+mkdir -p "${GA}/glw-api" "${GA}/glw-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: api}}'; } >"${GA}/glw-api/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'promotion: {gateLedger: {writer: pipeline}}'; } >"${GA}/glw-bad/cluster.yaml"
+render_ok "${GA}/glw-api" "dev promotion.gateLedger.writer api"
+has "${GA}/glw-api/${CATV}" '^          promotion: \{.*"gateLedger": \{"writer": "api"\}' "glidepath catalog: promotion.gateLedger.writer api reaches the catalog values"
+if grep -q 'gateLedger' "${LAB}/dev/${CATV}"; then bad "promotion.gateLedger.writer unset: dev still renders a gateLedger key"; else ok "promotion.gateLedger.writer unset: dev renders no gateLedger key (unchanged)"; fi
+if python3 hack/check.py --cluster "${GA}/glw-bad/cluster.yaml" >/dev/null 2>"${GA}/glw-bad/err"; then
+  bad "promotion.gateLedger.writer: pipeline was accepted"
+else
+  grep -q 'promotion.gateLedger.writer' "${GA}/glw-bad/err" && ok "promotion.gateLedger.writer: an unknown value is refused by apron check" || bad "gateLedger.writer refusal: $(cat "${GA}/glw-bad/err")"
+fi
+# glidepath.gateReports.transport (W-8): how api-compat and policy-validation hand over their report. Unset renders no gateReports key
+# (the catalog's configmap stands); log renders it as one line; an unknown value is refused by both render and check.
+mkdir -p "${GA}/grt-log" "${GA}/grt-bad"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: log}}'; } >"${GA}/grt-log/cluster.yaml"
+{ cat "${LAB}/dev/cluster.yaml"; echo 'glidepath: {gateReports: {transport: pod}}'; } >"${GA}/grt-bad/cluster.yaml"
+render_ok "${GA}/grt-log" "dev glidepath.gateReports.transport log"
+has "${GA}/grt-log/${CATV}" '^          gateReports: \{"transport": "log"\}' "glidepath catalog: glidepath.gateReports.transport log reaches the catalog values"
+if grep -q 'gateReports' "${LAB}/dev/${CATV}"; then bad "glidepath.gateReports.transport unset: dev still renders a gateReports key"; else ok "glidepath.gateReports.transport unset: dev renders no gateReports key (unchanged)"; fi
+if [ "$(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}" | grep -c '^[<>]')" = 1 ]; then ok "glidepath.gateReports.transport log: the catalog Application differs from unset by one line"; else bad "gateReports log diff: $(diff "${LAB}/dev/${CATV}" "${GA}/grt-log/${CATV}")"; fi
+if python3 hack/check.py --cluster "${GA}/grt-bad/cluster.yaml" >/dev/null 2>"${GA}/grt-bad/err"; then
+  bad "glidepath.gateReports.transport: pod was accepted by apron check"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/err" && ok "glidepath.gateReports.transport: an unknown value is refused by apron check" || bad "gateReports.transport check refusal: $(cat "${GA}/grt-bad/err")"
+fi
+if python3 hack/render.py --cluster "${GA}/grt-bad/cluster.yaml" --out "${GA}/grt-bad" >/dev/null 2>"${GA}/grt-bad/rerr"; then
+  bad "glidepath.gateReports.transport: pod was rendered"
+else
+  grep -q 'glidepath.gateReports.transport' "${GA}/grt-bad/rerr" && ok "glidepath.gateReports.transport: an unknown value is refused by apron render" || bad "gateReports.transport render refusal: $(cat "${GA}/grt-bad/rerr")"
+fi
 # releaseGuardrailOverrides: the catalog's per-cluster `required` of a release gate (glidepath release-guardrails.md "Who sets it"), e.g.
 # clearance-gate required on one cluster (docs/admin/clearance-gate.md, G-ARGO-8). Unset renders no key at all, so every other cluster is byte-identical.
 mkdir -p "${GA}/gro-on" "${GA}/gro-bad" "${GA}/gro-bad2"
@@ -522,6 +815,8 @@ if [ "${HAVE_YAML}" = true ]; then
   gp_drift "a source task Glidepath added" 's/build: \[build-source,/build: [build-source, lint-source,/' 'sourceTasks.build: missing here: lint-source'
   gp_drift "a source task Glidepath dropped" 's/build-go-binary-artifact\]/build-go-binary-artifactx]/' 'not in Glidepath: build-go-binary-artifact'
   gp_drift "a new pusher task" 's/build: \[push-image\]/build: [push-image, push-sbom]/' 'pusherTasks.build: missing here: push-sbom'
+  gp_drift "a new record-writer task" 's/    release: \[open-release-pr\]/    release: [open-release-pr, open-release-x]/' 'recordWriterTasks.release: missing here: open-release-x'
+  gp_drift "a new test-runner task" 's/    test: \[run-testworkflow\]/    test: [run-testworkflow, run-more]/' 'testRunnerTasks.test: missing here: run-more'
   gp_drift "a new cloud deployer Pipeline" 's/    deploy: \[deploy-aws-lambda, deploy-aws-ecs\]/    deploy: [deploy-aws-lambda, deploy-aws-ecs]\n    release: [deploy-aws-ecs]/' 'cloudDeployerTasks.release'
   for bad in 'a: [unclosed' '- a list' 'cicdRunAdmission: [x]'; do
     printf '%s\n' "${bad}" >"${TMP}/gp-badvalues.yaml"
@@ -584,7 +879,7 @@ python3 hack/render.py --cluster "${TMP}/gp-prov-same/cluster.yaml" >/dev/null 2
 
 echo "== 1b. the Argo CD gate(clearance.gate.enabled: the plugin sidecar and the ApplicationSet's plugin source)"
 GATE_SET=(--set clearance.gate.enabled=true --set 'clearance.protectedEnvironments=[hangar-prod/prod]'
-  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb)
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=)
 new "${TMP}/gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
 render_ok "${TMP}/gate" "gate on"
@@ -656,6 +951,163 @@ new "${TMP}/gate-prev-same" prod hangar-prod kind --repo-url https://github.com/
   --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true \
   --set "versions.clearance.previousWaitImage=ghcr.io/acme/clearance-wait@sha256:bbbb"
 if python3 hack/render.py --cluster "${TMP}/gate-prev-same/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage equal to waitImage was accepted"; else ok "previousWaitImage equal to waitImage is refused"; fi
+# The agent's previous wait-image pin (I-59, clearance#218; agent chart 0.56.0): previousWaitImage is passed as waitJob.previousImage.
+PWJ=(--fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]'
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc)
+new "${TMP}/gate-pwj" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.56.0 --set "versions.clearance.previousWaitImage=${PREV}"
+render_ok "${TMP}/gate-pwj" "agent chart 0.56.0 with previousWaitImage"
+PWA="${TMP}/gate-pwj/56-clearance-gate/agent/application.yaml"
+has "${PWA}" "^          previousImage: \"${PREV}\"$" "agent chart 0.56.0: waitJob.previousImage is previousWaitImage"
+has "${PWA}" '^          image: "ghcr.io/acme/clearance-wait@sha256:bbbb"$' "agent chart 0.56.0: waitJob.image stays the new digest"
+grep -B1 '^          previousImage:' "${PWA}" | head -1 | grep -q '^          #' && ok "agent chart 0.56.0: previousImage sits in waitJob, after its comment" || bad "agent chart 0.56.0: previousImage is not where waitJob.image is"
+new "${TMP}/gate-pwj-none" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.56.0
+render_ok "${TMP}/gate-pwj-none" "agent chart 0.56.0 without previousWaitImage"
+if grep -q 'previousImage' "${TMP}/gate-pwj-none/56-clearance-gate/agent/application.yaml"; then bad "no previousWaitImage: waitJob.previousImage rendered"; else ok "no previousWaitImage: no waitJob.previousImage"; fi
+new "${TMP}/gate-pwj-old" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme "${PWJ[@]}" \
+  --set versions.clearance.argocdAgentChart=0.55.0 --set "versions.clearance.previousWaitImage=${PREV}"
+out="$(python3 hack/check.py --cluster "${TMP}/gate-pwj-old/cluster.yaml" 2>&1)" && bad "previousWaitImage on an agent chart before 0.56.0 passed check" \
+  || { grep -q 'argocdAgentChart 0.56.0 or later' <<<"${out}" && ok "previousWaitImage on an agent chart before 0.56.0 is refused by check" || bad "previousWaitImage, old agent chart: ${out}"; }
+if python3 hack/render.py --cluster "${TMP}/gate-pwj-old/cluster.yaml" >/dev/null 2>&1; then bad "previousWaitImage on an agent chart before 0.56.0 rendered"; else ok "previousWaitImage on an agent chart before 0.56.0 does not render"; fi
+python3 hack/render.py --no-check --cluster "${TMP}/gate-pwj-old/cluster.yaml" >/dev/null 2>&1 || bad "previousWaitImage, old agent chart, --no-check: render failed"
+if grep -q 'previousImage' "${TMP}/gate-pwj-old/56-clearance-gate/agent/application.yaml"; then bad "agent chart 0.55.0: waitJob.previousImage rendered"; else ok "agent chart 0.55.0 (--no-check): no waitJob.previousImage, the chart has none"; fi
+has "${TMP}/gate-pwj-old/56-clearance-gate/admission.yaml" "variables.waitctr.image in \\['ghcr.io/acme/clearance-wait@sha256:bbbb', '${PREV}'\\] &&" "agent chart 0.55.0 (--no-check): the exemption still admits both wait images"
+# The gate's clients' CA (A-19, plan steps 4 and 5b): off, no CA in the sidecars or the agent; on, each names the ConfigMap.
+AGA="${TMP}/gate-agent/56-clearance-gate/agent/application.yaml"
+RSA="${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml"
+if grep -q 'clearance-ca\|CLEARANCE_CA_FILE\|CLEARANCE_WAIT_CA_CONFIGMAP' "${RSA}" || grep -q 'caConfigMap' "${AGA}"; then
+  bad "gate CA off: a CA setting rendered"; else ok "gate CA off: no CA in the sidecar or the agent"; fi
+new "${TMP}/gate-ca" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=https://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=https://clearance-api.hangar-dev.local \
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.54.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca --set clearance.gate.waitCAConfigMap=hangar-cluster-ca --set clearance.gate.waitCAInject=true \
+  --set clearance.gate.canary.image=ghcr.io/acme/clearance-cmp@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-ca" "gate on with the clients' CA"
+RSC="${TMP}/gate-ca/01-argocd-platform/argocd-apps-install/application.yaml"
+AGC="${TMP}/gate-ca/56-clearance-gate/agent/application.yaml"
+[ "$(grep -c 'name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars read the CA file" || bad "caConfigMap: CLEARANCE_CA_FILE is not on both sidecars"
+[ "$(grep -c 'name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true' "${RSC}")" = 2 ] && ok "caConfigMap: both sidecars mount the CA read-only" || bad "caConfigMap: the CA mount is not on both sidecars"
+[ "$(grep -c 'name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "hangar-cluster-ca"' "${RSC}")" = 2 ] && ok "waitCAInject: both sidecars inject the wait Job's CA" || bad "waitCAInject: CLEARANCE_WAIT_CA_CONFIGMAP is not on both sidecars"
+# clearance.gate.fsSandbox (A-24): unset, no CLEARANCE_CMP_FS_SANDBOX renders (gate-agent, gate-ca above); set, both sidecars carry it;
+# a value other than try, require or off is refused by render and check.
+if grep -q 'CLEARANCE_CMP_FS_SANDBOX' "${RSA}" "${RSC}"; then bad "fsSandbox unset: the env rendered"; else ok "fsSandbox unset: no CLEARANCE_CMP_FS_SANDBOX"; fi
+new "${TMP}/gate-fs" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=https://clearance.hangar-dev.local \
+  --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local --set 'clearance.gate.apps=[gate-api]' \
+  --set clearance.gate.fsSandbox=require \
+  --set clearance.gate.canary.image=ghcr.io/acme/clearance-cmp@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-fs" "gate on with fsSandbox require"
+[ "$(grep -c 'name: CLEARANCE_CMP_FS_SANDBOX, value: "require"' "${TMP}/gate-fs/01-argocd-platform/argocd-apps-install/application.yaml")" = 2 ] \
+  && ok "fsSandbox: both sidecars set CLEARANCE_CMP_FS_SANDBOX" || bad "fsSandbox: CLEARANCE_CMP_FS_SANDBOX is not on both sidecars"
+python3 hack/check.py --cluster "${TMP}/gate-fs/cluster.yaml" >/dev/null 2>&1 && ok "fsSandbox: check accepts require" || bad "fsSandbox: check refused require"
+mkdir -p "${TMP}/gate-fs-bad"
+sed 's/fsSandbox: require/fsSandbox: strict/' "${TMP}/gate-fs/cluster.yaml" >"${TMP}/gate-fs-bad/cluster.yaml"
+grep -q 'fsSandbox: strict' "${TMP}/gate-fs-bad/cluster.yaml" || bad "fsSandbox: the bad-value fixture did not take"
+out="$(python3 hack/render.py --cluster "${TMP}/gate-fs-bad/cluster.yaml" 2>&1)" && bad "fsSandbox: a bad value rendered" \
+  || { grep -q 'clearance.gate.fsSandbox' <<<"${out}" && ok "fsSandbox: a bad value is refused by render" || bad "fsSandbox: bad value refusal text: ${out}"; }
+out="$(python3 hack/check.py --cluster "${TMP}/gate-fs-bad/cluster.yaml" 2>&1)" && bad "fsSandbox: check accepted a bad value" \
+  || { grep -q 'clearance.gate.fsSandbox' <<<"${out}" && ok "fsSandbox: a bad value is refused by check" || bad "fsSandbox: check refusal text: ${out}"; }
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${RSC}" "${AGC}" <<'PY' && ok "gate CA: the repo-server volume is the ConfigMap's ca.crt only; the agent's tls.caConfigMap and waitJob.caConfigMap name it" || bad "gate CA: the rendered values are wrong"
+import sys, yaml
+app = yaml.safe_load(open(sys.argv[1]))
+vols = app["spec"]["source"]["helm"]["valuesObject"]["repoServer"]["volumes"]
+ca = [x for x in vols if x["name"] == "clearance-ca"]
+assert ca == [{"name": "clearance-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], ca
+ag = yaml.safe_load(open(sys.argv[2]))["spec"]["source"]["helm"]["valuesObject"]
+assert ag["tls"] == {"caConfigMap": "hangar-cluster-ca"}, ag.get("tls")
+assert ag["waitJob"]["caConfigMap"] == "hangar-cluster-ca", ag["waitJob"]
+PY
+fi
+new "${TMP}/gate-ca-old" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]' \
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.53.0 \
+  --set clearance.gate.caConfigMap=hangar-cluster-ca
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-old/cluster.yaml" 2>&1)" && bad "gate CA on an agent chart before 0.54.0 rendered" \
+  || { grep -q 'argocdAgentChart 0.54.0 or later' <<<"${out}" && ok "gate CA on an agent chart before 0.54.0 is refused" || bad "gate CA, old agent chart: ${out}"; }
+new "${TMP}/gate-ca-bad" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set 'clearance.gate.caConfigMap=Not_A_Name'
+out="$(python3 hack/render.py --cluster "${TMP}/gate-ca-bad/cluster.yaml" 2>&1)" && bad "a caConfigMap that is not a ConfigMap name rendered" \
+  || { grep -q 'clearance.gate.caConfigMap is' <<<"${out}" && ok "a caConfigMap that is not a ConfigMap name is refused" || bad "bad caConfigMap: ${out}"; }
+# The grant-expiry webhook, agent HA, the status heartbeat and the alerts (I-44; agent chart 0.55.0): unset, none renders (gate-agent
+# above); set, the agent's values carry them; check refuses a bad value, a missing prerequisite and the chart's gate.enforce rule.
+if grep -qE 'grantExpiry|^ *ha:|statusHeartbeat|alerts:|^ *gate:|previousURL' "${AGA}"; then bad "I-44 unset: a setting rendered in the agent"; else ok "I-44 unset: no grantExpiry, ha, statusHeartbeat, alerts or gate in the agent"; fi
+AGENT_SET=(--set clearance.gate.url=http://clearance.hangar-dev.local --set clearance.gate.hostAlias=192.0.2.1=clearance.hangar-dev.local
+  --set 'clearance.gate.apps=[gate-api]' --set clearance.gate.agent.apiURL=http://clearance-api.hangar-dev.local
+  --set 'clearance.gate.agent.projects=[gate-api]' --set 'clearance.gate.agent.protectedNamespaces=[app-gate-api-prod]'
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc --set versions.clearance.argocdAgentChart=0.55.0)
+i44() { # i44 NAME [more --set flags]: a prod cluster with the gate and its agent
+  local d="${TMP}/$1"; shift
+  new "${d}" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+    --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" "${AGENT_SET[@]}" "$@"
+}
+i44_refused() { # i44_refused NAME TEXT LABEL: render and check both refuse, naming TEXT
+  local out
+  out="$(python3 hack/render.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: rendered"; return; }
+  grep -qF -- "$2" <<<"${out}" || { bad "$3: render's refusal: ${out}"; return; }
+  out="$(python3 hack/check.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: check accepted it"; return; }
+  grep -qF -- "$2" <<<"${out}" && ok "$3 is refused" || bad "$3: check's refusal: ${out}"
+}
+i44 gate-i44 --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.ha.enabled=true \
+  --set clearance.gate.agent.statusHeartbeat=5m --set clearance.gate.agent.alerts.enabled=true --set clearance.gate.previousURL=http://clearance-old.hangar-dev.local
+render_ok "${TMP}/gate-i44" "gate agent with grantExpiry (audit), ha, statusHeartbeat and alerts"
+AGI="${TMP}/gate-i44/56-clearance-gate/agent/application.yaml"
+has "${AGI}" '^        grantExpiry: \{"enabled": true, "argocdUser": "system:serviceaccount:argocd-apps:argocd-application-controller"\}$' "grantExpiry: enabled, audit by the chart's default, the policy's controller"
+has "${AGI}" '^          previousURL: "http://clearance-old.hangar-dev.local"$' "grantExpiry with previousURL: the webhook exempts the previous URL's wait Job too"
+if grep -q '^ *gate:' "${AGI}"; then bad "gate.enforce off: the agent was told the policy enforces"; else ok "gate.enforce off: no gate values in the agent"; fi
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${AGI}" <<'PY' && ok "I-44: the agent's values are the chart's keys" || bad "I-44: the agent's rendered values are wrong"
+import sys, yaml
+v = yaml.safe_load(open(sys.argv[1]))["spec"]["source"]["helm"]["valuesObject"]
+assert v["ha"] == {"enabled": True}, v.get("ha")
+assert v["statusHeartbeat"] == "5m", v.get("statusHeartbeat")
+assert v["alerts"] == {"enabled": True, "labels": {"release": "kube-prometheus-stack"}}, v.get("alerts")
+assert v["waitJob"]["previousURL"] == "http://clearance-old.hangar-dev.local", v["waitJob"]
+PY
+fi
+i44 gate-i44-enf --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.grantExpiry.mode=enforce \
+  --set clearance.gate.enforce=true --set clearance.gate.argocdServiceAccount=argocd-apps:my-controller
+render_ok "${TMP}/gate-i44-enf" "gate.enforce with an enforcing grant-expiry webhook"
+AGE="${TMP}/gate-i44-enf/56-clearance-gate/agent/application.yaml"
+has "${AGE}" '^        grantExpiry: \{"enabled": true, "enforce": true, "argocdUser": "system:serviceaccount:argocd-apps:my-controller"\}$' "grantExpiry mode enforce: the chart's enforce, the named controller"
+has "${AGE}" '^          enforce: true$' "gate.enforce: the agent chart is told the policy denies"
+if grep -q 'previousURL' "${AGE}"; then bad "no previousURL: one rendered"; else ok "no previousURL: none in the agent"; fi
+i44 gate-i44-enf-audit --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.enforce=true
+i44_refused gate-i44-enf-audit "clearance.gate.enforce needs clearance.gate.agent.grantExpiry {enabled: true, mode: enforce}" "gate.enforce with the webhook in audit"
+i44 gate-i44-enf-none --set clearance.gate.enforce=true
+i44_refused gate-i44-enf-none "clearance.gate.enforce needs clearance.gate.agent.grantExpiry" "gate.enforce without the webhook"
+i44 gate-i44-risk --set clearance.gate.enforce=true --set clearance.gate.agent.grantExpiry.acceptResidualRisk=true
+render_ok "${TMP}/gate-i44-risk" "gate.enforce without the webhook, acceptResidualRisk"
+has "${TMP}/gate-i44-risk/56-clearance-gate/agent/application.yaml" '^        grantExpiry: \{"acceptResidualRisk": true\}$' "acceptResidualRisk alone: only the override renders"
+i44 gate-i44-enf-old --set clearance.gate.enforce=true --set versions.clearance.argocdAgentChart=0.54.0
+render_ok "${TMP}/gate-i44-enf-old" "gate.enforce on an agent chart before 0.55.0 (no webhook to require)"
+i44 gate-i44-mode --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.grantExpiry.mode=strict
+i44_refused gate-i44-mode "clearance.gate.agent.grantExpiry.mode is 'strict'" "a grantExpiry mode other than audit or enforce"
+i44 gate-i44-enf-off --set clearance.gate.agent.grantExpiry.mode=enforce
+i44_refused gate-i44-enf-off "mode: enforce needs grantExpiry.enabled: true" "grantExpiry mode enforce without enabled"
+i44 gate-i44-typo --set clearance.gate.agent.grantExpiry.enable=true
+i44_refused gate-i44-typo "clearance.gate.agent.grantExpiry.enable is not a setting" "an unknown grantExpiry key"
+i44 gate-i44-old --set clearance.gate.agent.grantExpiry.enabled=true --set versions.clearance.argocdAgentChart=0.54.0
+i44_refused gate-i44-old "need versions.clearance.argocdAgentChart 0.55.0 or later" "grantExpiry on an agent chart before 0.55.0"
+i44 gate-i44-nocm --set clearance.gate.agent.grantExpiry.enabled=true --set components.certManager=false
+i44_refused gate-i44-nocm "clearance.gate.agent.grantExpiry needs components.certManager" "grantExpiry without cert-manager"
+i44 gate-i44-hb --set clearance.gate.agent.statusHeartbeat=5m30s
+i44_refused gate-i44-hb "clearance.gate.agent.statusHeartbeat is '5m30s'" "a statusHeartbeat of two units"
+i44 gate-i44-al-hb --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-hb "clearance.gate.agent.alerts needs statusHeartbeat" "alerts without statusHeartbeat"
+i44 gate-i44-al-ge --set clearance.gate.agent.statusHeartbeat=5m --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-ge "clearance.gate.agent.alerts needs grantExpiry.enabled" "alerts without the webhook"
+i44 gate-i44-al-slow --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.statusHeartbeat=15m --set clearance.gate.agent.alerts.enabled=true
+i44_refused gate-i44-al-slow "must be below 15m with alerts" "a statusHeartbeat not below the alert's staleness"
+i44 gate-i44-al-obs --set clearance.gate.agent.grantExpiry.enabled=true --set clearance.gate.agent.statusHeartbeat=5m \
+  --set clearance.gate.agent.alerts.enabled=true --set components.observability=false
+i44_refused gate-i44-al-obs "clearance.gate.agent.alerts needs components.observability" "alerts without kube-prometheus-stack"
 has "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml" 'clearance-api.hangar-dev.local' "gate.agent: the agent's host alias names clearance-api"
 has "${TMP}/gate-agent/01-argocd-platform/argocd-apps-install/application.yaml" 'hostAliases: \[\{"ip": "192.0.2.1"' "gate.hostAlias: the repo-server gets it"
 has "${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml" 'value: "http://clearance.hangar-dev.local"' "gate on: the sidecar reaches the core at clearance.gate.url"
@@ -666,6 +1118,520 @@ else
   ok "gate off: no sidecar and no plugin source"
 fi
 if grep -q 'CLEARANCE_CHART_REPOS' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml"; then bad "gate off: the chart allow list leaked into a cluster that did not ask for it"; else ok "gate off: no chart allow list"; fi
+# I-78 (`clearance-cmp doctor`): the token is not world-readable, the pod's fsGroup is the sidecar's group, and the memory limit fits the
+# default 4 renders x 512Mi. The canary sidecar carries the same limit (checked with the canary render below).
+CMPAPP="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
+has "${CMPAPP}" "defaultMode: 0440" "gate: the projected clearance token is mode 0440"
+has "${CMPAPP}" "fsGroup: 999" "gate: the pod's fsGroup is 999 (the sidecar's uid/group)"
+[ "$(grep -c 'limits: {memory: 2560Mi}' "${CMPAPP}")" = 1 ] && ok "gate: the clearance-cmp limit is 2560Mi (4 renders x 512Mi + 512Mi)" || bad "gate: the clearance-cmp memory limit is not 2560Mi"
+if grep -q 'limits: {memory: 512Mi}' "${CMPAPP}"; then bad "gate: a sidecar still has the 512Mi limit"; else ok "gate: no sidecar keeps the 512Mi limit"; fi
+if grep -q 'defaultMode: 0440\|fsGroup: 999' "${TMP}/lab/prod/01-argocd-platform/argocd-apps-install/application.yaml"; then bad "gate off: the token mode or fsGroup leaked"; else ok "gate off: no token mode or fsGroup"; fi
+# clearance.gate.canary: a second sidecar from another image, named by the listed apps only. Unset, nothing differs.
+CANARY=ghcr.io/acme/clearance-cmp@sha256:2222222222222222222222222222222222222222222222222222222222222222
+CMPAPP="${TMP}/gate/01-argocd-platform/argocd-apps-install/application.yaml"
+if grep -q 'clearance-canary\|clearance-cmp-canary\|cmp-tmp-canary' "${CMPAPP}" "${AS}"; then bad "canary unset: a canary sidecar, volume or plugin name rendered"; else ok "canary unset: no canary sidecar, volume or plugin name (the render is today's)"; fi
+new "${TMP}/gate-canary" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set "clearance.gate.canary.image=${CANARY}" --set 'clearance.gate.canary.apps=[gate-api]'
+render_ok "${TMP}/gate-canary" "gate on with a canary plugin"
+CA="${TMP}/gate-canary/01-argocd-platform/argocd-apps-install/application.yaml"
+CAS="${TMP}/gate-canary/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
+has "${CA}" "name: clearance-cmp-canary" "canary: a second sidecar"
+[ "$(grep -c 'limits: {memory: 2560Mi}' "${CA}")" = 2 ] && ok "canary: both sidecars carry the 2560Mi limit" || bad "canary: the sidecar limits are not both 2560Mi"
+has "${CA}" "image: ${CANARY}" "canary: it runs the canary image"
+has "${CA}" "image: ghcr.io/acme/clearance-cmp@sha256:aaaa" "canary: the first sidecar keeps the default image"
+has "${CA}" "command: \[/var/run/argocd/argocd-cmp-server, --config-dir-path, /home/argocd/cmp-server/config-canary\]" "canary: it registers the image's canary plugin.yaml"
+has "${CA}" "name: cmp-tmp-canary, emptyDir" "canary: its own /tmp volume, not the first sidecar's"
+has "${CAS}" 'name: \{\{ if regexMatch "\^\(gate-api\)\$" .appName \}\}clearance-canary\{\{ else \}\}clearance\{\{ end \}\}' "canary: only the listed apps name clearance-canary"
+if [ "$(grep -c 'cmp-tmp-canary' "${CA}")" = 2 ] && [ "$(grep -c 'mountPath: /tmp$' "${CA}")" = 0 ]; then ok "canary: cmp-tmp-canary is declared once and mounted once"; else bad "canary: cmp-tmp-canary is not declared and mounted exactly once"; fi
+# the second sidecar has the first's settings and security context: the two blocks are equal once the three canary-only lines are dropped
+python3 - "${CA}" <<'PY' && ok "canary: same settings and security context as the first sidecar" || bad "canary: the sidecars differ beyond image, command and tmp volume"
+import sys, re
+lines = open(sys.argv[1]).read().split("\n")
+def block(name):
+    i = next(n for n, l in enumerate(lines) if l.strip() == "- name: " + name)
+    ind = len(lines[i]) - len(lines[i].lstrip())
+    out = []
+    for l in lines[i + 1:]:
+        if l.strip() and len(l) - len(l.lstrip()) <= ind:
+            break
+        out.append(l)
+    return out
+def norm(b, tmp):
+    return [l.replace(tmp, "cmp-tmp-X") for l in b if not l.lstrip().startswith(("image:", "command:", "#"))]
+a, b = norm(block("clearance-cmp"), "cmp-tmp,"), norm(block("clearance-cmp-canary"), "cmp-tmp-canary,")
+sys.exit(0 if a == b and any("readOnlyRootFilesystem: true" in l for l in a) and len(a) > 15 else 1)
+PY
+for BAD in "clearance.gate.canary.image=ghcr.io/acme/clearance-cmp:latest" "clearance.gate.canary.apps=[]" "clearance.gate.canary.apps=[Bad_App]" "clearance.gate.canary.apps=gate-api"; do
+  new "${TMP}/gate-canary-bad" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+    --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+    --set "clearance.gate.canary.image=${CANARY}" --set 'clearance.gate.canary.apps=[gate-api]' --set "${BAD}"
+  if python3 hack/render.py --cluster "${TMP}/gate-canary-bad/cluster.yaml" >/dev/null 2>&1; then bad "canary ${BAD}: accepted"; else ok "canary ${BAD}: refused"; fi
+done
+new "${TMP}/gate-canary-out" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set "clearance.gate.canary.image=${CANARY}" --set 'clearance.gate.canary.apps=[other-app]' --set 'clearance.gate.apps=[gate-api]'
+if python3 hack/render.py --cluster "${TMP}/gate-canary-out/cluster.yaml" >/dev/null 2>&1; then bad "canary app outside clearance.gate.apps: accepted"; else ok "canary app outside clearance.gate.apps: refused (the gate does not cover it)"; fi
+# G-ARGO-10c on a lower cluster that runs the core (a rehearsal): the gate stack on a lower zone, no tenant Application on the plugin,
+# the agent's annotation opt-in and environment, and the core's NetworkPolicies for the repo-server and the agent. All off by default.
+OPT_PROV='clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: [clearance-system/clearance-argocd-agent], protection: ["clearance-system/clearance-argocd-agent=hangar-dev"]}]'
+OPT_SET=(--set clearance.gate.enabled=true --set clearance.gate.lowerZone=true --set clearance.gate.tenantPlugin=false
+  --set versions.clearance.cmpImage=ghcr.io/acme/clearance-cmp@sha256:aaaa --set versions.clearance.waitImage=ghcr.io/acme/clearance-wait@sha256:bbbb --set versions.clearance.previousWaitImage=
+  --set versions.clearance.argocdAgentImage=ghcr.io/acme/clearance-argocd-agent@sha256:cccc
+  --set clearance.gate.agent.apiURL=http://clearance-api.clearance-system.svc:8080 --set 'clearance.gate.agent.projects=[rehearsal]'
+  --set 'clearance.gate.agent.protectedNamespaces=[rehearsal]' --set clearance.gate.agent.environment=dev --set clearance.gate.agent.optIn=true
+  --set "${OPT_PROV}")
+new "${TMP}/gate-opt" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}"
+render_ok "${TMP}/gate-opt" "lower cluster, gate with the opt-in"
+expect "${TMP}/gate-opt" "gate.lowerZone" 56-clearance-gate/admission.yaml 56-clearance-gate/clearancegrant-crd.yaml 56-clearance-gate/agent/application.yaml
+OA="${TMP}/gate-opt/56-clearance-gate/agent/application.yaml"
+has "${OA}" '^        optIn:$' "gate.agent.optIn: the agent's chart gets optIn"
+has "${OA}" '^          enabled: true$' "gate.agent.optIn: enabled"
+has "${OA}" '^        environment: "dev"$' "gate.agent.environment: the agent's default environment"
+has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" 'regexMatch "\^\$" .appName' "gate.tenantPlugin false: no app name matches the plugin regex"
+# W-43 (clearance.gate.agent.gatedSet, default off): with it off the tenant-onboarding chart is what it was, even with optIn on;
+# with it on the chart renders two ApplicationSets (tenant-onboarding, tenant-onboarding-gated) from one template. What the
+# controller does with them is tested against the real Argo CD ApplicationSet controller in tests/appset (section 5).
+for NOOPT in "${TMP}/gate-opt" "${TMP}/gate-agent" "${TMP}/gate" "${LAB}/prod"; do
+  if grep -q 'ignoreApplicationDifferences\|preservedFields\|clearanceGate\|clearance.hangar.io/protect\|__SET_\|_SET_ONLY__\|tenant-onboarding-gated\|applicationsSync' \
+      "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" "${NOOPT}/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml"; then
+    bad "no gatedSet (${NOOPT##*/}): the tenant-onboarding chart mentions the gated set"
+  else ok "no gatedSet (${NOOPT##*/}): the tenant-onboarding chart is as before (one ApplicationSet, no selector, no ignore rule)"; fi
+done
+has "${TMP}/gate-opt/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml" '^\{\{- \.Files\.Get "applicationset\.tmpl\.yaml"$' "gatedSet off: render.yaml emits the template once, as before"
+GS="${TMP}/gate-set"
+new "${GS}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" --set clearance.gate.agent.gatedSet=true
+render_ok "${GS}" "gate opt-in with the gated set"
+GSA="${GS}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; GSR="${GS}/02-argocd-apps/tenant-onboarding/chart/templates/render.yaml"
+has "${GSA}" '^  name: __SET_NAME__$' "gatedSet: the ApplicationSet's name is the set's"
+has "${GSA}" '^            operator: __SET_SELECTOR_OPERATOR__$' "gatedSet: the generator selects on clearanceGate"
+has "${GSA}" '^  __GATED_SET_ONLY__  - jsonPointers: \[/spec/source, /spec/sources\]$' "gatedSet: the source ignore rule is marked gated-set-only"
+has "${GSA}" '^  __GATED_SET_ONLY__  annotations: \[clearance.hangar.io/switched\]$' "gatedSet: preservedFields keeps the agent's switched marker (gated set only)"
+has "${GSA}" '^      __TENANT_SET_ONLY__  - resources-finalizer.argocd.argoproj.io$' "gatedSet: the resources finalizer is tenant-onboarding's only"
+has "${GSA}" '^    \{\{- if and __SET_STATIC_PLUGIN__ \(regexMatch' "gatedSet: the static plugin source is switched per set"
+[ "$(grep -c '^        __GATED_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] && [ "$(grep -c '^        __TENANT_SET_ONLY__- repoURL: "{{.gitopsRepoUrl}}"$' "${GSA}")" = 2 ] \
+  && ok "gatedSet: the gated set lists the \$appsrc source first (the agent's carrier), tenant-onboarding after the chart (template and templatePatch)" \
+  || bad "gatedSet: the \$appsrc source is not ordered per set in both the template and the templatePatch"
+[ "$(grep -c '^        __GATED_SET_ONLY__  path: \.$' "${GSA}")" = 2 ] && [ "$(grep -c '^        __TENANT_SET_ONLY__  path:' "${GSA}")" = 0 ] \
+  && ok "gatedSet: the gated set's \$appsrc carrier has path . (I-82: the agent copies it into its plugin source), tenant-onboarding's has none" \
+  || bad "gatedSet: the gated \$appsrc source lacks path . in the template or the templatePatch, or tenant-onboarding's gained one"
+python3 - "${GSA}" <<'PY' && ok "gatedSet: every \$appsrc source with a path keeps directory.exclude \"*\" (it renders nothing)" || bad "gatedSet: an \$appsrc source with a path would render the repository root"
+import re, sys
+lines = open(sys.argv[1]).read().splitlines()
+n = 0
+for i, l in enumerate(lines):
+    if re.fullmatch(r"\s+__GATED_SET_ONLY__  path: \.", l):
+        blk = lines[i - 3:i + 3]
+        assert any("ref: appsrc" in b for b in blk) and any("exclude: \"*\"" in b for b in blk), blk
+        n += 1
+assert n == 2, n
+PY
+has "${GSR}" '"__SET_NAME__" "tenant-onboarding-gated"' "gatedSet: render.yaml emits tenant-onboarding-gated"
+has "${GSR}" '"__SET_SELECTOR_OPERATOR__" "NotIn"' "gatedSet: tenant-onboarding excludes the gated environments"
+if grep -q 'applicationsSync' "${GSA}"; then bad "gatedSet without gatedSetHandover: applicationsSync rendered"; else ok "gatedSet without gatedSetHandover: no applicationsSync (both sets delete what they stop generating, as before)"; fi
+GSH="${TMP}/gate-set-handover"
+new "${GSH}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agent.gatedSet=true --set clearance.gate.agent.gatedSetHandover=true
+render_ok "${GSH}" "gate opt-in with the gated set and the handover window"
+has "${GSH}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" '^    applicationsSync: create-update$' "gatedSetHandover: both sets create-update (no deletion)"
+# The handover window relies on the controller honouring applicationsSync: no controller-wide policy on argocd-apps' ApplicationSet controller.
+if grep -q 'applicationsetcontroller.policy' templates/01-argocd-platform/argocd-apps-install/application.yaml; then bad "argocd-apps-install sets applicationsetcontroller.policy: an ApplicationSet's applicationsSync would be ignored"; else ok "argocd-apps-install sets no controller-wide applicationsetcontroller.policy (applicationsSync is honoured)"; fi
+for BADP in "clearance.gate.agent.gatedSet=maybe|agent.gatedSet is true or false" "clearance.gate.agent.gatedSetHandover=yes|gatedSetHandover is true or false" \
+            "clearance.gate.agent.optIn=false|gatedSet needs the gate and its agent" "clearance.gate.lowerZone=false|gatedSet needs the gate and its agent" \
+            "clearance.gate.tenantPlugin=true|gatedSet needs clearance.gate.tenantPlugin: false"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/gate-set-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+    --set clearance.gate.agent.gatedSet=true --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-set-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "gated set ${BAD}: refused (${WANT})"; else bad "gated set ${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
+new "${TMP}/gate-set-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agent.gatedSetHandover=true
+BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-set-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -qF -- "gatedSetHandover is the handover window" <<<"${BADERR}"; then ok "gatedSetHandover without gatedSet: refused"; else bad "gatedSetHandover without gatedSet: rc=${BADRC} ${BADERR}"; fi
+# W-42 (clearance.gate.agent.rule, agent chart 0.56.0 gateRule): unset, nothing renders (every agent above is as before); set, it
+# is passed through verbatim, and check holds it to the opt-in, the chart, its own shape and the project and namespace ceiling
+# (derived from the rule's literal values when unset). ruleOptions is the chart's gateRuleOptions, only the keys set.
+for NORULE in "${TMP}/gate-opt" "${TMP}/gate-agent" "${GS}"; do
+  if grep -q 'gateRule' "${NORULE}/56-clearance-gate/agent/application.yaml"; then bad "no rule (${NORULE##*/}): gateRule or gateRuleOptions rendered"; else ok "no rule (${NORULE##*/}): no gateRule in the agent (the render is today's)"; fi
+done
+RULE1='clearance.gate.agent.rule={version: 1, select: [{name: rehearsal, projects: [rehearsal], namespaces: [rehearsal]}, {name: prod-label, projects: [rehearsal], labels: {hangar.io/env: "prod"}}], exempt: [{application: argocd-apps/web-prod, reason: "a migration to the new chart", expires: "2026-12-19", ref: W-45}]}'
+rule() { # rule NAME [more --set flags]: the dev opt-in rehearsal (OPT_SET) with more settings
+  local d="${TMP}/$1"; shift
+  new "${d}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" "$@"
+}
+rule_refused() { # rule_refused NAME TEXT LABEL: check and render both refuse, naming TEXT
+  local out
+  out="$(python3 hack/check.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: check accepted it"; return; }
+  grep -qF -- "$2" <<<"${out}" || { bad "$3: check's refusal: ${out}"; return; }
+  out="$(python3 hack/render.py --cluster "${TMP}/$1/cluster.yaml" 2>&1)" && { bad "$3: rendered"; return; }
+  grep -qF -- "$2" <<<"${out}" && ok "$3 is refused" || bad "$3: render's refusal: ${out}"
+}
+rule gate-rule --set "${RULE1}"
+render_ok "${TMP}/gate-rule" "gate opt-in with the gate rule"
+GRA="${TMP}/gate-rule/56-clearance-gate/agent/application.yaml"
+has "${GRA}" '^        gateRule: \{"version": 1, "select": \[\{"name": "rehearsal", ' "rule: the agent chart's gateRule is the rule, as one JSON flow mapping"
+has "${GRA}" '^          projects: \["rehearsal"\]$' "rule with projects set: the ceiling is clearance.gate.agent.projects"
+if grep -q 'gateRuleOptions' "${GRA}"; then bad "rule without ruleOptions: gateRuleOptions rendered"; else ok "rule without ruleOptions: the chart's own bounds (no gateRuleOptions)"; fi
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${GRA}" "${TMP}/gate-rule/cluster.yaml" <<'PY' && ok "rule: the rendered gateRule is exactly cluster.yaml's rule (verbatim), beside optIn" || bad "rule: the rendered gateRule differs from cluster.yaml's"
+import sys, yaml
+v = yaml.safe_load(open(sys.argv[1]))["spec"]["source"]["helm"]["valuesObject"]
+want = yaml.safe_load(open(sys.argv[2]))["clearance"]["gate"]["agent"]["rule"]
+assert v["gateRule"] == want, (v["gateRule"], want)
+assert v["optIn"] == {"enabled": True}, v["optIn"]
+assert want["select"][1]["labels"] == {"hangar.io/env": "prod"} and want["exempt"][0]["expires"] == "2026-12-19", want
+PY
+fi
+# The ceiling derived from the rule (projects and protectedNamespaces unset): the literal values, in order, once each.
+rule gate-rule-derive --set 'clearance.gate.agent.projects=' --set 'clearance.gate.agent.protectedNamespaces=' \
+  --set 'clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [team-a, team-b], namespaces: [app-a-dev]}, {name: b, projects: [team-a], namespaces: [app-b-dev, app-a-dev]}]}' \
+  --set 'clearance.gate.agent.ownedProject={create: true}'
+render_ok "${TMP}/gate-rule-derive" "gate rule with the ceiling derived from it"
+GRD="${TMP}/gate-rule-derive/56-clearance-gate/agent"
+has "${GRD}/application.yaml" '^          projects: \["team-a", "team-b"\]$' "rule, projects unset: the ceiling is the rule's literal projects"
+has "${GRD}/application.yaml" '^        protectedNamespaces: \["app-a-dev", "app-b-dev"\]$' "rule, protectedNamespaces unset: the rule's literal namespaces"
+has "${GRD}/owned.yaml" '^  name: "app-b-dev"$' "rule with ownedProject: the derived namespaces are the ones owned"
+rule gate-rule-opts --set "${RULE1}" --set 'clearance.gate.agent.ruleOptions={releaseMax: 1, exemptMax: 720h}'
+render_ok "${TMP}/gate-rule-opts" "gate rule with ruleOptions"
+has "${TMP}/gate-rule-opts/56-clearance-gate/agent/application.yaml" '^        gateRuleOptions: \{"releaseMax": 1, "exemptMax": "720h"\}$' "ruleOptions: the chart's gateRuleOptions, only the keys set"
+# globs: a glob project passes only against "*"; a glob namespace against a listed namespace it matches
+rule gate-rule-glob --set 'clearance.gate.agent.projects=["*"]' --set 'clearance.gate.agent.protectedNamespaces=[app-a-prod, app-b-prod]' \
+  --set 'clearance.gate.agent.rule={version: 1, select: [{name: prod, projects: ["team-*"], namespaces: ["app-*-prod"]}]}'
+render_ok "${TMP}/gate-rule-glob" "gate rule with glob projects and namespaces inside an explicit ceiling"
+rule gate-rule-empty --set 'clearance.gate.agent.rule={}'
+render_ok "${TMP}/gate-rule-empty" "an empty gate rule"
+if grep -q 'gateRule' "${TMP}/gate-rule-empty/56-clearance-gate/agent/application.yaml"; then bad "an empty rule: gateRule rendered"; else ok "an empty rule renders as unset (nothing)"; fi
+rule gate-rule-noselect --set 'clearance.gate.agent.rule={version: 1}'
+render_ok "${TMP}/gate-rule-noselect" "a rule that selects nothing (the first rollout step)"
+has "${TMP}/gate-rule-noselect/56-clearance-gate/agent/application.yaml" '^        gateRule: \{"version": 1\}$' "a rule that selects nothing: gateRule {version: 1}"
+# The rule and the gated set: the gated set keeps what the agent asks of a ruled ApplicationSet child (the switched marker preserved,
+# the sources ignored), unconditionally; the rule does not change the tenant-onboarding chart.
+rule gate-rule-set --set "${RULE1}" --set clearance.gate.agent.gatedSet=true
+render_ok "${TMP}/gate-rule-set" "gate rule with the gated set"
+diff -r "${GS}/02-argocd-apps" "${TMP}/gate-rule-set/02-argocd-apps" >/dev/null && ok "rule with gatedSet: the tenant-onboarding chart is the gated set's, unchanged" || bad "rule with gatedSet: the rule changed the tenant-onboarding chart"
+has "${TMP}/gate-rule-set/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" '^  __GATED_SET_ONLY__  annotations: \[clearance.hangar.io/switched\]$' "rule with gatedSet: preservedFields keeps clearance.hangar.io/switched"
+has "${TMP}/gate-rule-set/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" '^  __GATED_SET_ONLY__  - jsonPointers: \[/spec/source, /spec/sources\]$' "rule with gatedSet: ignoreApplicationDifferences on /spec/source and /spec/sources"
+diff -r "${TMP}/gate-opt/02-argocd-apps" "${TMP}/gate-rule/02-argocd-apps" >/dev/null && ok "rule without gatedSet: the tenant-onboarding chart is unchanged" || bad "rule without gatedSet: the tenant-onboarding chart changed"
+for BADP in \
+    "clearance.gate.agent.optIn=false|rule needs clearance.gate.agent.optIn: true" \
+    "versions.clearance.argocdAgentChart=0.55.0|rule needs versions.clearance.argocdAgentChart 0.56.0 or later" \
+    "clearance.gate.lowerZone=false|rule and ruleOptions need the gate and its agent on this cluster" \
+    "clearance.gate.agent.rule=nope|clearance.gate.agent.rule is a mapping" \
+    "clearance.gate.agent.rule={version: 2}|rule.version is 2: it must be 1" \
+    "clearance.gate.agent.rule={version: 1, selects: []}|rule.selects is not a setting" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a}]}|names none of projects, namespaces and labels" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: Bad_Name, projects: [rehearsal]}]}|needs a name, a DNS label" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [rehearsal]}, {name: a, projects: [rehearsal]}]}|the name a is used twice" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, project: [rehearsal]}]}|select[0] (a).project is not a setting" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: rehearsal}]}|projects is a non-empty list of globs" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [rehearsal], labels: {tier: 1}}]}|labels is a non-empty mapping of label key to exact value" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [other]}]}|project other is not in clearance.gate.agent.projects" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [\"team-*\"]}]}|is a glob, and clearance.gate.agent.projects does not hold" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [rehearsal], namespaces: [other]}]}|namespace other is not in clearance.gate.agent.protectedNamespaces" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [rehearsal], namespaces: [\"app-*\"]}]}|matches none of clearance.gate.agent.protectedNamespaces" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: argocd-apps/web, reason: short, expires: \"2026-12-19\"}]}|reason is 10 to 500 characters" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: argocd-apps/web, reason: \"a long enough reason\", expires: \"next week\"}]}|expires is 'next week'" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: argocd-apps/web, reason: \"a long enough reason\", expires: \"2026-02-30\"}]}|expires is '2026-02-30'" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: argocd/web, reason: \"a long enough reason\", expires: \"2026-12-19\"}]}|can never match: the agent reads Applications in argocd-apps" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: web, reason: \"a long enough reason\", expires: \"2026-12-19\"}]}|a glob on <namespace>/<name>" \
+    "clearance.gate.agent.rule={version: 1, exempt: [{application: argocd-apps/web, reason: \"a long enough reason\", expires: \"2026-12-19\", approvedBy: me}]}|exempt[0].approvedBy is not a setting" \
+    "clearance.gate.agent.ruleOptions={releaseMax: 2}|ruleOptions needs clearance.gate.agent.rule" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={releaseMax: 0}|releaseMax is 0" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={exemptMax: 2400h}|is over 2160h" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 30s}|exemptionRecheckTimeout must be below exemptionRecheck" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 5 minutes}|exemptionRecheck is '5 minutes'" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={releasemax: 1}|ruleOptions.releasemax is not a setting" \
+    "${RULE1}|clearance.gate.agent.ruleOptions={exemptionRecheck: 3000000h}|exemptionRecheck is '3000000h'" \
+    "${RULE1}|clearance.gate.agent.projects=[\"team-*\"]|the agent compares its projects exactly" \
+    "${RULE1}|clearance.gate.agent.protectedNamespaces=[\"app-*\"]|the agent's RBAC is one Role per listed namespace"; do
+  WANT="${BADP##*|}"; SETS="${BADP%|*}"
+  ARGS=()
+  while [ -n "${SETS}" ]; do
+    case "${SETS}" in *'|'*) ARGS+=(--set "${SETS%%|*}"); SETS="${SETS#*|}" ;; *) ARGS+=(--set "${SETS}"); SETS="" ;; esac
+  done
+  case "${BADP}" in clearance.gate.agent.rule=*|clearance.gate.agent.ruleOptions=*|"${RULE1}|"*) ;; *) ARGS=(--set "${RULE1}" "${ARGS[@]}") ;; esac
+  rule gate-rule-bad "${ARGS[@]}"
+  LBL="${BADP#"${RULE1}|"}"
+  rule_refused gate-rule-bad "${WANT}" "gate rule: ${LBL#clearance.gate.agent.}"
+done
+# Durations at the edge of Go's int64 nanoseconds: 2562047h is in range (accepted), 2562048h is not (above, refused).
+rule gate-rule-maxdur --set "${RULE1}" --set 'clearance.gate.agent.ruleOptions={exemptionRecheck: 2562047h, exemptionRecheckTimeout: 30s}'
+python3 hack/check.py --cluster "${TMP}/gate-rule-maxdur/cluster.yaml" >/dev/null 2>&1 && ok "ruleOptions: 2562047h, the largest whole-hour Go duration, is accepted" || bad "ruleOptions: 2562047h refused"
+# An empty rule with the gate off is unset (nothing to check); a rule that is not a mapping still needs the gate.
+new "${TMP}/gate-rule-off-empty" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.rule={}'
+render_ok "${TMP}/gate-rule-off-empty" "gate off with an empty rule"
+new "${TMP}/gate-rule-off-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.rule=nope'
+rule_refused gate-rule-off-bad "rule and ruleOptions need the gate and its agent on this cluster" "gate off with a rule that is not a mapping"
+new "${TMP}/gate-rule-off-opts" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set 'clearance.gate.agent.ruleOptions={releaseMax: 2}'
+rule_refused gate-rule-off-opts "rule and ruleOptions need the gate and its agent on this cluster" "gate off with ruleOptions and no rule"
+# Derivation refusals: with the ceiling unset, an entry that names no project, a glob project, no namespace or a glob namespace
+for BADP in \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, namespaces: [app-a-dev]}]}|names no project, so the project ceiling cannot be derived" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [\"team-*\"], namespaces: [app-a-dev]}]}|which the ceiling cannot be derived from" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [team-a]}]}|names no namespace" \
+    "clearance.gate.agent.rule={version: 1, select: [{name: a, projects: [team-a], namespaces: [\"app-*-dev\"]}]}|namespace 'app-*-dev' is a glob: list its namespaces" \
+    "clearance.gate.agent.rule={version: 1}|clearance.gate.agent needs projects"; do
+  rule gate-rule-bad --set 'clearance.gate.agent.projects=' --set 'clearance.gate.agent.protectedNamespaces=' --set "${BADP%%|*}"
+  rule_refused gate-rule-bad "${BADP#*|}" "gate rule, ceiling unset: ${BADP%%|*}"
+done
+# The migration off the static plugin (apron README "Migrating off the static plugin"): tenantOnboarding.syncPaused, a
+# per-environment pause of automated sync, and clearance.gate.migration, the window that lets gatedSet sit beside the static
+# plugin for the apps it names. Both default off; unset (or empty) the tenant-onboarding chart is byte for byte what it was.
+for NOPAUSE in "${TMP}/gate-opt" "${TMP}/gate" "${GS}" "${LAB}/dev" "${LAB}/prod"; do
+  if grep -q 'syncPaused\|automated: null\|key: appName\|TENANT_SYNC\|TENANT_WINDOW' "${NOPAUSE}/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; then
+    bad "no syncPaused or window (${NOPAUSE##*/}): the tenant-onboarding chart mentions them"
+  else ok "no syncPaused or window (${NOPAUSE##*/}): the tenant-onboarding chart is as before"; fi
+done
+new "${TMP}/pause-empty" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set 'tenantOnboarding.syncPaused={}' --set 'clearance.gate.migration={window: false}'
+render_ok "${TMP}/pause-empty" "an empty syncPaused and a closed window"
+diff -r "${TMP}/gate/02-argocd-apps" "${TMP}/pause-empty/02-argocd-apps" >/dev/null && ok "an empty syncPaused and a closed window: the render is byte for byte the one without them" \
+  || bad "an empty syncPaused or a closed window changed the render"
+new "${TMP}/pause-nogate" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set 'tenantOnboarding.syncPaused={shop: [dev, qa]}'
+render_ok "${TMP}/pause-nogate" "syncPaused without the gate"
+PNA="${TMP}/pause-nogate/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
+has "${PNA}" '^    \{\{- \$syncPaused := regexMatch "\^\(shop/dev\|shop/qa\)\$" \(printf "%s/%s" \.appName \.env\) \}\}$' "syncPaused: one regex over <appName>/<env>"
+[ "$(grep -c '^ *automated: null$' "${PNA}")" = 3 ] && ok "syncPaused without the gate: automated: null in the configMapGenerator branch and both {} branches" \
+  || bad "syncPaused without the gate: $(grep -c '^ *automated: null$' "${PNA}") automated: null lines, want 3"
+out="$(python3 hack/check.py --cluster "${TMP}/pause-nogate/cluster.yaml" 2>&1)"
+grep -qF "warning: tenantOnboarding.syncPaused: automated sync is off for shop/dev, shop/qa" <<<"${out}" \
+  && ok "syncPaused: apron check warns while it is set" || bad "syncPaused: no warning from apron check: ${out}"
+new "${TMP}/pause-gate" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
+  --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev "${GATE_SET[@]}" --set clearance.gate.url=http://clearance.hangar-dev.local \
+  --set 'tenantOnboarding.syncPaused={gate-api: [prod]}'
+render_ok "${TMP}/pause-gate" "syncPaused with the static plugin"
+[ "$(grep -c '^ *automated: null$' "${TMP}/pause-gate/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml")" = 4 ] \
+  && ok "syncPaused with the static plugin: the plugin branch is paused too" || bad "syncPaused with the static plugin: the plugin branch has no pause"
+# Removing the pause lines gives back the render without it: the pause adds lines and changes none.
+python3 - "${TMP}/gate/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" "${TMP}/pause-gate/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml" <<'PY' \
+  && ok "syncPaused only adds lines (removing them gives the render without it)" || bad "syncPaused changes lines of the render beyond its own"
+import re, sys
+a, b = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+b = re.sub(r"    \{\{- /\* tenantOnboarding\.syncPaused.*?\*/\}\}\n    \{\{- \$syncPaused := [^\n]*\n", "", b, flags=re.S)
+b = b.replace("      {{- if $syncPaused }}\n      syncPolicy:\n        automated: null\n      {{- end }}\n", "")
+b = b.replace("    {{- if $syncPaused }}\n    spec:\n      syncPolicy:\n        automated: null\n    {{- else }}\n    {}\n    {{- end }}\n", "    {}\n")
+sys.exit(0 if a == b else 1)
+PY
+for BADP in "tenantOnboarding.syncPaused=[shop]|syncPaused is a mapping" "tenantOnboarding.syncPaused={Shop: [prod]}|'Shop' is not an app name" \
+            "tenantOnboarding.syncPaused={shop: []}|syncPaused.shop is a non-empty list" "tenantOnboarding.syncPaused={shop: [prod, prod]}|syncPaused.shop is a non-empty list" \
+            "tenantOnboarding.syncPaused={shop: prod}|syncPaused.shop is a non-empty list"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/pause-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set "${BAD}"
+  out="$(python3 hack/check.py --cluster "${TMP}/pause-bad/cluster.yaml" 2>&1)" && { bad "${BAD}: check accepted it"; continue; }
+  grep -qF -- "${WANT}" <<<"${out}" && ok "${BAD}: refused (${WANT})" || bad "${BAD}: ${out}"
+done
+# The window: the static plugin on for */prod with clearance.gate.apps [shop, pay], the gated set, and the window for shop.
+WIN_SET=("${OPT_SET[@]}" --set clearance.gate.tenantPlugin=true --set 'clearance.protectedEnvironments=["*/prod"]' --set 'clearance.gate.apps=[shop, pay]'
+  --set 'clearance.gate.agent.projects=[shop, pay]' --set 'clearance.gate.agent.protectedNamespaces=[app-shop-prod, app-pay-prod]' --set clearance.gate.agent.gatedSet=true)
+win() { # win NAME [more --set flags]: the window's base cluster (WIN_SET) with more settings
+  local d="${TMP}/$1"; shift
+  new "${d}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${WIN_SET[@]}" "$@"
+}
+# Also the render tests/appset runs (TestMigrationWindow): shop/dev, shop/prod, shop/qa and pay/prod paused.
+win gate-window --set 'clearance.gate.migration={window: true, apps: [shop]}' --set 'tenantOnboarding.syncPaused={shop: [dev, prod, qa], pay: [prod]}'
+render_ok "${TMP}/gate-window" "the migration window with the static plugin and the gated set"
+GWA="${TMP}/gate-window/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"
+[ "$(grep -c '^            values: \["pay"\]$' "${GWA}")" = 1 ] && has "${GWA}" '^          - key: appName$' "window: both sets' main generator leaves out the held app (appName NotIn [pay])" \
+  || bad "window: the main generator's appName NotIn [pay] is not in both sets"
+if grep -A12 '__TENANT_SET_ONLY__- git:' "${GWA}" | grep -q 'clearanceGate'; then bad "window: the held-app generator reads clearanceGate"
+else ok "window: the held-app generator selects on the app name alone"; fi
+has "${GWA}" '^    __TENANT_SET_ONLY__- git:$' "window: tenant-onboarding has a second generator for the held apps"
+has "${GWA}" '^    __TENANT_SET_ONLY__        values: \["pay"\]$' "window: tenant-onboarding's second generator takes exactly the held apps"
+has "${GWA}" 'regexMatch "\^\(shop\|pay\)\$" \.appName' "window: the static plugin's app regex is still clearance.gate.apps"
+out="$(python3 hack/check.py --cluster "${TMP}/gate-window/cluster.yaml" 2>&1)"
+grep -qF "warning: clearance.gate.migration.window is open for shop (pay held in tenant-onboarding)" <<<"${out}" && ok "window: apron check warns while it is open" || bad "window: no warning: ${out}"
+win gate-window-all --set 'clearance.gate.migration={window: true, apps: [shop, pay]}'
+render_ok "${TMP}/gate-window-all" "the migration window for every app of clearance.gate.apps"
+if grep -q 'key: appName\|__TENANT_SET_ONLY__- git:' "${TMP}/gate-window-all/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; then
+  bad "window for every app: a held-app selector rendered"
+else ok "window for every app: nothing is held (no appName selector, one generator per set)"; fi
+for BADP in \
+    "clearance.gate.migration={window: true}|window is open with no apps|a window left open with no apps" \
+    "clearance.gate.migration={window: true, apps: []}|window is open with no apps|a window with an empty list" \
+    "clearance.gate.migration={window: false, apps: [shop]}|names apps but the window is closed|apps listed with the window closed" \
+    "clearance.gate.migration={window: true, apps: [other]}|names other, which clearance.gate.apps leaves out|a window app not in clearance.gate.apps" \
+    "clearance.gate.migration={window: yes, apps: [shop]}|migration.window is true or false|window: yes" \
+    "clearance.gate.migration={window: true, apps: [shop], app: [pay]}|clearance.gate.migration.app is not a setting|an unknown clearance.gate.migration key"; do
+  BAD="${BADP%%|*}"; REST="${BADP#*|}"; WANT="${REST%%|*}"; LABEL="${REST#*|}"
+  if [ -n "${BAD}" ]; then win gate-window-bad --set "${BAD}"; else win gate-window-bad; fi
+  rule_refused gate-window-bad "${WANT}" "${LABEL}"
+done
+# Outside the window the refusal is render's, as before (apron check never held gatedSet to tenantPlugin).
+win gate-window-bad
+out="$(python3 hack/render.py --cluster "${TMP}/gate-window-bad/cluster.yaml" 2>&1)" && bad "gatedSet with the static plugin and no window: rendered" \
+  || { grep -qF "gatedSet needs clearance.gate.tenantPlugin: false" <<<"${out}" && ok "gatedSet with the static plugin and no window is refused, as before" \
+       || bad "gatedSet with the static plugin and no window: ${out}"; }
+for BADP in \
+    "clearance.gate.agent.projects=[pay]|leave out its project shop|a window app outside the agent's projects" \
+    "clearance.gate.agent.protectedNamespaces=[app-pay-prod]|no namespace of the agent's protectedNamespaces is one of its environments|a window app with no protected namespace" \
+    "clearance.gate.apps=[]|window needs clearance.gate.apps|a window with clearance.gate.apps empty (every app on the plugin)" \
+    "clearance.gate.agent.gatedSet=false|window needs the gate, its agent and clearance.gate.agent.gatedSet|a window without the gated set" \
+    "clearance.gate.tenantPlugin=false|window is for a cluster on the static plugin|a window with tenantPlugin: false"; do
+  BAD="${BADP%%|*}"; REST="${BADP#*|}"; WANT="${REST%%|*}"; LABEL="${REST#*|}"
+  win gate-window-bad --set 'clearance.gate.migration={window: true, apps: [shop]}' --set "${BAD}"
+  rule_refused gate-window-bad "${WANT}" "${LABEL}"
+done
+# W-46 (d) (tenantOnboarding.deleteGuard, default off): off, nothing renders (every cluster's render is as before); on, the
+# tenant-onboarding chart renders the ValidatingAdmissionPolicy that refuses the ApplicationSet controller's delete of a
+# tenant-onboarding(-gated) Application. It needs no gate. Admission is tested in section 5 (tests/policy/test_tenant_delete_guard.py),
+# the controller's behaviour with it in tests/appset (TestDeleteGuard).
+DGF=02-argocd-apps/tenant-onboarding/chart/templates/delete-guard.yaml
+for NODG in "${LAB}/dev" "${LAB}/prod" "${GS}" "${GSH}" "${TMP}/gate-opt"; do
+  [ ! -e "${NODG}/${DGF}" ] && ok "deleteGuard off (${NODG##*/}): no delete guard rendered" || bad "deleteGuard off (${NODG##*/}): ${DGF} rendered"
+done
+DG="${TMP}/delete-guard"
+new "${DG}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set tenantOnboarding.deleteGuard.enabled=true
+render_ok "${DG}" "deleteGuard on, no gate"
+DGP="${DG}/${DGF}"
+has "${DGP}" '^  validationActions: \[Audit\]$' "deleteGuard: validationActions defaults to Audit (the first rollout step)"
+# The username comparison is the FIRST matchCondition (a CEL error can then only refuse the controller's own deletes), and it
+# names the ServiceAccount argocd-apps-install's ApplicationSet controller runs as.
+if [ "${HAVE_YAML}" = true ]; then
+  python3 - "${DGP}" <<'PY' && ok "deleteGuard: the username condition is first, on argocd-apps' ApplicationSet controller; every field the second reads is has()-guarded" || bad "deleteGuard: matchConditions"
+import re, sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+p = docs[0]["spec"]
+c = p["matchConditions"]
+assert p["failurePolicy"] == "Fail" and p["matchConstraints"]["resourceRules"][0]["operations"] == ["DELETE"], p
+assert c[0]["expression"] == "request.userInfo.username == 'system:serviceaccount:argocd-apps:argocd-applicationset-controller'", c[0]
+e = c[1]["expression"]
+for field in ("oldObject.metadata.ownerReferences", "r.controller", "r.apiVersion", "r.kind", "r.name"):
+    assert f"has({field})" in e, field
+    # every read of the field comes after its has() guard
+    assert e.index(f"has({field})") < min(m.start() for m in re.finditer(re.escape(field) + r"(?!\))", e)), field
+assert docs[1]["spec"]["policyName"] == docs[0]["metadata"]["name"]
+PY
+fi
+# argocd-apps-install leaves the argo-cd chart's ApplicationSet ServiceAccount name (argocd-applicationset-controller) as it is;
+# a rename there must come with tenantOnboarding.deleteGuard.controllerServiceAccount, or the guard matches nobody.
+if grep -qE '^ +serviceAccount:' templates/01-argocd-platform/argocd-apps-install/application.yaml; then bad "argocd-apps-install sets a serviceAccount: check the delete guard's controllerServiceAccount"; else ok "argocd-apps-install keeps the chart's ApplicationSet ServiceAccount name (the delete guard's default)"; fi
+DGD="${TMP}/delete-guard-deny"
+new "${DGD}" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agent.gatedSet=true --set tenantOnboarding.deleteGuard.enabled=true --set tenantOnboarding.deleteGuard.validationActions=Deny
+render_ok "${DGD}" "deleteGuard Deny, with the gated set"
+has "${DGD}/${DGF}" '^  validationActions: \[Deny\]$' "deleteGuard: validationActions Deny"
+DGS="${TMP}/delete-guard-sa"
+mkdir -p "${DGS}"
+{ cat "${LAB}/prod/cluster.yaml"; printf 'tenantOnboarding:\n  deleteGuard: {enabled: true, controllerServiceAccount: appset.ctrl}\n'; } >"${DGS}/cluster.yaml"
+render_ok "${DGS}" "deleteGuard on prod, another controller ServiceAccount"
+has "${DGS}/${DGF}" "username == 'system:serviceaccount:argocd-apps:appset\.ctrl'" "deleteGuard: controllerServiceAccount names the matched user"
+# Same cluster.yaml plus the key: only the guard's file is added, the rest of the render is byte for byte what it was.
+if diff -r -x cluster.yaml -x .apron-rendered -x delete-guard.yaml "${LAB}/prod" "${DGS}" >/dev/null \
+  && [ "$(diff <(sed 1d "${LAB}/prod/.apron-rendered") <(sed 1d "${DGS}/.apron-rendered") | grep -c '^[<>]')" = 1 ]; then
+  ok "deleteGuard: turning it on adds only the guard's file"
+else bad "deleteGuard: turning it on changes more than the guard's file"; fi
+# A trailing newline would end up inside the policy's CEL string literal: refused (fullmatch, not match).
+mkdir -p "${TMP}/delete-guard-nl"
+{ cat "${LAB}/dev/cluster.yaml"; printf 'tenantOnboarding:\n  deleteGuard: {enabled: true, controllerServiceAccount: "appset-ctrl\\n"}\n'; } >"${TMP}/delete-guard-nl/cluster.yaml"
+BADERR="$(python3 hack/render.py --cluster "${TMP}/delete-guard-nl/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -qF -- "controllerServiceAccount is a ServiceAccount name" <<<"${BADERR}"; then ok "delete guard: a controllerServiceAccount with a trailing newline is refused"; else bad "delete guard: trailing newline: rc=${BADRC} ${BADERR}"; fi
+for BADP in "tenantOnboarding.deleteGuard.enabled=maybe|deleteGuard.enabled is true or false" \
+            "tenantOnboarding.deleteGuard.validationActions=Warn|validationActions is Audit or Deny" \
+            "tenantOnboarding.deleteGuard.controllerServiceAccount=x' or true or 'y|controllerServiceAccount is a ServiceAccount name" \
+            "tenantOnboarding.deleteGuard.controllerServiceAccount=Appset|controllerServiceAccount is a ServiceAccount name" \
+            "tenantOnboarding.deleteGuard=on|tenantOnboarding.deleteGuard is a mapping"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/delete-guard-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/delete-guard-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "delete guard ${BAD}: refused (${WANT})"; else bad "delete guard ${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
+OC="${TMP}/gate-opt/55-clearance/clearance/application.yaml"
+[ "$(grep -c 'app.kubernetes.io/name: argocd-repo-server' "${OC}")" = 1 ] && ok "gate with the core here: the core admits the repo-server" || bad "gate with the core here: the repo-server rule is missing or doubled"
+[ "$(grep -c 'app.kubernetes.io/name: clearance-argocd-agent' "${OC}")" = 2 ] && ok "gate with the core here: the core and clearance-api admit the agent" || bad "gate with the core here: the agent rules are not exactly two (core, api)"
+has "${TMP}/gate-opt/56-clearance-gate/admission.yaml" 'validationActions: \[Warn, Audit\]' "gate.lowerZone: Warn and Audit by default"
+# clearance.gate.agent.ownedProject (W-40): the agent's own Namespaces and AppProjects, as an Application ahead of the agent
+OWN_SET=(--set 'clearance.gate.agent.ownedProject={create: true}')
+new "${TMP}/gate-own" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" "${OWN_SET[@]}"
+render_ok "${TMP}/gate-own" "gate agent ownedProject.create"
+expect "${TMP}/gate-own" "ownedProject.create" 56-clearance-gate/agent/owned.yaml
+OWNF="${TMP}/gate-own/56-clearance-gate/agent/owned.yaml"
+has "${OWNF}" '^kind: Namespace$' "ownedProject: a Namespace"
+has "${OWNF}" '^  name: "rehearsal"$' "ownedProject: the protected namespace's name"
+has "${OWNF}" '^kind: AppProject$' "ownedProject: an AppProject"
+has "${OWNF}" '^  namespace: argocd-apps$' "ownedProject: the AppProject is in argocd-apps (where the agent reads)"
+has "${OWNF}" '^    - \{server: https://kubernetes.default.svc, namespace: "rehearsal"\}$' "ownedProject: the project deploys only into the protected namespace"
+has "${OWNF}" '^    - "https://github.com/acme/gitops-cluster-hangar-dev"$' "ownedProject: sourceRepos defaults to the cluster's gitops repository"
+has "${OWNF}" 'sync-options: Prune=false,Delete=false' "ownedProject: never pruned or deleted by Argo CD"
+if [ "$(grep -c 'sync-wave: "-1"' "${OWNF}")" = 1 ] && [ "$(grep -c 'sync-wave: "0"' "${OWNF}")" = 1 ]; then ok "ownedProject: Namespace wave -1, AppProject wave 0"; else bad "ownedProject: waves are not Namespace -1, AppProject 0"; fi
+OWNA="${TMP}/gate-own/56-clearance-gate/agent/application.yaml"
+has "${OWNA}" '^  sources:$' "ownedProject: the agent Application has two sources (one sync, so the wave order holds)"
+has "${OWNA}" '^    path: 56-clearance-gate/agent$' "ownedProject: the first source is the agent folder (owned.yaml)"
+has "${OWNA}" '^    chart: clearance-argocd-agent$' "ownedProject: the chart is the second source"
+if grep -q '^  source:$' "${OWNA}"; then bad "ownedProject: the agent Application still has a single source"; else ok "ownedProject: no single source left beside sources"; fi
+if grep -q 'sync-wave' "${OWNA}"; then bad "ownedProject: the agent Application carries a wave itself"; else ok "ownedProject: no wave on the Application (waves order the resources inside one sync)"; fi
+if $HAVE_YAML; then python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])); s=d["spec"]["sources"]; assert len(s)==2 and s[0]["path"]=="56-clearance-gate/agent" and s[1]["chart"]=="clearance-argocd-agent" and s[1]["helm"]["releaseName"]=="clearance-argocd-agent" and "source" not in d["spec"], d["spec"]' "${OWNA}" && ok "ownedProject: the agent Application parses with the git source then the chart" || bad "ownedProject: the agent Application's sources are wrong"; fi
+has "${TMP}/gate-opt/56-clearance-gate/agent/application.yaml" '^  source:$' "ownedProject unset: the agent Application keeps its single source"
+if $HAVE_YAML; then python3 -c 'import sys,yaml; d=list(yaml.safe_load_all(open(sys.argv[1]))); assert [x["kind"] for x in d]==["Namespace","AppProject"] and d[1]["spec"]["destinations"]==[{"server":"https://kubernetes.default.svc","namespace":"rehearsal"}], d' "${OWNF}" && ok "ownedProject: owned.yaml parses as Namespace then AppProject" || bad "ownedProject: owned.yaml does not parse as Namespace, AppProject"; fi
+for F in 56-clearance-gate/application.yaml 56-clearance-gate/admission.yaml 56-clearance-gate/clearancegrant-crd.yaml; do
+  cmp -s "${TMP}/gate-own/${F}" "${TMP}/gate-opt/${F}" && ok "ownedProject: ${F} is byte for byte as without it" || bad "ownedProject: ${F} differs from the render without it"
+done
+new "${TMP}/gate-own-multi" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set 'clearance.gate.agent.ownedProject={create: true, sourceRepos: ["https://github.com/acme/one", "https://github.com/acme/two"]}' \
+  --set 'clearance.gate.agent.projects=[p-one, p-two]' --set 'clearance.gate.agent.protectedNamespaces=[ns-one, ns-two]'
+render_ok "${TMP}/gate-own-multi" "ownedProject, two projects and two namespaces"
+OWNM="${TMP}/gate-own-multi/56-clearance-gate/agent/owned.yaml"
+[ "$(grep -c '^kind: Namespace$' "${OWNM}")" = 2 ] && [ "$(grep -c '^kind: AppProject$' "${OWNM}")" = 2 ] && ok "ownedProject: a Namespace per namespace, an AppProject per project" || bad "ownedProject: wrong object counts"
+[ "$(grep -c 'namespace: "ns-two"}' "${OWNM}")" = 2 ] && ok "ownedProject: each project may deploy into every protected namespace" || bad "ownedProject: destinations are not every namespace for each project"
+has "${OWNM}" '^    - "https://github.com/acme/two"$' "ownedProject: sourceRepos as given"
+new "${TMP}/gate-own-null" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" "${OWN_SET[@]}" \
+  --set 'clearance.gate.agent.projects=["null"]' --set 'clearance.gate.agent.protectedNamespaces=["true"]'
+render_ok "${TMP}/gate-own-null" "ownedProject with names YAML would read as null and true"
+if $HAVE_YAML; then python3 -c 'import sys,yaml; d=list(yaml.safe_load_all(open(sys.argv[1]))); assert d[0]["metadata"]["name"]=="true" and d[1]["metadata"]["name"]=="null" and d[1]["spec"]["destinations"][0]["namespace"]=="true", d' "${TMP}/gate-own-null/56-clearance-gate/agent/owned.yaml" && ok "ownedProject: names are quoted, so null and true stay strings" || bad "ownedProject: a name was read as a non-string"; fi
+new "${TMP}/gate-own-off" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set 'clearance.gate.agent.ownedProject={create: false}'
+render_ok "${TMP}/gate-own-off" "ownedProject create false"
+expect "${TMP}/gate-own-off" "ownedProject.create false" '!56-clearance-gate/agent/owned.yaml'
+expect "${TMP}/gate-opt" "ownedProject unset" '!56-clearance-gate/agent/owned.yaml'
+diff -r "${TMP}/gate-own-off/56-clearance-gate" "${TMP}/gate-opt/56-clearance-gate" >/dev/null 2>&1 && cmp -s "${TMP}/gate-own-off/.apron-rendered" "${TMP}/gate-opt/.apron-rendered" && ok "ownedProject create false renders byte for byte what unset does (the gate files and the rendered list; generated passwords elsewhere differ per new_cluster)" || bad "ownedProject create false differs from unset"
+for BADP in "clearance.gate.agent.ownedProject=yes|ownedProject is a map" "clearance.gate.agent.ownedProject={create: maybe}|ownedProject.create is true or false" \
+            "clearance.gate.agent.ownedProject={create: true, typo: 1}|ownedProject.typo is not a setting" \
+            "clearance.gate.agent.ownedProject={create: true, sourceRepos: []}|ownedProject.sourceRepos is a non-empty list" \
+            "clearance.gate.agent.projects=[default]|would own the AppProject 'default'" \
+            "clearance.gate.agent.protectedNamespaces=[Bad_NS]|needs clearance.gate.agent.protectedNamespaces to be a list of DNS labels"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/gate-own-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+    --set 'clearance.gate.agent.ownedProject={create: true}' --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-own-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "ownedProject ${BAD}: refused (${WANT})"; else bad "ownedProject ${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
+# default off: the agent of an ordinary gate render has no opt-in and no environment, a cluster without the gate has no agent rule
+if grep -q 'optIn:\|environment:' "${TMP}/gate-agent/56-clearance-gate/agent/application.yaml"; then bad "gate.agent without optIn: optIn or environment rendered"; else ok "gate.agent without optIn: no optIn and no environment (the render is today's)"; fi
+if grep -q 'regexMatch "\^\$"' "${TMP}/gate-agent/02-argocd-apps/tenant-onboarding/chart/applicationset.tmpl.yaml"; then bad "tenantPlugin unset: the plugin regex matches no app"; else ok "tenantPlugin unset: the plugin regex is as before"; fi
+if grep -q 'argocd-repo-server\|clearance-argocd-agent' "${LAB}/dev/55-clearance/clearance/application.yaml"; then bad "gate off: the core's NetworkPolicy names the repo-server or the agent"; else ok "gate off: the core's NetworkPolicy is as before"; fi
+new "${TMP}/gate-lower-off" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  "${OPT_SET[@]}" --set clearance.gate.lowerZone=false
+render_ok "${TMP}/gate-lower-off" "lower cluster, gate with lowerZone false"
+expect "${TMP}/gate-lower-off" "gate.lowerZone false" '!56-clearance-gate/admission.yaml' '!56-clearance-gate/agent/application.yaml'
+for BADP in "clearance.gate.agent.optIn=maybe|agent.optIn is true or false" "clearance.gate.agent.environment=Bad_Env|agent.environment is a DNS label" \
+            "clearance.gate.tenantPlugin=maybe|tenantPlugin is true or false" "clearance.gate.lowerZone=maybe|lowerZone is true or false" \
+            "versions.clearance.argocdAgentChart=0.48.0|needs versions.clearance.argocdAgentChart 0.49.0" "clearance.extraProviders=[]|needs a clearance.extraProviders entry with protection" \
+            "clearance.extraProviders=[{name: argocd-agent-dev, version: '1', principals: [a/b], protection: ['a/b=hangar-prod']}]|needs a clearance.extraProviders entry with protection" \
+            "clearance.extraProviders=[{name: other, version: '1', principals: [other/sa], protection: ['other/sa=hangar-dev']}]|needs a clearance.extraProviders entry with protection" \
+            "clearance.extraProviders=[{name: other, version: '1', principals: [other/sa], protection: ['clearance-system/clearance-argocd-agent=hangar-dev']}]|needs a clearance.extraProviders entry with protection"; do
+  BAD="${BADP%%|*}"; WANT="${BADP#*|}"
+  new "${TMP}/gate-opt-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" --set "${BAD}"
+  BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-opt-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+  if [ "${BADRC}" -ne 0 ] && grep -qF -- "${WANT}" <<<"${BADERR}"; then ok "gate opt-in ${BAD}: refused (${WANT})"; else bad "gate opt-in ${BAD}: rc=${BADRC} ${BADERR}"; fi
+done
+# a glob entry that covers the agent's principal is accepted; so is a renamed agent account, when the entry names it
+new "${TMP}/gate-opt-glob" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set 'clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: ["clearance-system/*"], protection: ["clearance-system/*=hangar-dev"]}]'
+render_ok "${TMP}/gate-opt-glob" "gate opt-in: a protection glob that covers the agent's principal"
+new "${TMP}/gate-opt-sa" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agentServiceAccount=clearance-system:the-agent \
+  --set 'clearance.extraProviders=[{name: argocd-agent-dev, version: "0.51.0", principals: ["clearance-system/the-agent"], protection: ["clearance-system/the-agent=hangar-dev"]}]'
+render_ok "${TMP}/gate-opt-sa" "gate opt-in: a renamed agent account named by its entry"
+has "${TMP}/gate-opt-sa/56-clearance-gate/agent/application.yaml" '^          name: "the-agent"$' "gate opt-in: the renamed account is the agent chart's serviceAccount.name"
+has "${TMP}/gate-opt-sa/56-clearance-gate/admission.yaml" "== 'system:serviceaccount:clearance-system:the-agent'" "gate opt-in: the policy names the same account as the only grant writer"
+if grep -q 'serviceAccount:' "${TMP}/gate-opt/56-clearance-gate/agent/application.yaml"; then bad "agentServiceAccount unset: the agent chart's serviceAccount is set"; else ok "agentServiceAccount unset: the agent chart's own account name (the render is today's)"; fi
+new "${TMP}/gate-opt-sa-bad" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${OPT_SET[@]}" \
+  --set clearance.gate.agentServiceAccount=other-ns:the-agent
+BADERR="$(python3 hack/render.py --cluster "${TMP}/gate-opt-sa-bad/cluster.yaml" 2>&1 >/dev/null)"; BADRC=$?
+if [ "${BADRC}" -ne 0 ] && grep -q "agentServiceAccount is clearance-system:<name>" <<<"${BADERR}"; then ok "gate.agentServiceAccount outside clearance-system with the agent is refused"; else bad "gate.agentServiceAccount other-ns: rc=${BADRC} ${BADERR}"; fi
 new "${TMP}/gate-off" prod hangar-prod kind --repo-url https://github.com/acme/gitops-cluster-hangar-prod --scm-owner acme \
   --fleet-hub hangar-dev --fleet-repo-url https://github.com/acme/gitops-cluster-hangar-dev --set 'clearance.protectedEnvironments=[no-slash]'
 render_ok "${TMP}/gate-off" "gate off with a protectedEnvironments entry the gate would refuse"
@@ -794,7 +1760,7 @@ new "${TMP}/tgt-prod" prod hangar-prod kind --repo-url https://github.com/acme/g
   "${OBS_SET[@]}" --set 'clearance.observe.protectedNamespaces=[app-gate-api-prod]' "${TGT_COMMON[@]}"
 render_ok "${TMP}/tgt-prod" "targets on (prod)"
 TP="${TMP}/tgt-prod/59-clearance-targets/publisher.yaml"
-EXPECT_PROD='{"targets": [{"app": "gate-api", "env": "prod", "gates": [{"instance": "app-gate-api-cicd/pipeline-runner", "mode": "enforce", "type": "glidepath"}, {"instance": "argocd-agent", "mode": "flag", "type": "g-argo"}], "group": "hangar-prod", "id": "hangar-prod.app-gate-api-prod", "kind": "k8s-namespace", "name": "app-gate-api-prod", "observers": [{"provider": "observe-k8s", "source": "k8s-audit-webhook"}], "owner": "group:default/team-gate", "registry": "flight", "scope": "hangar-prod"}]}'
+EXPECT_PROD='{"targets": [{"app": "gate-api", "env": "prod", "gates": [{"instance": "app-gate-api-cicd/pipeline-runner", "mode": "enforce", "type": "glidepath"}, {"instance": "app-gate-api-cicd/clearance-gate", "mode": "enforce", "type": "glidepath"}, {"instance": "argocd-agent", "mode": "flag", "type": "g-argo"}], "group": "hangar-prod", "id": "hangar-prod.app-gate-api-prod", "kind": "k8s-namespace", "name": "app-gate-api-prod", "observers": [{"provider": "observe-k8s", "source": "k8s-audit-webhook"}], "owner": "group:default/team-gate", "registry": "flight", "scope": "hangar-prod"}]}'
 [ "$(targets_json "${TMP}/tgt-prod")" = "${EXPECT_PROD}" ] && ok "targets (prod): the protected namespace, its Glidepath and Argo CD gates (warn mode: flag), the audit collector, Flight, scope = the cluster" || bad "targets (prod): unexpected set: $(targets_json "${TMP}/tgt-prod")"
 has "${TP}" 'value: "http://clearance.hangar-dev.local"' "targets (prod): publishes to the core as the gate reaches it"
 has "${TP}" 'value: "hangar-prod"' "targets (prod): the source is the cluster"
@@ -810,6 +1776,8 @@ python3 - "${TMP}/tgt-prod/cluster.yaml" "${TMP}/tgt-prod-enf/cluster.yaml" <<'P
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1]))
 c["clearance"]["gate"]["enforce"] = True
+# Deny needs an enforcing grant-expiry webhook (I-44; the agent chart and check refuse it otherwise).
+c["clearance"]["gate"]["agent"]["grantExpiry"] = {"enabled": True, "mode": "enforce"}
 c["clearance"]["protectedEnvironments"] = ["hangar-prod/staging"]
 yaml.safe_dump(c, open(sys.argv[2], "w"))
 PY
@@ -830,6 +1798,22 @@ EXPECT_DEV='{"targets": [{"env": "lab", "gates": [{"instance": "github:repo:acme
 [ "$(targets_json "${TMP}/tgt-dev")" = "${EXPECT_DEV}" ] && ok "targets (dev): the AWS account (scope = the account, G-TF from cluster.yaml) and the rehearsal namespace (no app: no gates), Ground" || bad "targets (dev): unexpected set: $(targets_json "${TMP}/tgt-dev")"
 TC="${TMP}/tgt-dev/55-clearance/clearance/application.yaml"
 has "${TMP}/tgt-dev/55-clearance/clearance-config/routes.yaml" 'value: "\^/v1/targets/\[a-z0-9\]\[a-z0-9-\]\*\$"' "targets (dev): the Gateway routes a remote publisher's PUT /v1/targets/<source> to the core"
+# I-81: a remote gate agent (clearance.feedReaders) reads the core's protection state and reports its own cluster's pairs
+# (GET /v1/protection, PUT /v1/protection/<cluster>) through the gate route; without feedReaders neither is routed.
+new "${TMP}/feed-dev" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set 'clearance.feedReaders=[{principal: hangar-prod/clearance-system/clearance-argocd-agent, cluster: hangar-prod}]'
+render_ok "${TMP}/feed-dev" "feedReaders on (dev, the core)"
+FR="${TMP}/feed-dev/55-clearance/clearance-config/routes.yaml"
+has "${FR}" 'value: /v1/records\}' "feedReaders: the Gateway routes the agent's POST /v1/records"
+python3 - "${FR}" <<'PY' && ok "feedReaders: the gate route sends GET /v1/protection (Exact) and PUT /v1/protection/<cluster> (a name) to the core, no other method" || bad "feedReaders: the protection matches are missing or wrong"
+import re, sys, yaml
+route = next(d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["metadata"]["name"] == "clearance-gate")
+m = [(x["path"]["type"], x["path"]["value"], x.get("method")) for r in route["spec"]["rules"] for x in r["matches"] if "protection" in x["path"]["value"]]
+assert sorted(m) == [("Exact", "/v1/protection", "GET"), ("RegularExpression", "^/v1/protection/[a-z0-9][a-z0-9-]*$", "PUT")], m
+rx = re.compile(m[0][1] if m[0][0] == "RegularExpression" else m[1][1])
+assert rx.match("/v1/protection/hangar-prod") and not rx.match("/v1/protection/") and not rx.match("/v1/protection/a/b") and not rx.match("/v1/protection/Hangar")
+PY
+if grep -q '/v1/protection' "${LAB}/dev/55-clearance/clearance-config/routes.yaml"; then bad "no feedReaders: the gate route carries /v1/protection"; else ok "no feedReaders: no /v1/protection route (the render is as before)"; fi
 has "${TC}" '"name": "targets-hangar-dev", "version": "[0-9.]+", "principals": \["clearance-system/clearance-targets"\], "kinds": \[\], "targets": \["hangar-dev"\]' "targets (dev): the core registers its own publisher with the right to publish its own source only"
 has "${TC}" '"name": "targets-hangar-prod", "version": "[0-9.]+", "principals": \["hangar-prod/clearance-system/clearance-targets"\], "kinds": \[\], "targets": \["hangar-prod"\]' "targets (dev): and the remote publisher, for its source only"
 has "${TC}" 'serviceAccounts: \[.*"clearance-system/clearance-targets"\]' "targets (dev): the remote publisher's account is a foreign service account of the Tower cluster"
@@ -997,7 +1981,7 @@ has "${SL}/${CA}" 'idpClientSecret: true' "slack on: the IdP client is confident
 has "${SL}/${CA}" 'transport: socket$' "slack on: Socket Mode by default"
 has "${SL}/${CA}" 'publicUrl: "https://slack\.clearance\.example\.com"' "slack on: the public URL"
 has "${SL}/${CA}" 'slackClientId: "1234\.5678"' "slack on: the Slack client id"
-has "${SL}/${CA}" 'digest: "sha256:9c655397' "slack on: the image is pinned by digest"
+has "${SL}/${CA}" 'digest: "sha256:f422dd02' "slack on: the image is pinned by digest"
 has "${SL}/${CA}" '"groups": \{"group:default/payments": "C0123456789"\}' "slack on: routes"
 has "${SL}/${CA}" 'webUrl: ""' "slack on: no web UI, no web URL"
 has "${SL}/${CA}" '\{"ip": "192\.0\.2\.10", "hostnames": \["dex\.hangar-dev\.local"\]\}' "slack on: the IdP host alias"
@@ -1047,6 +2031,25 @@ assert app["networkPolicy"]["slack"]["extraEgress"][1]["ports"][0]["port"] == 80
 PY
   then ok "slack on: objects parse, the Gateway has web + the https listener, values are structured"; else bad "slack on: structure check failed"; fi
 fi
+# Sync order: the route on the https listener is Degraded (not Accepted) until the Certificate's Secret exists, and Argo CD
+# starts no later wave past a Degraded one, so it must come after the Issuer and the Certificate (route > Certificate > Issuer).
+slack_waves() { # slack_waves DIR LABEL
+  python3 - "$1" <<'PY' && ok "$2: sync waves route > Certificate > Issuer" || bad "$2: sync waves out of order"
+import re, sys
+d = sys.argv[1] + "/55-clearance/clearance-config/"
+def wave(text, kind):
+    for doc in text.split("\n---\n"):
+        if re.search(rf"^kind: {kind}$", doc, re.M):
+            m = re.search(r'argocd\.argoproj\.io/sync-wave: "(-?\d+)"', doc)
+            return int(m.group(1)) if m else 0
+    raise SystemExit(f"no {kind}")
+tls = open(d + "slack-tls.yaml").read()
+issuer, cert, route = wave(tls, "Issuer"), wave(tls, "Certificate"), wave(open(d + "slack-route.yaml").read(), "HTTPRoute")
+print(f"    Issuer {issuer}, Certificate {cert}, HTTPRoute {route}")
+assert route > cert > issuer, (issuer, cert, route)
+PY
+}
+slack_waves "${SL}" "slack on (dns01, serviceAccount)"
 
 new "${TMP}/slack-static" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
   "${SLACK_COMMON[@]}" --set clearance.slack.tls.mode=dns01-route53 --set clearance.slack.tls.dns01.hostedZoneID=Z0123456789ABC \
@@ -1059,6 +2062,7 @@ has "${SS}/${CC}/slack-tls.yaml" 'key: clearance-dns01-route53-access-key-id\}' 
 has "${SS}/${CC}/slack-tls.yaml" 'key: clearance-dns01-route53-secret-access-key\}' "slack static: the Infisical secret access key"
 has "${SS}/${CC}/slack-tls.yaml" 'acme-staging-v02' "slack static: the ACME server is the one asked for"
 if grep -qE 'serviceAccountRef|kind: Role$' "${SS}/${CC}/slack-tls.yaml"; then bad "slack static: the service-account path rendered"; else ok "slack static: no service-account token path"; fi
+slack_waves "${SS}" "slack static (dns01, static key)"
 has "${SS}/${CA}" 'transport: events$' "slack events: the chart's transport"
 has "${SS}/${CC}/slack-secret.yaml" 'key: clearance-slack-signing-secret\}' "slack events: the signing secret is read"
 if grep -q 'secretKey: app-token' "${SS}/${CC}/slack-secret.yaml"; then bad "slack events: the app token is asked for"; else ok "slack events: no app token"; fi
@@ -1071,6 +2075,7 @@ render_ok "${TMP}/slack-eks" "slack on (gateway-existing, https gateway, web UI)
 SE="${TMP}/slack-eks"
 expect "${SE}" "slack gateway-existing" ${CC}/slack-secret.yaml ${CC}/slack-route.yaml "!${CC}/slack-tls.yaml"
 if grep -q 'clearance-slack-https' "${SE}/10-crds-operators/traefik/gateway.yaml" "${SE}/${CC}/slack-route.yaml"; then bad "slack gateway-existing: an https listener or sectionName rendered"; else ok "slack gateway-existing: the Gateway and the route are the ordinary ones"; fi
+if grep -q 'sync-wave' "${SE}/${CC}/slack-route.yaml"; then bad "slack gateway-existing: the route has a sync wave (no certificate to wait for)"; else ok "slack gateway-existing: the route has no sync wave"; fi
 has "${SE}/${CA}" 'webUrl: "https://clearance\.hangar-dev\.local/changes/\{id\}"' "slack + web UI: tier 3 links to the web UI by default"
 has "${SE}/${CA}" 'port: 443' "slack on an https gateway: IdP egress on 443"
 if grep -q 'trustedPeers: \["clearance-web"\]' "${SE}/55-identity/people-dex/dex.yaml" && grep -q 'id: clearance-slack$' "${SE}/55-identity/people-dex/dex.yaml"; then ok "slack + web UI: both Dex clients"; else bad "slack + web UI: Dex clients missing"; fi
@@ -1096,11 +2101,21 @@ refuse() { # refuse LABEL BASE-DIR YAML-TO-APPEND...
   fi
 }
 python3 hack/check.py --cluster "${LAB}/dev/cluster.yaml" >/dev/null && ok "lab dev passes" || bad "lab dev fails check"
+echo "== 1c-4c. clearance core's startup budget (clearance.core.startupSeconds, chart default when unset)"
+new "${TMP}/sus-on" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod \
+  --set clearance.core.startupSeconds=900
+render_ok "${TMP}/sus-on" "core startupSeconds on"
+python3 hack/check.py --cluster "${TMP}/sus-on/cluster.yaml" >/dev/null && ok "core startupSeconds on passes check" || bad "core startupSeconds on fails check"
+has "${TMP}/sus-on/${CA}" '^          startupSeconds: 900$' "core startupSeconds on: the chart's core.startupSeconds is 900"
+if grep -rq 'startupSeconds' "${LAB}/dev" "${LAB}/prod"; then bad "core startupSeconds default: rendered"; else ok "core startupSeconds default: not rendered (chart default)"; fi
+
 python3 hack/check.py --cluster "${LAB}/prod/cluster.yaml" >/dev/null && ok "lab prod passes" || bad "lab prod fails check"
 P="${LAB}/prod"
 D="${LAB}/dev"
 refuse "web on over http" "${D}" 'clearance: {web: {enabled: true}}' 'gateway: {scheme: http}'
 refuse "a coverage cache over 300 seconds" "${D}" 'clearance: {api: {coverageCacheSeconds: 301}}'
+refuse "a core startupSeconds over 3600" "${D}" 'clearance: {core: {startupSeconds: 3601}}'
+refuse "a core startupSeconds that is not a whole number" "${D}" 'clearance: {core: {startupSeconds: "15m"}}'
 refuse "a coverage cache that is not a whole number" "${D}" 'clearance: {api: {coverageCacheSeconds: "30s"}}'
 # Slack refusals: each case is built from the working Slack cluster with one --set changed (the keys sit in a block cluster.yaml
 # already has, so refuse() above, which appends a second top-level key, cannot reach them), and must be refused for the stated reason.
@@ -1163,6 +2178,7 @@ refuse "signing.trustedRoot off the control plane" "${P}" 'signing: {trustedRoot
 refuse "keyless attestation off the control plane" "${P}" 'clearance: {attestation: {keyless: true}}'
 refuse "keyless attestation without Clearance" "${D}" 'components: {clearance: false}' 'clearance: {attestation: {keyless: true}}'
 refuse "targets publishers of a cluster the core does not trust" "${TMP}/tgt-bad" 'clearance: {targets: {enabled: true, publishers: [{cluster: other-prod}]}}'
+refuse "ownedProject.create without the gate's agent" "${LAB}/dev" 'clearance: {gate: {agent: {ownedProject: {create: true}}}}'
 refuse "targets on without a core" "${TMP}/gate-agent" 'components: {clearance: false}' 'clearance: {targets: {enabled: true}, gate: {url: ""}}'
 refuse "autopilot.hardenedRuntime on kiac (no gVisor there)" "${D}" 'autopilot: {hardenedRuntime: gvisor}'
 refuse "an unknown autopilot.hardenedRuntime" "${D}" 'autopilot: {hardenedRuntime: kata}'
@@ -1310,7 +2326,7 @@ GO_SETTINGS='  gateway:
       airframeUpperClusters: [eks-prod]
       agentXRs: {namespaces: [app-gate-api-cicd], names: {gate-reader: app-gate-api-cicd}}
       egress: {apiServerCIDRs: [203.0.113.10/32]}
-      plainHttp: {glidepath: true, logs: true, jwks: true}'
+      plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true}'
 # unset and `python` render the same bytes (the default is the Python gateway and read API, as before)
 mkdir -p "${K}/gopy" "${K}/go" "${K}/pyx"
 cp "${K}/dev/cluster.yaml" "${K}/pyx/cluster.yaml"
@@ -1372,6 +2388,89 @@ has "${G}/gateway-go-egress.yaml" 'cidr: 203\.0\.113\.10/32|203\.0\.113\.10/32' 
 has "${G}/gateway-go-egress.yaml" 'port: 4318' "go: egress admits the OTLP collector"
 has "${G}/gateway-go-egress.yaml" 'cnpg\.io/cluster: autopilot-pg' "go: egress admits the database"
 has "${G}/gateway-go-egress.yaml" 'app.kubernetes.io/name: people-dex' "go: port 5556 is admitted to the people-dex pods only"
+# autopilot.peopleTls (I-28): people-dex serves its keys over https from a cert-manager certificate; the Go gateway and read API fetch them
+# over https and trust the in-cluster CA (AUTOPILOT_JWKS_CA_FILE); off, none of it renders (the go/ render above is the byte-for-byte baseline)
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  if grep -q 'JWKS_CA_FILE\|people-dex-ca\|5557' "${G}/${f}"; then bad "tls off: ${f} renders something of people-dex TLS"; else ok "tls off: ${f} renders nothing of people-dex TLS"; fi
+done
+if grep -rq 'https: 0.0.0.0:5557\|people-dex-tls' "${K}/go/55-identity" "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml"; then bad "tls off: people-dex TLS rendered"; else ok "tls off: people-dex renders without TLS"; fi
+mkdir -p "${K}/gotls"
+sed 's/^  gateway:/  peopleTls: true\n  gateway:/' "${K}/go/cluster.yaml" >"${K}/gotls/cluster.yaml"
+render_ok "${K}/gotls" "eks-dev (people), go, autopilot.peopleTls"
+python3 hack/check.py --cluster "${K}/gotls/cluster.yaml" >/dev/null && ok "tls on: check passes" || bad "tls on: check fails"
+T="${K}/gotls/55-autopilot/gateway"
+expect "${K}/gotls" "peopleTls" 55-identity/people-dex/tls.yaml
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  has "${T}/${f}" 'name: AUTOPILOT_OIDC_JWKS_URL, value: "https://people-dex\.autopilot-system\.svc:5557/dex/keys"' "tls on: ${f} fetches the keys over https"
+  has "${T}/${f}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "tls on: ${f} trusts the in-cluster CA file"
+  has "${T}/${f}" 'secretName: people-dex-tls' "tls on: ${f} mounts the cert-manager Secret"
+  has "${T}/${f}" 'items: \[\{key: ca\.crt, path: ca\.crt\}\]' "tls on: ${f} mounts only the CA certificate, never the key"
+  if grep -q 'http://people-dex' "${T}/${f}"; then bad "tls on: ${f} still names the http keys URL"; else ok "tls on: ${f} names no http keys URL"; fi
+done
+has "${T}/gateway-go-egress.yaml" 'port: 5557' "tls on: egress admits people-dex's https port"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'https: 0\.0\.0\.0:5557' "tls on: dex serves https on 5557"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'http: 0\.0\.0\.0:5556' "tls on: dex keeps the http listener (Clearance and glidepath-api still use it)"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'tlsKey: /etc/dex/tls/tls\.key' "tls on: dex reads its key from the cert-manager Secret mount"
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'issuer: http' "tls on: the issuer is still the public URL"
+if grep -q 'issuer: https\?://[^d]' "${K}/gotls/55-identity/people-dex/dex.yaml"; then bad "tls on: dex issuer changed"; else ok "tls on: the issuer is unchanged (dex.<domain>/dex)"; fi
+has "${K}/gotls/55-identity/people-dex/dex.yaml" 'port: 5557, targetPort: https' "tls on: the Service exposes 5557"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'issuerRef: \{name: people-dex-ca, kind: Issuer' "tls on: the serving certificate is signed by the in-cluster CA Issuer"
+has "${K}/gotls/55-identity/people-dex/tls.yaml" 'people-dex\.autopilot-system\.svc$' "tls on: the certificate names the Service host the gateway dials"
+if grep -q 'kind: Secret' "${K}/gotls/55-identity/people-dex/tls.yaml"; then bad "tls on: a Secret is hand-made"; else ok "tls on: no Secret is written, cert-manager fills it"; fi
+# autopilot.peopleTlsClusterCA (A-19, plan step P6): the cluster CA signs people-dex's certificate (90 days, renewed 30 early) and the
+# gateway and read API trust the Bundle's ConfigMap; off (the gotls render above), the namespace's own CA as before.
+has "${K}/gotls/55-identity/people-dex/tls.yaml" '^  duration: 8760h$' "peopleTls without the cluster CA: the 1-year leaf as before"
+if grep -q 'hangar-cluster-ca' "${K}/gotls/55-identity/people-dex/tls.yaml" "${T}/gateway-go.yaml" "${T}/autopilot-api-go.yaml"; then
+  bad "peopleTlsClusterCA off: the cluster CA rendered"; else ok "peopleTlsClusterCA off: nothing of the cluster CA"; fi
+mkdir -p "${K}/gotlsca"
+python3 - "${K}/gotls/cluster.yaml" "${K}/gotlsca/cluster.yaml" <<'PYCA'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+d["autopilot"]["peopleTlsClusterCA"] = True
+d.setdefault("components", {}).update({"trustManager": True, "clusterCA": True})
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA
+render_ok "${K}/gotlsca" "eks-dev (people), go, peopleTls on the cluster CA"
+TC="${K}/gotlsca/55-identity/people-dex/tls.yaml"
+has "${TC}" 'issuerRef: \{name: hangar-cluster-ca, kind: ClusterIssuer, group: cert-manager.io\}' "peopleTlsClusterCA: the cluster CA's ClusterIssuer signs people-dex"
+has "${TC}" '^  duration: 2160h$' "peopleTlsClusterCA: 90-day leaf (owner decision 3)"
+has "${TC}" '^  renewBefore: 720h$' "peopleTlsClusterCA: renewed 30 days early"
+if grep -q 'people-dex-selfsigned\|name: people-dex-ca' "${TC}"; then bad "peopleTlsClusterCA: the namespace's own CA still renders"; else ok "peopleTlsClusterCA: no namespace CA, Issuer or bootstrap Issuer"; fi
+[ "$(grep -c '^kind: Certificate$' "${TC}")" = 1 ] && ok "peopleTlsClusterCA: one Certificate, the serving one" || bad "peopleTlsClusterCA: want exactly one Certificate"
+for f in gateway-go.yaml autopilot-api-go.yaml; do
+  FC="${K}/gotlsca/55-autopilot/gateway/${f}"
+  if [ "${HAVE_YAML}" = true ]; then
+    python3 - "${FC}" <<'PYCA2' && ok "peopleTlsClusterCA: ${f} mounts ca.crt of ConfigMap hangar-cluster-ca, not the Secret" || bad "peopleTlsClusterCA: ${f} volume is wrong"
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get("kind") == "Deployment":
+        v = [x for x in d["spec"]["template"]["spec"]["volumes"] if x["name"] == "people-dex-ca"]
+        assert v == [{"name": "people-dex-ca", "configMap": {"name": "hangar-cluster-ca", "items": [{"key": "ca.crt", "path": "ca.crt"}]}}], v
+        break
+else:
+    raise SystemExit("no Deployment")
+PYCA2
+  fi
+  has "${FC}" 'name: AUTOPILOT_JWKS_CA_FILE, value: /etc/people-dex-ca/ca\.crt' "peopleTlsClusterCA: ${f} still reads the CA at the same path"
+done
+for c in "autopilot.peopleTls=false:autopilot.peopleTlsClusterCA needs autopilot.peopleTls" "components.clusterCA=false:autopilot.peopleTlsClusterCA needs components.clusterCA"; do
+  python3 - "${K}/gotlsca/cluster.yaml" "${K}/gotlsca-bad.yaml" "${c%%:*}" <<'PYCA3'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+k, _, val = sys.argv[3].partition("=")
+a, b = k.split(".")
+d[a][b] = yaml.safe_load(val)
+yaml.safe_dump(d, open(sys.argv[2], "w"), sort_keys=False)
+PYCA3
+  out="$(python3 hack/check.py --cluster "${K}/gotlsca-bad.yaml" 2>&1)" && bad "peopleTlsClusterCA with ${c%%:*}: check passed" \
+    || { grep -qF "${c#*:}" <<<"${out}" && ok "peopleTlsClusterCA with ${c%%:*}: refused" || bad "peopleTlsClusterCA with ${c%%:*}: ${out}"; }
+done
+# with TLS the jwks plain-http switch is not needed (and stays harmless on): check passes without it
+mkdir -p "${K}/gotls-nojwks"
+sed 's/jwks: true, //' "${K}/gotls/cluster.yaml" >"${K}/gotls-nojwks/cluster.yaml"
+python3 hack/check.py --cluster "${K}/gotls-nojwks/cluster.yaml" >/dev/null && ok "tls on: check passes without plainHttp.jwks" || bad "tls on: check wants plainHttp.jwks"
+sed 's/jwks: true, //' "${K}/go/cluster.yaml" >"${K}/gonojwks.yaml"
+if python3 hack/check.py --cluster "${K}/gonojwks.yaml" >/dev/null 2>&1; then bad "tls off: check accepted a missing plainHttp.jwks"; else ok "tls off: check still requires plainHttp.jwks"; fi
 if grep -q 'podSelector: {}' "${G}/gateway-go-egress.yaml"; then bad "go: an egress rule admits every pod of the namespace"; else ok "go: no egress rule admits every pod of the namespace"; fi
 # the read API's public-HTTPS rule exists only with a Tower (its one public destination); the gateway keeps its own (GitHub, registry, model provider)
 n="$(grep -c 'cidr: 0.0.0.0/0' "${G}/gateway-go-egress.yaml")"
@@ -1530,7 +2629,7 @@ printf '%s\n' '  gateway:' '    implementation: go' '    go:' '      tag: gatewa
   '      digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' '      migrateJob: true' '      registeredVersion: held' \
   '      brokerUrl: http://broker.platform-system.svc:8080' '      githubOwners: [acme]' '      airframeUpperClusters: [lab-prod]' \
   '      agentXRs: {namespaces: [app-agents], names: {reader: app-agents}}' \
-  '      plainHttp: {glidepath: true, broker: true, logs: true, catalog: true, jwks: true}' '      egress: {enabled: false}' >>"${LG}/go/cluster.yaml"
+  '      plainHttp: {glidepath: true, broker: true, logs: true, catalog: true, jwks: true, clearanceApi: true}' '      egress: {enabled: false}' >>"${LG}/go/cluster.yaml"
 python3 hack/check.py --cluster "${LG}/go/cluster.yaml" >/dev/null 2>"${TMP}/lg-check" && ok "lab go: passes check" || bad "lab go: check: $(cat "${TMP}/lg-check")"
 render_ok "${LG}/py" "lab (Python gateway)"
 render_ok "${LG}/go" "lab (Go gateway, step 2)"
@@ -1564,7 +2663,7 @@ refuse "an unknown implementation" "${GD}" 'autopilot: {gateway: {implementation
 GODIG='sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 GOREST='brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], agentXRs: {namespaces: [app-a-cicd]}'
 GOEGR='egress: {apiServerCIDRs: [203.0.113.10/32]}'
-GOHTTP='plainHttp: {glidepath: true, logs: true}'
+GOHTTP='plainHttp: {glidepath: true, logs: true, clearanceApi: true}'
 gocfg() { printf 'autopilot: {gateway: {implementation: go, go: {%s}}}' "$*"; }
 refuse "go without a plain-http switch for glidepath-api's in-cluster URL" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}")"
 refuse "go with a mutable digest" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: latest, ${GOREST}, ${GOEGR}, ${GOHTTP}")"
@@ -1572,9 +2671,32 @@ refuse "go with a tag that is not a Go release" "${GD}" "$(gocfg "tag: gateway-v
 refuse "go without the API server's addresses" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOHTTP}")"
 refuse "go without the namespaces the loader reads" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, brokerUrl: https://b.example.dev, githubOwners: [acme], airframeUpperClusters: [eks-prod], ${GOEGR}, ${GOHTTP}")"
 refuse "an airframeOwner outside githubOwners" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, airframeOwner: other, ${GOEGR}, ${GOHTTP}")"
-refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, everything: true}")"
+refuse "a plain-http switch that does not exist" "${GD}" "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true, clearanceApi: true, everything: true}")"
+mkdir -p "${K}/gonoca" && cp "${GD}/cluster.yaml" "${K}/gonoca/cluster.yaml" && printf '%s\n' "$(gocfg "tag: gateway-go-v0.1.0, digest: ${GODIG}, ${GOREST}, ${GOEGR}, plainHttp: {glidepath: true, logs: true}")" >>"${K}/gonoca/cluster.yaml"
+if python3 hack/check.py --cluster "${K}/gonoca/cluster.yaml" >/dev/null 2>"${TMP}/gonoca"; then bad "check accepted go without plainHttp.clearanceApi"
+elif grep -q 'plainHttp.clearanceApi must be true' "${TMP}/gonoca"; then ok "check names go.plainHttp.clearanceApi when clearance-api's URL is plain http and the switch is off"
+else bad "go without clearanceApi refused for another reason: $(head -1 "${TMP}/gonoca")"; fi
+# CLEARANCE_API_URL and its allow-http switch are on serve; the read API names the URL and never gets the switch; egress reaches clearance-api (namespace rule, 8080)
+has "${G}/gateway-go.yaml" 'name: CLEARANCE_API_URL, value: "http://clearance-api\.[^"]*\.svc:8080"' "go: serve has CLEARANCE_API_URL"
+has "${G}/gateway-go.yaml" 'name: CLEARANCE_API_ALLOW_HTTP, value: "1"' "go: plainHttp.clearanceApi renders CLEARANCE_API_ALLOW_HTTP on serve"
+if grep -q 'CLEARANCE_API_ALLOW_HTTP' "${G}/autopilot-api-go.yaml"; then bad "go: the read API got CLEARANCE_API_ALLOW_HTTP"; else ok "go: the read API does not get CLEARANCE_API_ALLOW_HTTP"; fi
+CNS="$(grep -o 'name: CLEARANCE_API_URL, value: "http://clearance-api\.[^.]*' "${G}/gateway-go.yaml" | sed 's/.*clearance-api\.//')"
+if python3 - "${G}/gateway-go-egress.yaml" "${CNS}" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+pol = {d["metadata"]["name"]: d for d in docs}
+def reaches(d):
+    for r in d["spec"]["egress"]:
+        for t in r.get("to", []):
+            ns = t.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+            if ns == sys.argv[2] and any(p["port"] == 8080 for p in r["ports"]):
+                return True
+    return False
+sys.exit(0 if reaches(pol["autopilot-gateway-egress"]) and not reaches(pol["autopilot-api-egress"]) else 1)
+PY
+then ok "go: egress lets serve reach clearance-api on 8080 and the read API has no such rule"; else bad "go: egress for clearance-api wrong (namespace ${CNS})"; fi
 # a plain-http catalog opens port 80 to Tower's catalog and nothing else new
-mkdir -p "${K}/gocat" && sed 's/plainHttp: {glidepath: true, logs: true, jwks: true}/plainHttp: {glidepath: true, logs: true, jwks: true, catalog: true}/' "${K}/go/cluster.yaml" >"${K}/gocat/cluster.yaml"
+mkdir -p "${K}/gocat" && sed 's/plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true}/plainHttp: {glidepath: true, logs: true, jwks: true, clearanceApi: true, catalog: true}/' "${K}/go/cluster.yaml" >"${K}/gocat/cluster.yaml"
 render_ok "${K}/gocat" "go with a plain-http catalog"
 n80="$(grep -c 'port: 80}' "${K}/gocat/55-autopilot/gateway/gateway-go-egress.yaml")"; n80b="$(grep -c 'port: 80}' "${K}/go/55-autopilot/gateway/gateway-go-egress.yaml")"
 [ "${n80}" = 3 ] && ok "go: plainHttp.catalog opens port 80 (gateway, read API; Loki's :80 is the third)" || bad "go: plainHttp.catalog port 80 rules: ${n80}"
@@ -1768,12 +2890,83 @@ if out="$(python3 tests/policy/test_argo_sync.py 2>&1)"; then
 else
   bad "clearance argo-sync: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
 fi
+if out="$(python3 tests/policy/test_tenant_delete_guard.py "${TMP}/delete-guard-deny" "${TMP}/delete-guard" 2>&1)"; then
+  ok "tenant-onboarding delete guard: $(tail -1 <<<"${out}")"
+else
+  bad "tenant-onboarding delete guard: $(grep -E 'FAIL|Error|error' <<<"${out}" | head -5)"
+fi
+
+# W-43: the gated set's two ApplicationSets (rendered above as gate-set and gate-set-handover) run by the real Argo CD
+# ApplicationSet controller (tests/appset, the Argo CD Go module argocd-apps runs) against envtest: one set per environment,
+# the ignore rule and preservedFields only in the gated set, and the handover in both directions keeping the Application.
+# W-46 (d): the same with the delete guard in Deny (delete-guard-deny), the controller running as the user it names
+# (TestDeleteGuard): bare flips and a removed identity keep the Application, the handovers still pass.
+# The migration window (gate-window, TestMigrationWindow): only the window's apps reach the gated set, the held app stays in
+# tenant-onboarding on the plugin, and a paused environment has no automated sync in every templatePatch branch.
+if ! command -v go >/dev/null 2>&1; then
+  if [ "${APRON_REQUIRE_ENVTEST:-}" = 1 ]; then bad "tenant-onboarding gated set: go is not installed"; else echo "  skip tenant-onboarding gated set (tests/appset): go is not installed"; fi
+elif out="$(cd tests/appset && APRON_GATED_RENDER="${TMP}/gate-set" APRON_GATED_HANDOVER_RENDER="${TMP}/gate-set-handover" APRON_DELETE_GUARD_RENDER="${TMP}/delete-guard-deny" APRON_WINDOW_RENDER="${TMP}/gate-window" go test -count=1 -v -run 'TestGatedSet|TestDeleteGuard|TestMigrationWindow' ./... 2>&1)"; then
+  if grep -q -- '--- SKIP' <<<"${out}"; then echo "  skip tenant-onboarding gated set (tests/appset): $(grep -m1 -A1 -- '--- SKIP' <<<"${out}" | tail -1 | sed 's/^ *//')"
+  else ok "tenant-onboarding gated set against Argo CD's ApplicationSet controller: $(grep -c -- '^    --- PASS' <<<"${out}") cases"; fi
+else
+  bad "tenant-onboarding gated set: $(grep -E -- '--- FAIL|gatedset_test.go:[0-9]+:' <<<"${out}" | head -8)"
+fi
+
+echo "== 5r. the Clearance rollout order (I-77: argocd-apps-install's PreSync hook, only with the gate and its policies on the cluster)"
+ROF=01-argocd-platform/argocd-apps-install/application.yaml
+# Off: no hook and no retry, on every cluster without the gate (the lab pair) or without its policies (a lower zone without lowerZone).
+for D in "${LAB}/dev" "${LAB}/prod"; do
+  if grep -qE 'clearance-rollout-order|extraObjects|^    retry:' "${D}/${ROF}"; then bad "rollout order without the gate: rendered in ${D##*/}"; else ok "rollout order without the gate (${D##*/}): no hook, no retry"; fi
+done
+new "${TMP}/ro-lower" dev hangar-dev kiac --repo-url https://github.com/acme/gitops-cluster-hangar-dev --scm-owner acme --tower-cluster hangar-prod "${GATE_SET[@]}"
+render_ok "${TMP}/ro-lower" "gate on a lower zone without lowerZone"
+if grep -qE 'clearance-rollout-order|^    retry:' "${TMP}/ro-lower/${ROF}"; then bad "rollout order on a lower zone without the policies: rendered"; else ok "rollout order on a lower zone without the policies: nothing to order, no hook"; fi
+# On without the agent (only the gate policy to wait for), and on with the agent, grant-expiry and Flight admission.
+has "${TMP}/gate/${ROF}" '^        extraObjects:$' "rollout order, gate without the agent: the hook renders"
+has "${TMP}/gate/${ROF}" '\\"policies\\":\[\{\\"name\\":\\"clearance-protected-writes\\"' "rollout order, gate without the agent: the gate policy is checked"
+if grep -E 'name: CHECKS|resourceNames:' "${TMP}/gate/${ROF}" | grep -q 'flight-only-images'; then bad "rollout order without Flight admission: checks flight-only-images"; else ok "rollout order without Flight admission: flight-only-images is not checked"; fi
+has "${TMP}/gate/${ROF}" '\\"agent\\":null' "rollout order, gate without the agent: no agent to wait for"
+has "${TMP}/gate/${ROF}" '^                resourceNames: \["argocd-apps-repo-server"\]$' "rollout order, gate without the agent: reads only the repo-server Deployment"
+i44 ro-full --set clearance.gate.agent.grantExpiry.enabled=true \
+  --set registries.flight.host=ghcr.io --set registries.flight.namespace=acme-flight --set promotion.promoter.repo=acme-flight/flight-promoter --set admission.flight.enabled=true
+render_ok "${TMP}/ro-full" "rollout order with the agent, grant-expiry and Flight admission"
+has "${TMP}/ro-full/${ROF}" '^    retry:$' "rollout order: argocd-apps-install retries a sync the hook failed"
+has "${TMP}/ro-full/${ROF}" '^                resourceNames: \[flight-only-images\]$' "rollout order with Flight admission: may read flight-only-images"
+# I-79: the hook's RBAC and ConfigMap go when every sync operation ends, passed or failed, so a revert leaves no ClusterRoleBinding
+# (Argo CD never prunes a live hook); the Job goes when it passed, and a failed one is kept for its log no longer than a day.
+ro_life="$(awk '/^        extraObjects:$/,/^        controller:$/' "${TMP}/ro-full/${ROF}" | grep -E 'hook-delete-policy:|^            kind: |ttlSecondsAfterFinished:' | sed 's/^ *//' | tr '\n' ' ')"
+if [ "${ro_life}" = "kind: ServiceAccount argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ClusterRole argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ClusterRoleBinding argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: ConfigMap argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed kind: Job argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded ttlSecondsAfterFinished: 86400 " ]; then
+  ok "rollout order lifecycle: RBAC and ConfigMap deleted at the end of every sync, the Job when it passed (a failed one after a day)"
+else
+  bad "rollout order lifecycle: got ${ro_life}"
+fi
+# Helm runs the argo-cd chart's extraObjects through tpl: a double opening brace would be read as a template action.
+if awk '/^        extraObjects:$/,/^#@end|^        controller:$/' "${TMP}/ro-full/${ROF}" | grep -qF '{{'; then bad "rollout order: extraObjects hold a double opening brace (Helm tpl)"; else ok "rollout order: no double opening brace in extraObjects (Helm tpl)"; fi
+i44 ro-off --set clearance.gate.rolloutOrder=false
+render_ok "${TMP}/ro-off" "gate with clearance.gate.rolloutOrder: false"
+if grep -qE 'clearance-rollout-order|extraObjects|^    retry:' "${TMP}/ro-off/${ROF}"; then bad "rolloutOrder false: the hook rendered"; else ok "rolloutOrder false: no hook, no retry"; fi
+i44 ro-bad --set clearance.gate.rolloutOrder=sometimes
+i44_refused ro-bad "clearance.gate.rolloutOrder is true or false" "clearance.gate.rolloutOrder that is not a boolean"
+if [ "${HAVE_YAML}" != true ]; then
+  echo "  skip rollout-order hook script: no PyYAML"
+elif out="$(ROLLOUT_ORDER_RENDER="${TMP}/ro-full/${ROF}" python3 tests/rollout/test_rollout_order.py 2>&1)"; then
+  ok "rollout-order hook script and its render: $(grep -E '^Ran ' <<<"${out}")"
+else
+  bad "rollout-order hook script: $(grep -E 'FAIL|Error' <<<"${out}" | head -5)"
+fi
 
 echo "== 6. agentrun-reaper (the script in its ConfigMap, against a fake API)"
 if out="$(python3 tests/reaper/test_reaper.py 2>&1)"; then
   ok "agentrun-reaper: $(grep -E '^Ran ' <<<"${out}")"
 else
   bad "agentrun-reaper: $(grep -E 'FAIL|Error' <<<"${out}" | head -5)"
+fi
+
+echo "== 7. clearance-targets publisher (the script in its ConfigMap: retry on a dropped connection, none on a refusal)"
+if out="$(python3 tests/targets/test_publisher.py 2>&1)"; then
+  ok "clearance-targets publisher: $(grep -E '^Ran ' <<<"${out}")"
+else
+  bad "clearance-targets publisher: $(grep -E 'FAIL|Error' <<<"${out}" | head -5)"
 fi
 
 echo

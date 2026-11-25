@@ -96,13 +96,41 @@ and says, in cluster.yaml, what the Python gateway defaulted or assumed:
 | `go.brokerUrl`, `go.githubOwners`, `go.airframeOwner`, `go.airframeUpperClusters` | `BROKER_URL`, `GITHUB_OWNERS`, `AIRFRAME_OWNER`, `AIRFRAME_UPPER_CLUSTERS` (no defaults: the Go gateway has none) |
 | `go.agentXRs.namespaces`, `go.agentXRs.names` | `AGENT_XRS_NAMESPACES` (the only namespaces the loader reads) and `AGENT_XRS_NAMES` (`agent: namespace`) |
 | `go.delegates`, `go.notifiers`, `go.auditors` | more principals for `AUTOPILOT_DELEGATES`, `GATEWAY_API_NOTIFIERS`, `GATEWAY_API_AUDITORS` (Tower's backend and `autopilot.people` are already there) |
-| `go.plainHttp.{glidepath,broker,logs,catalog,jwks}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs) |
+| `go.plainHttp.{glidepath,broker,logs,catalog,jwks,clearanceApi}` | each turns one plain-http link on (off by default; `apron check` names the ones a render needs; `clearanceApi` is `CLEARANCE_API_ALLOW_HTTP` on the gateway, for its `CLEARANCE_API_URL`, and is always needed) |
+| `autopilot.peopleTls` (a sibling of `gateway`, default off) | people-dex serves its keys over https on an internal listener (5557, beside the http one on 5556; the issuer is unchanged) with a cert-manager certificate from an in-cluster CA (`55-identity/people-dex/tls.yaml`); the Go gateway and read API fetch them over https and trust that CA (`AUTOPILOT_JWKS_CA_FILE`, needs an autopilot gateway-go release that has it), so `go.plainHttp.jwks` can go off. Needs `autopilot.people`, `components.gatewayRoutes`, `components.certManager` and `implementation: go`. Clearance and glidepath-api still read the http listener. hangar `specs/plans/i28-people-dex-tls.md` has the migration order and rollback |
+| `autopilot.peopleTlsClusterCA` (a sibling of `gateway`, default off) | with `peopleTls`: the cluster CA (ClusterIssuer `hangar-cluster-ca`, `components.clusterCA`) signs people-dex's serving certificate instead of the namespace's own CA, for **90 days, renewed 30 days early** (owner decision 3 on A-19: the core's life), and the Go gateway and read API trust the Bundle's ConfigMap `hangar-cluster-ca` instead of the Secret's `ca.crt`. The namespace's bootstrap Issuer, CA and CA Issuer are not rendered. Dex reads its certificate only at start, so **restart `people-dex` after each renewal, about every 60 days** (a few seconds of sign-in outage). Order (I-28 section 6): sync `autopilot-people-dex`; wait until cert-manager has re-issued `people-dex-tls` from the cluster CA (the Certificate is Ready and its issuer is `hangar-cluster-ca`); then **restart `people-dex`** (`kubectl -n autopilot-system rollout restart deployment/people-dex`) and wait for the rollout, since the switch changes neither the pod template nor the Secret's name and a running Dex keeps the old certificate; check the keys over https with the cluster CA; only then sync the gateway and read API. Needs `peopleTls` and `components.clusterCA` |
 | `go.egress.apiServerCIDRs`, `go.egress.extraCIDRs`, `go.egress.enabled` | the egress policies' API server addresses (required), more HTTPS destinations, and `false` for no egress policy |
 | `go.registeredVersion` | the version the Clearance core registers for the gateway (every record carries it as `provider.version`; the core compares it with nothing); unset: `go.tag`. Setting it holds the registration, so the switch does not change the Clearance Application (a change to the core's `CLEARANCE_PROVIDERS` restarts its one pod); remove it at a quiet moment |
 | `go.migrateJob` | render the migrate Job and the NetworkPolicy that admits it to `autopilot-pg`, with either implementation (with `python` only these two render and no traffic changes; it needs `go.tag` and `go.digest`). Both are **ordinary resources ordered by sync waves, not Argo CD hooks**: policy wave 0, Job wave 1 (named for the image, so each new image runs migrate once; no TTL), the Go Deployments wave 2, so with `implementation: go` migrate has succeeded before the Go pods change (a failed Job in a non-final wave fails the sync, `sync_context.go:559-568`) and the Python pods are untouched. With `implementation: python` the Job shares the last wave with the Python Deployments, and Argo CD counts the last wave's non-hook resources as a success whatever they do next (`sync_context.go:700-709`), so a failed migrate shows as a Degraded Application, not a failed sync: read the Job's own status (`.status.succeeded` is 1) and log. The Go egress policies are wave 2 too (never before migrate). (A PreSync hook was dropped from a sync after a partial one, argo-cd#28701.) The Job and policy are pruned when the flag goes off (on a sync that prunes; the lab's automated sync does not); finished Jobs of older images stay until deleted. Off: the cutover runbook runs the Job by hand. `migrate` re-runs only for a new image, so unlike a per-sync hook it needs no turning off, but turn the flag off once the cutover has held to stop rendering it |
 
 The Go path renders no `hostAliases`, `.local` host or LAN address off a lab (a lab with `tower.hostAliasIP` gets the same alias as the Python gateway).
 The Go gateway also gets `get` on namespaces (`gateway-go-extras.yaml`).
+
+## The cluster CA (`components.trustManager`, `components.clusterCA`, off by default)
+
+One private CA for in-cluster https (A-19; hangar `specs/plans/a17-clearance-tls-rollout.md`, steps 1 and 2). cert-manager makes
+it and trust-manager publishes its certificate. Both switches are off by default, and with them off nothing here renders.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `components.trustManager` | `10-crds-operators/trust-manager/`: jetstack's chart `versions.trustManager.chart` in `cert-manager` (also the trust namespace), its image index by digest (`versions.trustManager.imageDigest`, multi-arch: one pin for arm64 and amd64 nodes). No public-CA package image (`defaultPackage` off) and no Secret targets. Needs `components.certManager` | first, alone: check the Deployment is Ready and a dry-run Bundle is accepted |
+| `components.clusterCA` | `10-crds-operators/cluster-ca/`: a self-signed ClusterIssuer `hangar-cluster-ca-bootstrap`, the CA Certificate `hangar-cluster-ca` in `cert-manager` (ECDSA P-256, 10 years, `rotationPolicy: Never`), the CA ClusterIssuer `hangar-cluster-ca`, and the Bundle `hangar-cluster-ca` (`trust.cert-manager.io/v1alpha1`), which writes the ConfigMap `hangar-cluster-ca`, key `ca.crt`, into **every** namespace (only the certificate, never the key; no public CAs). Needs `components.certManager` and `components.trustManager` | trust-manager is Ready |
+
+The ConfigMaps carry a controller ownerReference to the Bundle, so the Clearance agent's exception scan skips them. The
+Kubernetes audit collector (`clearance.observe`) still sees trust-manager write the ConfigMap into each protected namespace it
+watches (once, and again when the CA changes): those writes show as out-of-band until a noise rule covers them. Remove the
+Bundle only after every workload that mounts its ConfigMap is gone, then the CA.
+
+## Clearance over https (`clearance.tls`, off by default)
+
+The clearance chart's `tls.*` (clearance `docs/tls.md`, I-43; hangar `specs/plans/a17-clearance-tls-rollout.md`, steps 3 and 7).
+Unset, the render is unchanged.
+
+| Key | Renders | Turn it on when |
+|---|---|---|
+| `clearance.tls.enabled` | the chart's `tls.enabled`: the core and clearance-api also serve https on 8443 (Service port `https`), with cert-manager certificates signed by the cluster CA's ClusterIssuer `hangar-cluster-ca` (`components.clusterCA`; without it, the chart's own namespaced CA), 90 days each, renewed 30 days before they end. The chart's NetworkPolicies admit 8443 from the same peers as 8080. The core restarts once. Needs `components.clearance`, `components.certManager` and chart 0.54.0+ | the cluster CA is Ready (plan step 3) |
+| `clearance.tls.plainHttp` | default true (8080 stays). `false` drops the plain listener; `apron check` refuses it while any caller Apron renders still uses plain http (the Gateway's routes without `gatewayBackendTLS`, the web UI, clearance-slack, the Autopilot gateway and read API, Glidepath's agent gates and deployment gate, the AWS collector, and, while `clearance.gate.url` is plain http, the plugin, the wait Job, the audit collector and the targets publisher; a plain-http agent `apiURL`) | step 7, after a day with no client on 8080 |
+| `clearance.tls.gatewayBackendTLS` | the Gateway re-encrypts (owner decision on A-19): the routes `clearance-gate`, `clearance-api` and `clearance-github-webhook` send to port 8443, and `55-clearance/clearance-config/backend-tls.yaml` renders a Gateway API v1 `BackendTLSPolicy` for `clearance-core` and `clearance-api` (section `https`) that verifies the certificate for `<service>.<namespace>.svc` against the ConfigMap `hangar-cluster-ca`. Traefik's ClusterRole gains `backendtlspolicies/status`. Callers through the Gateway (hangar-prod's wait Jobs and agent, GitHub, Tower) keep their URLs. Needs `clearance.tls.enabled`, `components.clusterCA` and `components.gatewayRoutes` | the https listener answers in the cluster (step 3's checks) |
 
 ## Clearance's Argo CD gate (`clearance.gate`, Draft)
 
@@ -111,6 +139,9 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 
 - argocd-apps' repo-server gets the `clearance-cmp` sidecar (`versions.clearance.cmpImage`, by digest), the only
   container that mounts the clearance token (a projected service-account token, audience `clearance`).
+  The token volume is mode 0440 and the repo-server pod gets `fsGroup: 999` (the sidecar's uid), so `clearance-cmp doctor`'s `token`
+  check passes; the chart has no repo-server-only key for the pod securityContext, so that fsGroup is `global.securityContext`, on every
+  pod of argocd-apps. The sidecar's memory limit is 2560Mi (4 renders at 512Mi, plus 512Mi; doctor's `render-limits`), the canary's too.
   Its `CLEARANCE_CHART_REPOS` is the cluster's airframe repository plus `allowedChartRepos` from cluster.yaml (the same
   repositories as `defaultChart` and every tenant AppProject's `sourceRepos`, which now read that one list): the plugin, not Argo CD, fetches the chart, so it refuses any other `chartRepo`. It is
   an environment variable of the sidecar, not a plugin parameter, so no tenant value can widen it. An app whose
@@ -129,18 +160,411 @@ Application (clearance `docs/gate.md`, "The Argo CD plugin"). Two things render:
 |---|---|
 | `clearance.gate.enabled` | default off: nothing renders, an enabled cluster needs the next two pins |
 | `versions.clearance.cmpImage`, `waitImage` | the `clearance-cmp` and `clearance-wait` images, by digest |
-| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. Nothing in the rendered output orders that (the policy Applications and `argocd-apps-install` carry no sync wave and sync independently); it holds in practice because the policies sync in seconds and the repo-server takes minutes. Before merging a roll-out, check that both policies show the new allow-list before the repo-server has rolled. Remove the key at the next release. The agent's `waitJob.image` stays the new digest |
+| `versions.clearance.previousWaitImage` | optional, for the one release after `waitImage` changes: the previous digest, admitted beside the new one by Flight admission's allow-list and by the gate policy's wait-Job exemption, so a wait Job or a cached manifest that still names the old digest keeps working once the updated policies are deployed. It does not make the roll-out order irrelevant: the policies must update before the repo-server sidecar starts generating the new image, or a new-image wait Job is refused. `argocd-apps-install`'s rollout-order hook holds the repo-server until the policies and the agent have the new image (see "Rollout order for Clearance releases" below). Remove the key at the next release. The agent's `waitJob.image` stays the new digest; with the gate's agent on, the key is also passed as the agent chart's `waitJob.previousImage` (I-59), so the agent and its grant-expiry webhook accept a held wait Job on the previous image instead of reporting it out-of-band. That needs `versions.clearance.argocdAgentChart` 0.56.0 or later, which `apron check` says |
 | `clearance.gate.url` | the core as the sidecar and the PreSync wait Job reach it; default `http://clearance-core.<namespace>.svc:8080` |
 | `clearance.gate.hostAlias` | `ip=host[,host]` for the repo-server, the agent and the wait Job's pod when the core is on another cluster |
 | `clearance.gate.apps` | limits the plugin to these apps, to turn the gate on one app at a time; empty: every app in a protected environment |
-| `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces`; needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
+| `clearance.gate.canary` | optional, off by default: try a new `clearance-cmp` on some apps first. `image` (a digest, `<repo>@sha256:<64 hex>`) and `apps` (a non-empty list, each also in `clearance.gate.apps` when that is set). Renders a second sidecar `clearance-cmp-canary` (same settings and security context as the first, its own `/tmp` volume; it registers the image's `config-canary/plugin.yaml` as plugin `clearance-canary`) and the ApplicationSet gives the listed apps `plugin.name: clearance-canary`, every other app `clearance`. Unset, the render is unchanged. Promote by moving `versions.clearance.cmpImage` to the new digest and deleting the block; roll back an app by removing it from `apps`, or delete the whole `clearance.gate.canary` block when it was the last one (an empty `apps` is refused). Needs a `clearance-cmp` image from the clearance release that ships `config-canary` (clearance `docs/gate.md`, "Rolling out a plugin release") |
+| `clearance.gate.agent` | renders the Argo CD agent (`56-clearance-gate/agent/`): `apiURL` (clearance-api), `projects`, `protectedNamespaces` (with `rule` set, either may be left out and is derived from the rule's literal values: see "The platform's gate rule" below); needs `versions.clearance.argocdAgentImage` and `argocdAgentChart` |
+| `clearance.gate.agent.optIn` | default off. `true` turns on the agent's annotation opt-in (clearance `docs/gate.md`, "Annotation opt-in", G-ARGO-10c; chart `optIn.enabled`): an Application annotated `clearance.hangar.io/protect: "true"` in one of `projects` and targeting one of `protectedNamespaces` is switched to the plugin and its namespace labelled protected once its merged grant is active. Needs `versions.clearance.argocdAgentChart` 0.49.0 or later, and, on the cluster that runs the core, a `clearance.extraProviders` entry whose `protection` lists the agent's principal and this cluster (`["clearance-system/clearance-argocd-agent=<cluster>"]`) and whose own `principals` list that principal (`render` refuses without both): without them the core refuses the agent's reports. Order: the CRD (rendered with the gate, schema revision 2), then the agent, then `optIn`. **Tenant Applications only through the gated set** (`gatedSet` below): tenant-onboarding itself sets neither `ignoreApplicationDifferences` (`/spec/source`, `/spec/sources`) nor `preservedFields.annotations` (`clearance.hangar.io/switched`), so the agent blocks an Application it generated ("does not ignore /spec/source"); `projects` should name only the projects of Applications whose own ApplicationSet or app-of-apps says what clearance `docs/gate.md` "What the parent must say" asks |
+| `clearance.gate.agent.gatedSet` | default off (W-43). `true` (needs the gate, the agent and `optIn` on this cluster: `zone: upper` or `lowerZone`; and `clearance.gate.tenantPlugin: false`, or the migration window, `clearance.gate.migration`, below) renders a second ApplicationSet, `tenant-onboarding-gated`, for the environments whose identity.yaml says `clearanceGate: true` (Airframe `ApplicationEnvironment` `spec.clearanceGate`), and tenant-onboarding stops generating them. Only the gated set carries the agent's parent entries and the opt-in annotation. Off, the tenant-onboarding chart is byte-for-byte what it was. See "Gated environments" below: an existing environment changes sets only through a handover |
+| `clearance.gate.agent.gatedSetHandover` | default off; needs `gatedSet`. The handover window: both sets render `syncPolicy.applicationsSync: create-update`, so neither deletes an Application it stops generating. Turn it on only for a handover and off again after |
+| `clearance.gate.agent.rule` | unset by default: nothing renders (byte for byte as without it; an empty mapping is the same). The platform's gate rule (W-42; clearance `docs/gate.md`, "The gate rule"), passed through verbatim as the agent chart's `gateRule`: `version: 1`, `select` entries `{name, projects, namespaces, labels}`, `exempt` entries `{application, reason, expires, ref}`. An Application it selects is gated as if it carried the opt-in annotation, and a team cannot opt out of it. Needs `optIn: true` and `versions.clearance.argocdAgentChart` 0.56.0+. `apron check` refuses a bad shape (unknown keys too: the agent reads the file strictly), and holds the rule to the agent's ceiling: `projects` and `protectedNamespaces` are derived from the rule's literal values when unset and checked against it when set. See "The platform's gate rule" below |
+| `clearance.gate.agent.ruleOptions` | unset by default (the chart's own bounds). The chart's `gateRuleOptions`, only the keys set: `exemptMax` (a Go duration, at most `2160h`), `releaseMax` (rule-caused releases an hour, at least 1), `exemptionRecheck` and `exemptionRecheckTimeout` (the timeout below the recheck). Needs `rule` |
+| `clearance.gate.agent.ownedProject` | unset by default: nothing renders (byte for byte as without it). `{create: true, sourceRepos: [...]}` makes apron own what the agent needs and nothing else on the cluster does (the hangar-dev opt-in rehearsal, W-40): a `Namespace` per `protectedNamespaces` entry and an Argo CD `AppProject` (in `argocd-apps`) per `projects` entry, restricted to deploy into exactly those namespaces, from `sourceRepos` (default: this cluster's gitops repository). Rendered as `56-clearance-gate/agent/owned.yaml` and added to the agent's Application as a second source (the Application then has `sources:` - the folder, then the chart - instead of `source:`), so the Namespaces (sync-wave -1) exist before the chart puts a Role in each protected namespace (wave 0) in the same sync; sync waves order resources inside one Application, not one Application against another (Argo CD has no built-in Application health since 1.8), so this is not a separate Application. The AppProjects are wave 0. The objects carry `Prune=false,Delete=false`: removing the setting, or the agent Application's own finalizer, leaves them; delete them by hand. Refused when `projects` names `default` or a name that is not a DNS label, or on any other key. Do not set it where a tenant's own onboarding makes the project or namespace |
+| `clearance.gate.agent.environment` | optional (a DNS label): the agent's `environment`, what a protected namespace with no `clearance.hangar.io/environment` label is cleared as. Unset, the chart's `prod` (right on a protected cluster, wrong on a rehearsal one) |
+| `clearance.gate.agent.grantExpiry` | unset by default: nothing renders (byte for byte as without it). `{enabled, mode, acceptResidualRisk}`, the agent chart's grant-expiry webhook (clearance `docs/gate.md`, "The grant-expiry webhook", I-44): the clock the admission policy lacks, so an expired grant stops admitting Argo CD's writes even while the agent is stalled. `enabled: true` renders a second Deployment (`clearance-grant-expiry`, two replicas, a PDB, a spread), its cert-manager certificate (own CA, injected into the configuration) and the ValidatingWebhookConfiguration `clearance-grant-expiry`; its `argocdUser` is the controller `clearance.gate.argocdServiceAccount` names. `mode: audit` (the default) allows, warns and records `clearance.hangar.io/expired-grant` under `failurePolicy: Ignore`; `mode: enforce` refuses under `Fail` (3 s timeout). `acceptResidualRisk: true` is the recorded override of the rule below; leave it off. Needs `components.certManager` and `versions.clearance.argocdAgentChart` 0.55.0+. With `clearance.gate.previousURL` set it also becomes the chart's `waitJob.previousURL`, so the webhook exempts the same wait Job the policy does |
+| `clearance.gate.enforce` with the agent | the agent chart (0.55.0+) is told the policy's mode (`gate.enforce: true`) and refuses Deny unless `grantExpiry` is `enabled` with `mode: enforce`, or `acceptResidualRisk`; `check` refuses the same pair first. Order: `grantExpiry.mode: enforce` first, `clearance.gate.enforce: true` in a later change; back: `clearance.gate.enforce: false` first, `mode: audit` only in a later change |
+| `clearance.gate.agent.ha` | unset by default. `{enabled: true}`: two agent replicas behind a `coordination.k8s.io` Lease (only the holder runs the loops, every write fenced by it), RollingUpdate, a PDB and a spread. Needs the agent chart 0.55.0+. **The first switch overlaps:** the old single pod (no Lease) keeps its loops running until a new pod is Ready, so a sync that finishes in that window can be posted twice as `deploy.outcome` (the agent sends no `source.event_id`, so the core does not de-duplicate). For the first switch, keep protected Applications from syncing until the old pod has terminated, or turn off `selfHeal` on `clearance-argocd-agent`, scale its Deployment to 0, wait for the old pod to go, sync the HA change, and turn `selfHeal` back on (with `selfHeal` on, Argo CD would restore the old replica) |
+| `clearance.gate.agent.statusHeartbeat` | unset by default. A positive duration of one unit (`90s`, `5m`, `1h`): the agent refreshes `status.checkedAt` of every valid grant at that age, so its age shows a stalled expiry pass. Needs the agent chart 0.55.0+; below `15m` with `alerts` |
+| `clearance.gate.agent.alerts` | unset by default. `{enabled: true}`: a PrometheusRule (`ClearanceGrantStatusStale`, `ClearanceGrantExpiredButValid`, `ClearanceGrantExpiryNotSynced`) labelled `release: kube-prometheus-stack` (the stack's `ruleSelector`) and a PodMonitor for the grant-expiry pods. Needs `grantExpiry.enabled`, `statusHeartbeat` and `components.observability` (kube-prometheus-stack brings the CRDs and the Prometheus) |
+| `clearance.gate.migration` | unset by default: nothing renders. `{window: true, apps: [<app>, ...]}` is the migration window off the static plugin: `gatedSet` is allowed beside `tenantPlugin` (true or unset) for the listed apps only. See "Migrating off the static plugin" below |
+| `tenantOnboarding.syncPaused` | unset by default: nothing renders (an empty mapping is the same). `{<app>: [<env>, ...]}`: each listed environment's generated Application has no automated sync. See "Migrating off the static plugin" below |
+| `clearance.gate.tenantPlugin` | default true. `false`: the tenant-onboarding ApplicationSet gives no Application the plugin (the app regex is `^$`), so the gate covers only what opts in by annotation. `gate.apps` and `protectedEnvironments` then do nothing for tenant Applications |
+| `clearance.gate.rolloutOrder` | default on with the gate, where its policies render. `false` drops `argocd-apps-install`'s rollout-order hook and its `retry` (see "Rollout order for Clearance releases" below) |
+| `clearance.gate.lowerZone` | default off. `true` renders the ClearanceGrant CRD, the admission policies and the agent on a `zone: lower` cluster too (a rehearsal), not only on an upper one |
+
+### Gated environments (`clearance.gate.agent.gatedSet`, W-43)
+
+The agent can switch an ApplicationSet-made Application to the plugin only when that ApplicationSet ignores `/spec/source`
+and `/spec/sources` and preserves `clearance.hangar.io/switched` (clearance `docs/gate.md`, "What the parent must say").
+Argo CD scopes `ignoreApplicationDifferences` to a whole ApplicationSet (or one Application by exact name), so the
+environments that want the gate get their own set:
+
+- `tenant-onboarding` generates every environment whose identity.yaml does not say `clearanceGate: true` (selector
+  `clearanceGate NotIn ["true"]`); it is otherwise unchanged and still updates its Applications' sources.
+- `tenant-onboarding-gated` generates exactly those that do (`clearanceGate In ["true"]`), from the same template, plus:
+  `ignoreApplicationDifferences` on `/spec/source` and `/spec/sources` (for every Application of the set; none of them is
+  ungated), `preservedFields.annotations: [clearance.hangar.io/switched]`, the annotation `clearance.hangar.io/protect: "true"`,
+  no static plugin source (the agent switches them), and **no resources finalizer** (with `preserveResourcesOnDeletion`
+  the controller adds none): deleting a gated Application never deletes its workload. Decommissioning a gated environment
+  therefore leaves its workload running: hand it back first, or delete the workload on purpose.
+- The gated set lists the `ref: appsrc` source (the app's gitops repository) **first**, the chart second. The agent builds
+  its plugin source on the Application's first git source (clearance `providers/argocd/agent/optin.go`, `carrier`): that
+  must be the gitops repository, which the plugin allows as its own source and whose `main` revision Argo CD's manifest
+  cache keys on. With the chart first the carrier would be the chart repository at its pinned tag: the plugin would refuse
+  the gitops repository (not on `CLEARANCE_CHART_REPOS`), and a release commit would not change the carrier's revision.
+  tenant-onboarding keeps its order (chart first).
+- The gated set's `ref: appsrc` source has `path: .` (I-82). The agent copies the carrier's path into its plugin source, and
+  Argo CD refuses a source with no path, chart or ref (`InvalidSpecError`). With a path the source is no longer ref-only:
+  Argo CD generates it as the explicit Directory source it is, and `directory.exclude: "*"` keeps that empty.
+
+`gatedSet` needs `clearance.gate.tenantPlugin: false` (`render` refuses otherwise), except in the migration window. With the
+static plugin on, tenant-onboarding gives a covered environment the plugin source; handed over, that Application keeps it (the
+gated set's ignore rule preserves `/spec/sources`) and the agent refuses it as "on the plugin and the agent did not put it
+there", so it stays on a static plugin source nothing updates. A cluster that uses the static plugin for tenant environments
+(hangar-prod's default) moves its apps one at a time through the migration window ("Migrating off the static plugin", below):
+turning `tenantPlugin` off at once takes the plugin off every covered environment at once, which is its own decision.
+
+The two selectors are In / NotIn on one value, so every environment is generated by exactly one set. A gated
+Application's sources are not updated by its set after it is created (that is the ignore rule): a new default chart
+revision, or a new `chart` in its identity.yaml, reaches it only through the agent or a handover back.
+
+**Moving an existing environment is a handover, never a bare flip of `clearanceGate`.** An ApplicationSet deletes an
+Application it owns and no longer generates, and a tenant-onboarding Application carries the resources finalizer, so a
+flip outside the window deletes the workload (tests/appset records it), unless the tenant delete guard is on in `Deny`
+(below), where it leaves a stuck handover instead. Into the gated set:
+
+1. Turn on `clearance.gate.agent.gatedSetHandover` and render; check both ApplicationSets show `applicationsSync: create-update`.
+   Then wait for a reconcile of each set that started after that: a reconcile reads the ApplicationSet once, at its start,
+   and one that read the old `sync` policy still deletes what its generator no longer returns (Argo CD v3.5.0
+   `applicationset/controllers/applicationset_controller.go`, `Reconcile`: one `Get`, then `deleteInCluster` under that
+   object's policy). The stored value does not show that it has finished. Set the refresh annotation on both sets,
+   `kubectl -n argocd-apps annotate applicationset tenant-onboarding tenant-onboarding-gated argocd.argoproj.io/application-set-refresh=true --overwrite`,
+   and wait until it is gone from both. The annotation is removed only at the very end of a reconcile, after its
+   create, update and delete steps (the `RefreshRequired` branch; the reconcile may be one that started before the
+   annotation was set, because `updateResourcesStatus` re-reads the set first), and the workqueue never runs two
+   reconciles of one set at once. So when it is gone, no reconcile is past its `Get` and short of its delete step, and every
+   later one reads the set as it is now: none that read the old policy can still delete. An annotation that does not clear means the set's reconcile is failing
+   before its end: stop and read its conditions. (ApplicationSet status has no observedGeneration in v3.5.0.)
+2. Set `spec.clearanceGate: true` on the `ApplicationEnvironment` (identity.yaml gains `clearanceGate: true`). tenant-onboarding stops
+   generating the Application and keeps it; tenant-onboarding-gated reports `already owned by another ApplicationSet controller tenant-onboarding`.
+   A tenant-onboarding reconcile that generates from the identities as they were before the flip still generates the
+   Application, and its `CreateOrUpdate` writes a merge patch with no resourceVersion precondition
+   (`applicationset/utils/createOrUpdate.go`): run during or after step 3, it puts tenant-onboarding's controller reference
+   (and its source order) back. Two such reconciles exist: one already running, and a later one whose git generator
+   resolves `main` from the repo-server's revision cache (only a reconcile that read the refresh annotation bypasses it,
+   `applicationset/generators/git.go` `noRevisionCache`). That cache can take the old revision *after* the flip: `getRefs`
+   (`util/git/client.go`) writes whatever its `ls-remote` returned, unconditionally and with a fresh expiry
+   (`reposerver/cache/cache.go` `SetGitReferences`, a Redis `SET` with a TTL that no read refreshes), so a lookup that
+   read the refs just before the push can write them after the gated set has reported the new commit. Time the wait from
+   the push, not from that report. Such a lookup started before the push, and its one HTTP request is cut off by the
+   repo-server's git client timeout (`ARGOCD_GIT_REQUEST_TIMEOUT`, argocd-cmd-params-cm `reposerver.git.request.timeout`,
+   default 15s; an `http.Client` timeout, so https repositories only: over ssh there is no such bound), so its write
+   lands before push + that timeout and expires one revision cache expiry later (`--revision-cache-expiration`, default
+   `ARGOCD_RECONCILIATION_TIMEOUT`, which the chart takes from argocd-cm `timeout.reconciliation`, else 3m). The
+   ApplicationSet controller's call timeout to the repo-server (`--repo-server-timeout-seconds`, 60s) does not bound it:
+   the repo-server finishes the lookup after its caller gives up. So before step 3: wait git timeout + revision cache
+   expiry, rounded up to the next whole minute (which covers the cache write itself), from the moment `git ls-remote`
+   first shows the flip commit as `main` (at or after the push). On argocd-apps as apron renders it: no git timeout (15s),
+   and `timeout.reconciliation` is the chart's `120s`, or `600s` with `argocd.light` (hangar-prod): 3 minutes, or 11
+   minutes with `argocd.light`. Then repeat step 1's refresh-annotation wait on tenant-onboarding
+   only (the gated set's reconcile now fails at the `already owned` error before it clears the annotation).
+   After both, every reconcile still to come resolves the new commit, and none that started earlier is still running.
+3. Remove tenant-onboarding's owner reference from that one Application, guarded by its uid, and in the same patch put the
+   `$appsrc` source first, with `path: .` (the gated set's order and path; its ignore rule keeps the live sources on adoption,
+   so neither is made for you):
+   `kubectl -n argocd-apps patch application <app>-<env> --type json -p '[{"op":"test","path":"/metadata/ownerReferences/0/uid","value":"<tenant-onboarding uid>"},{"op":"test","path":"/spec/sources/1/ref","value":"appsrc"},{"op":"add","path":"/spec/sources/1/path","value":"."},{"op":"move","from":"/spec/sources/1","path":"/spec/sources/0"},{"op":"remove","path":"/metadata/ownerReferences/0"}]'`.
+   The gated set adopts it (same uid): the annotation is added, the resources finalizer removed; the agent then switches it,
+   carried on the gitops repository.
+4. Wait step 2's time again, now from the patch, then repeat step 1's refresh-annotation wait on both sets, then check
+   the Application's controller is `tenant-onboarding-gated` (by the set's uid, and the Application's uid unchanged).
+   This is the second guard: if an old-revision entry outlived step 2's wait (a value read wrong), it has expired by
+   then and every tenant-onboarding reconcile that could have used it has finished, so a controller reference it put back
+   shows here. Fail closed: on anything else, keep the window open (nothing is deleted while it is open), and recover by
+   who controls the Application now (hangar's rehearsal plan has both waits and this check as scripts, C.3 and C.5):
+   - `tenant-onboarding` is its controller again: the wait in step 2 did not hold; find out why, then redo steps 2 and 3.
+   - Nothing controls it (unowned): the gated set has not adopted it yet; refresh the gated set and run the check again.
+     Redo nothing.
+   - The gated set already controls it but the check failed (the uid changed, or it is being deleted): stop and
+     investigate by hand. Redoing steps 2 and 3 does not apply, and nothing is deleted while the window is open.
+   Also check that neither set reports an error, and its carrier is the gitops repository: not yet switched,
+   `spec.sources[0]` is the `ref: appsrc` source; switched, the one plugin source's `repoURL` is the gitops repository
+   and the `ref: appsrc` source is first in its `sources` parameter (the agent keeps the originals there). Then turn the
+   window off.
+
+Back to tenant-onboarding: open the window (and wait for the reconcile, as in step 1); remove `spec.clearanceGate`, and
+once tenant-onboarding reports `already owned`, wait out the revision cache from the push of that commit and then on the gated set only (as in step 2); the gated set keeps the Application (nothing
+reconciles it now), so remove its `clearance.hangar.io/protect` annotation by hand and wait for the agent's opt-out to
+finish (sources restored, `switched` gone, namespace unlabelled); then remove the gated set's owner reference the same
+way (no move: tenant-onboarding rewrites the sources); tenant-onboarding adopts it; as in step 4, wait step 2's time from
+the patch and once more on both sets, then check, failing closed with the window open,
+that its controller is `tenant-onboarding` (a stale gated-set reconcile would take it back), the chart source is first and `ref: appsrc` second (tenant-onboarding's
+order), the resources finalizer is back, no `clearance.hangar.io/*` annotation is left and neither set reports an
+error; close the window. Closing the window with an
+Application still owned by a set that no longer generates it deletes that Application: step 4 is the check.
+
+Needs the ApplicationSet controller to honour `applicationsSync`: it does while no controller-wide
+`applicationsetcontroller.policy` is set (argocd-apps-install sets none; Argo CD `applicationset/utils/policy.go`).
+Turning `gatedSet` off is for a cluster with no gated environment left: tenant-onboarding would then generate them too
+and fail on every Application the gated set owns; the gated ApplicationSet is not pruned (the tenant-onboarding Application
+does not prune) and is deleted by hand once it owns nothing. The rehearsal plan is hangar `specs/plans/w43-gated-set-handover-rehearsal.md`.
+
+### The platform's gate rule (`clearance.gate.agent.rule`, W-42)
+
+The opt-in annotation is the tenant's: whoever can edit an Application can remove it. The rule is the platform's: it selects
+Applications by their Argo CD project, destination namespace and labels, and the agent gates every one it selects as if it were
+annotated (clearance `docs/gate.md`, "The gate rule"; design: hangar `specs/plans/gate-rule-design.md`). Apron passes the rule
+through unchanged and adds only what it knows about the cluster:
+
+```yaml
+clearance:
+  gate:
+    agent:
+      optIn: true                  # required: the rule switches Applications as the opt-in does
+      # projects / protectedNamespaces: leave out to derive them from the rule's literal values
+      rule:
+        version: 1
+        select:                    # OR across entries; inside one, AND across the keys present
+          - name: gate-api-prod    # a DNS label; it names the entry in the agent's status and records
+            projects: [gate-api]   # globs on spec.project (OR)
+            namespaces: [app-gate-api-prod]   # globs on spec.destination.namespace (OR)
+            labels: {hangar.io/env: prod}     # exact, every one (quote "true" or "1")
+        exempt:                    # time-limited; the core decides each one
+          - application: argocd-apps/gate-api-prod   # glob on <namespace>/<name>: the agent reads argocd-apps
+            reason: "a migration to the new chart"   # 10 to 500 characters
+            expires: "2026-12-19"                    # a date (00:00 UTC) or an RFC 3339 time, as a string
+            ref: W-45                                # optional
+```
+
+**The ceiling.** The rule never widens what the agent may touch: an Application outside the agent's `projects` is not seen at
+all, and one whose namespace is not in `protectedNamespaces` is `blocked` (reported to the core as a pair, never switched). The
+agent compares projects exactly (`"*"` alone means every project) and holds one Role per listed namespace, so:
+
+- **unset**, `projects` is the rule's literal projects and `protectedNamespaces` its literal namespaces, in order, once each.
+  `apron check` refuses an entry that names no project (a namespace-only or label-only entry), a glob project, an entry that
+  names no namespace (it matches every namespace of its projects) or a glob namespace: list the ceiling by hand for those;
+- **set**, every literal project of the rule must be in `projects` (or `projects` holds `"*"`), a glob project needs `"*"`,
+  every literal namespace must be in `protectedNamespaces`, and a glob namespace must match at least one of them. With a
+  rule, a glob in the ceiling itself (other than `"*"` in `projects`) is refused. An entry that names no project or no namespace cannot be
+  checked: its Applications must be inside the listed ceiling.
+
+**ApplicationSet-made Applications.** For a ruled Application the agent's parent check asks the ApplicationSet to ignore
+`/spec/source` and `/spec/sources` and to preserve `clearance.hangar.io/switched`. `tenant-onboarding-gated` (above) has both,
+unconditionally, so a ruled environment in the gated set is switched; the rule does not change the tenant-onboarding chart.
+A ruled Application that `tenant-onboarding` generates has neither and is `blocked` by the agent (its pair is still reported):
+put tenant environments under the rule through the gated set. On a cluster with the static plugin (`tenantPlugin`, the default),
+an Application tenant-onboarding put on the plugin is one the agent did not switch, and it leaves it alone; the plugin still
+gates it.
+
+**What is not checked here.** Whether an exemption's `expires` is within `exemptMax` of now (a render must not depend on the
+day it runs: the agent ignores, and reports, one that is too far out), and whether the core accepts an exemption (the core
+refuses one in a statically protected environment). The old path (`clearance.gate.apps`, the ApplicationSet's regexes and its
+plugin source) stays as it is: the rule is added beside it, and moving off it is the migration below (design note,
+section 6, step 7).
+
+### Migrating off the static plugin (`clearance.gate.migration`, `tenantOnboarding.syncPaused`)
+
+A cluster that gates tenant environments with the static plugin (`clearance.gate.apps`, `tenantPlugin` true) moves them to the
+agent one app at a time. An Application on the static plugin cannot just be handed over into the gated set: it keeps its plugin
+source there and the agent refuses it. So each one is paused, handed over, put back on its Helm sources by hand, and switched by
+the agent before it deploys again. Two settings make that possible; both default off, and unset the render is byte for byte
+what it was.
+
+```yaml
+tenantOnboarding:
+  syncPaused:                # {<app>: [<env>, ...]}: these environments get no automated sync
+    gate-api: [prod]
+clearance:
+  gate:
+    apps: [gate-api, backstage, flight-api]
+    agent:
+      gatedSet: true
+      gatedSetHandover: true # only for the handover itself, as for any handover
+    migration:
+      window: true
+      apps: [gate-api]       # the apps moving now; each must be in clearance.gate.apps
+```
+
+| `cluster.yaml` key | |
+|---|---|
+| `tenantOnboarding.syncPaused` | a mapping of app to a non-empty list of its environments (DNS labels, each once). The listed environments' Applications are generated with no `syncPolicy.automated` (the templatePatch sets `automated: null`, which the strategic merge deletes; `retry` and `syncOptions` stay), in whichever set generates them and whether or not they are on the plugin. Nothing reaches the environment until the entry is removed; a person can still sync by hand. A hand edit of the Application's sync policy does not work: the ApplicationSet puts it back. Unset or `{}`: off. `apron check` and `render` print a warning while it is set |
+| `clearance.gate.migration.window` | `true` opens the window: `gatedSet` is then allowed with `tenantPlugin` true or unset. Needs the gate, its agent and `gatedSet` on this cluster, and a non-empty `clearance.gate.apps` (with it empty every app in a protected environment is on the plugin, and none could be held back). `false` or unset: the refusal is as before. `apron check` and `render` print a warning while it is open |
+| `clearance.gate.migration.apps` | the apps moving now, each in `clearance.gate.apps`. `apron check` refuses an app outside `clearance.gate.apps`, an app whose project (tenant-onboarding's project is the app's name) is not in the agent's `projects` (or the rule's literal projects), an app with no namespace of its own (`app-<app>-<env>` or `infra-<app>-<env>`) in the agent's `protectedNamespaces`, an open window with no apps, and apps listed with the window closed |
+
+**The window holds every other app back.** apron cannot see which environments say `clearanceGate: true` (that is the tenants
+repository), so the window is enforced in the ApplicationSets themselves: while it is open, the apps of `clearance.gate.apps`
+outside it are *held*. Both sets' main generator leaves them out (`appName NotIn [<held>]`), and `tenant-onboarding` takes
+them with a second git generator that selects on the app name alone (`appName In [<held>]`), never on `clearanceGate`. A held
+app whose identity.yaml says `clearanceGate: true` stays in tenant-onboarding on the static plugin, still gated, and a
+`clearanceGate` commit landing between two generator reads cannot leave a held environment ungenerated (deleted): every
+environment is still generated by exactly one set. Apps outside `clearance.gate.apps` are not on the plugin and move as they do with `tenantPlugin: false`.
+
+**Per app, in order, one pull request each** (hangar `specs/plans/gate-rule-design.md`, section 6, step 7; the agent's side is
+clearance `docs/gate.md`, "Annotation opt-in" and "The gate rule"):
+
+1. **Pause.** Add `tenantOnboarding.syncPaused: {<app>: [<env>]}`, render, merge, and sync the `tenant-onboarding` Application.
+   Check the Application has no `spec.syncPolicy.automated`. It is still on the static plugin, so it is still gated.
+   The pause stops new automated syncs only: a sync already running, or waiting to retry, goes on (Argo CD runs a requested
+   operation whatever the sync policy). Before step 2, drain it: `kubectl -n argocd-apps get application <app>-<env> -o
+   jsonpath='{.operation}{" "}{.status.operationState.phase}'` must show no `operation` and a phase that is not `Running`
+   (a `Running` phase with a retry pending counts as running). If one is left, wait for it, or end it with
+   `argocd app terminate-op argocd-apps/<app>-<env>`, and read again. Keep `syncPaused` set throughout.
+2. **Hand over.** Open the window with the app (`clearance.gate.migration`), turn on `gatedSet` and `gatedSetHandover`, and make
+   sure the agent will act on it: its project in the agent's `projects` and its namespace in `protectedNamespaces` (`apron check`
+   refuses the window otherwise), and, to gate it by the rule rather than by the gated set's annotation alone, a `rule.select`
+   entry for that project and namespace. Then follow "Gated environments" above, steps 1 to 4, with one change in step 3: the
+   Application is on one plugin source, so the patch does not move `$appsrc`; it replaces `spec.sources` with the gated set's
+   Helm sources (`ref: appsrc` with `path: .` first, the chart, then the configMapGenerator source if the environment has one), guarded by
+   `test` ops on the uid and on the plugin source, in the same patch that removes tenant-onboarding's owner reference. The
+   gated set ignores `/spec/sources`, so the patch holds. From this patch until the agent switches the Application, it is on Helm
+   sources and **ungated**: the pause is what keeps anything from deploying (do not sync it by hand).
+3. **Wait for the agent.** The agent reports the pair, switches the Application to its plugin (annotation
+   `clearance.hangar.io/switched`), writes the merged grant and labels the namespace `clearance.hangar.io/protected=true`. Its
+   status ConfigMap shows the Application with reason `rule` (or `annotation`, without a rule entry).
+4. **Resume.** Remove the app's `syncPaused` entry (and turn `gatedSetHandover` off when no handover is in flight). **Keep the
+   app in `clearance.gate.apps` and in the window** while any app of `clearance.gate.apps` is still on the static plugin:
+   dropping it would leave the window empty (refused) or close it, and `gatedSet` with the static plugin and no window is
+   refused. Kept there, it is harmless: the gated set owns it and never gives the plugin source, and it is not held. The next
+   app joins the window beside it (`apps: [<done>, <next>]`).
+5. **After the last app**, in one change: empty `clearance.gate.apps` (and `canary.apps`), delete `clearance.gate.migration`, and
+   set `tenantPlugin: false`. Not one without the others: an empty `clearance.gate.apps` with the plugin on puts every app in a
+   protected environment on the static plugin.
+
+Then remove the rest of the old path one pull request at a time (the static plugin source and its regexes,
+the `tenantPlugin` key, `protectedNamespaces` the rule now derives), as the design note's step 7 lists. Rollback of any step is the revert
+of its pull request; after step 2, handing the Application back is the "Back to tenant-onboarding" procedure above, with its rule entry removed
+first (a ruled Application stays gated without the annotation); the agent's opt-out restores the Helm sources, and
+tenant-onboarding then puts the static plugin source back while the app is still in `clearance.gate.apps`.
+
+### Tenant delete guard (`tenantOnboarding.deleteGuard`, W-46 (d))
+
+An ApplicationSet deletes an Application it owns and no longer generates, and a tenant-onboarding Application carries the
+resources finalizer, so that delete takes the workload (and any database in its namespace) with it. A bare `clearanceGate`
+flip, a hand edit or a bad commit in the tenants repo, or a selector bug all lead there. The delete guard closes it on the
+cluster where it happens: a `ValidatingAdmissionPolicy` (`tenant-onboarding-no-set-delete`, in the tenant-onboarding chart)
+refuses a DELETE of an Application in `argocd-apps` by argocd-apps' ApplicationSet controller when `tenant-onboarding` or
+`tenant-onboarding-gated` is its controller. Design: hangar `specs/plans/w46-clearancegate-flip-guard.md`, option (d).
+
+| `cluster.yaml` key | |
+|---|---|
+| `tenantOnboarding.deleteGuard.enabled` | default off: nothing renders (byte for byte as without it). `true` renders the policy and its binding. It needs no gate and is meant for every cluster |
+| `tenantOnboarding.deleteGuard.validationActions` | `Audit` (default: records, refuses nothing) or `Deny` |
+| `tenantOnboarding.deleteGuard.controllerServiceAccount` | a ServiceAccount name (DNS subdomain); default `argocd-applicationset-controller`, the argo-cd chart's name that argocd-apps-install keeps (`tests/run.sh` checks it is not overridden). The guard matches `system:serviceaccount:argocd-apps:<this>` only |
+
+With the guard in `Deny`, the set that would delete reports `ErrorOccurred` with reason `DeleteApplicationError`; its create
+and update steps already ran, so its other Applications are still updated, and the Application and its workload stay as
+they were. A bare flip is then a stuck handover, not a deletion: finish it (or revert the flip) as the design note's
+section 2 (d) recovery says. People, Argo CD's application controller and the garbage collector are not matched, and the
+username is the policy's first match condition, so a CEL error can only refuse the controller's own deletes.
+
+- **Removing an environment** takes one more step: delete its identity in the tenants repo, then delete its Application by
+  hand (`kubectl -n argocd-apps delete application <app>-<env>`). Until Argo CD has finished deleting it, tenant-onboarding
+  shows `DeleteApplicationError` for it.
+- Not covered: deleting a whole ApplicationSet (the garbage collector deletes its Applications).
+- An Application whose destination cluster Argo CD cannot resolve loses its resources finalizer: before the DELETE, the
+  controller removes the finalizer with a PATCH (Argo CD v3.5.0 `removeFinalizerOnInvalidDestination`), which the guard
+  does not match. The Application stays, but deleting it later no longer deletes its workload. After such a refusal, check
+  the Application's finalizers and put `resources-finalizer.argocd.argoproj.io` back if the cascade is still wanted.
+- Rollout: `enabled: true` with `Audit` for about a week (expect no audit events: any is a real deletion, which Audit does
+  not stop), then `Deny`. The audit record is the API server's audit log (annotation
+  `validation.policy.admission.k8s.io/validation_failure`). First check that the cluster's audit policy and backend
+  record `delete` of `applications.argoproj.io` in `argocd-apps` at `Metadata` level or above: without that, a quiet week
+  says nothing about what `Deny` would refuse. Then prove it end to end: a server-side dry-run delete as the controller
+  (`kubectl -n argocd-apps delete application <a tenant Application> --dry-run=server --as system:serviceaccount:argocd-apps:argocd-applicationset-controller`)
+  is admitted under `Audit`, and its audit event carries `validation.policy.admission.k8s.io/validation_failure` naming
+  `tenant-onboarding-no-set-delete`.
+- Rollback: set `validationActions: Audit`, render, merge, and sync the `tenant-onboarding` Application (argocd); then check
+  the live binding (`kubectl get validatingadmissionpolicybinding tenant-onboarding-no-set-delete -o jsonpath='{.spec.validationActions}'`
+  says `["Audit"]`). Until that sync, the controller's deletes stay refused. Turning `enabled` off removes the files, but
+  the tenant-onboarding Application does not prune: delete the binding `tenant-onboarding-no-set-delete` (and the policy)
+  by hand as well.
+
+With the gate on and the core on the same cluster, the core's and clearance-api's NetworkPolicies also admit the repo-server (`argocd-apps`) and, with `gate.agent`, the agent. The wait Job's pod is not admitted: a held change on such a cluster cannot be waited for by the Job. Register the repo-server (`clearance.verifiers`), the agent (`clearance.extraProviders`, `clearance.feedReaders`) with their in-cluster principals (`<namespace>/<serviceaccount>`, no cluster prefix) there.
 
 With the gate on and Flight admission on, the exact `versions.clearance.waitImage` is added to Flight's allowed images: the
 wait Job runs in the tenant's namespace and is not a Flight image.
 
 On the cluster that runs the core (`hangar-dev`), `clearance.foreignServiceAccounts`, `clearance.extraProviders`,
 `clearance.verifiers` and `clearance.feedReaders` admit the protected cluster's agent, repo-server and wait Job;
-`feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes.
+`feedReaders` also opens the agent's `/v1/records` and `/v1/breakglass` routes, and its protection calls (`GET /v1/protection`,
+`PUT /v1/protection/<cluster>`, the annotation opt-in): the core takes a report only from the principal a provider's `protection`
+entry pairs with that exact cluster.
+
+### Rollout order for Clearance releases (`clearance.gate.rolloutOrder`, I-77)
+
+A Clearance release that changes `versions.clearance.waitImage` changes three things on a gated cluster, and each syncs on
+its own:
+
+1. the policies that admit the wait Job: `clearance-gate`'s `clearance-protected-writes` exemption and, with Flight
+   admission, `kyverno-policies`' `flight-only-images` allow-list;
+2. the agent, `clearance-argocd-agent` (its `--wait-image`, and the grant-expiry webhook's);
+3. `argocd-apps-install`, whose repo-server sidecar `clearance-cmp` puts `CLEARANCE_WAIT_IMAGE` into every wait Job it injects.
+
+The repo-server must go last. If it rolls before the policies, a new-image wait Job is refused where admission enforces
+(Flight admission on hangar-prod). If it rolls before the agent, the old agent reports the new-image wait Job as an
+out-of-band `deploy.exception`. The policies do not have to go before the agent: the new agent and its grant-expiry webhook
+accept the new and the previous wait image (`previousWaitImage`).
+
+**What renders.** With the gate on a cluster that renders its policies (`zone: upper` or `clearance.gate.lowerZone`),
+`argocd-apps-install` gets a PreSync hook (the argo-cd chart's `extraObjects`: a ServiceAccount, a read-only ClusterRole
+limited to `get` on the named objects, its binding, a ConfigMap with the script, and the Job `clearance-rollout-order` in
+`argocd-apps`) and a `syncPolicy.retry`. Every sync of `argocd-apps-install` runs the Job first:
+
+- it passes at once when the repo-server is not there yet (a first install: no old wait image runs) or its sidecar
+  already has the wait image this sync sets (the sync does not change it: almost every sync);
+- otherwise it waits until each policy's spec names the new wait image and is loaded (a ValidatingAdmissionPolicy's
+  `status.observedGeneration`, or Kyverno's `status.conditionStatus.ready`), then 30 s more of the hook seeing the same
+  object at the same generation, timed after each read and restarted by a delete, re-create or later spec change. Kyverno's
+  status carries no observedGeneration; a ValidatingAdmissionPolicy's is set by kube-controller-manager once it has type
+  checked the spec, while each API server's admission plugin loads the spec from its own informer and can lag it briefly.
+  The 30 s is longer than either informer takes: a heuristic rather than proof. A server-side dry-run of a wait Job was
+  considered instead and not used (I-79): `clearance-protected-writes` matches only Argo CD's application controller, so a
+  dry run as the hook is never evaluated by it, and a dry run as the controller needs `impersonate` on its service account,
+  that is, its cluster-wide write rights (RBAC cannot limit a create to dry runs). Then each agent Deployment
+  (`clearance-argocd-agent`, and `clearance-grant-expiry` with `grantExpiry.enabled`) passes `--wait-image=<new>` on the
+  agent image the agent Application sets, with every replica updated and available. Then the sync goes on and the
+  repo-server rolls;
+- a transient read error (an API server 5xx or 429, a timeout, a dropped connection) is read again after 1 s, doubling to
+  8 s, within the same budget; a refusal (401, 403) is not. A poll in which any read was retried is not accepted, ready or
+  not: what it read before the retry may be stale, so the next poll reads everything again. Nothing is accepted after the
+  600 s: each request, connect to parsed body, is cut off when the time left runs out (a real-time interval timer, since
+  the socket timeout bounds each blocking call only and a trickling response could outlast it); a read that finishes past
+  it, including the first read of the repo-server, fails, and so does a ready result read past it;
+- it gives up after 600 s, and the sync fails. An automated sync is not retried on the same revision without `retry`, so
+  `argocd-apps-install` retries: `limit: 5` is five retries after the first try, six tries in all, each up to 10 min, with
+  1 min doubling to 10 min between them (up to about 85 min). Once Argo CD reports the sync failed with its retries used up,
+  Sync it by hand once the agent is Ready. The Job's log (`kubectl -n argocd-apps logs job/clearance-rollout-order`) says
+  what it waited for: a Job that failed stays until the next sync or for a day (`ttlSecondsAfterFinished`).
+
+**Lifecycle (I-79).** The ServiceAccount, ClusterRole, binding and ConfigMap are deleted when each sync operation ends,
+passed or failed (`HookSucceeded,HookFailed`; Argo CD deletes a hook only once the operation is over), and the next sync
+creates them again (`BeforeHookCreation`). The Job is deleted too when it passed. So turning the hook off, or reverting it,
+leaves no RBAC behind, which matters because Argo CD never prunes a live hook and `argocd-apps-install` does not prune. An
+operation terminated by hand while the Job runs can leave them; the next sync with the hook on replaces them, or delete
+`clearance-rollout-order` (ServiceAccount, ConfigMap and Job in `argocd-apps`, ClusterRole and ClusterRoleBinding).
+
+`clearance.gate.rolloutOrder: false` turns it off (no hook, no retry): the escape hatch if the agent cannot become Ready
+and the repo-server must roll anyway. Without the gate, or on a cluster without its policies, nothing renders and
+`argocd-apps-install` is byte for byte as before.
+
+**What else changes.** Only `argocd-apps-install`:
+
+- a sync that changes the wait image waits for the agent and the policies, and anything else in the same sync (another
+  chart value) waits with it;
+- every sync runs one short pod (`python:3.13-alpine`, 10m CPU, 64Mi);
+- `retry` applies to every failed sync of `argocd-apps-install`, not only the hook's.
+
+No other Application changes, and neither does the root.
+
+**Why a hook, not sync waves.** These were considered and not used:
+
+- *Sync waves on the child Applications, with an Application health check in argocd-cm.* The root
+  (`root-app-of-apps.yaml`) only applies Application manifests. The wait image is in `argocd-apps-install`'s and the
+  agent's Application specs, but the policies change inside their own Applications' directory sources
+  (`30-policy/kyverno-policies/`, `56-clearance-gate/`). The root's sync never touches them, so waves on it cannot order
+  them. Waves would also need `resource.customizations.health.argoproj.io_Application` (off since Argo CD 1.8). That is in
+  the platform instance's argocd-cm, in `01-argocd-platform/install.yaml`, which no Application manages (it is applied by
+  hand). It would also make every child's health gate every later wave of every root sync on every cluster: one Degraded
+  child would hold the rest.
+- *Splitting the wait image into its own later Application.* The image reaches the wait Job only through the sidecar's
+  environment. A ConfigMap in another Application would change it only at the repo-server's next restart, so nothing
+  orders it.
+- *A hook in the agent's Application that waits for the policies.* Policies before the agent is not needed (above).
+
+What still is not ordered: the policies against the agent (not needed), and a change that moves only the agent or only
+the policies (the repo-server's wait image is unchanged, so the hook passes). Keep `versions.clearance.previousWaitImage` for the
+release after a wait-image change: it covers wait Jobs and cached manifests that already name the old image.
 
 ## Where Clearance runs (`clearance.namespace`) and its nightly dump (`clearance.backup`)
 
@@ -154,10 +578,20 @@ CloudNativePG has no object store on these clusters, so `clearance.backup.enable
 role) and keeps the newest `clearance.backup.keep` (default 7) dumps. `clearance.backup.schedule` (default `17 2 * * *`) and
 `clearance.backup.storageSize` (default `5Gi`) tune it. It is a copy on the same cluster's storage, not an off-cluster backup.
 
+clearance-pg is sized by `clearance.postgres.*` (defaults: cpu request `250m` and no CPU limit, memory `512Mi` request / `768Mi` limit,
+`shared_buffers` 128MB, `effective_cache_size` 384MB, `work_mem` 8MB; `parameters` and `primaryLease` merge key by key over the defaults).
+`primaryLease` (`leaseDurationSeconds` 60, `renewDeadlineSeconds` 40, `retryPeriodSeconds` 15) makes the one primary tolerate a slow apiserver
+instead of exiting when it cannot renew its lease. Changing the resources or a restart-only parameter restarts Postgres. Changing only `primaryLease` does not restart the primary, and the running primary keeps its previous timings (CNPG reads them when it first acquires the lease): restart the primary's pod to activate a lease-only change. clearance-pg is a single instance (no replica to switch over to), so deleting the pod is the way, and it interrupts Clearance for the restart (every gate that calls it, including a cluster's gate that uses another cluster's Clearance, fails closed until Postgres is back): do it in a quiet window.
+
 `clearance.api.coverageCacheSeconds` (whole seconds, 0 to 300; unset or 0 is off, the default) turns on clearance-api's
 coverage result cache (Clearance 0.51.0+, `CLEARANCE_API_COVERAGE_CACHE_SECONDS`). An answer is reused for that long, so a
 coverage statement shown to a person can be up to that many seconds old (the response carries `Age`). Setting or changing it
 restarts clearance-api once. Only the cluster whose `cluster.yaml` sets it gets the cache; nothing is decided by cluster name.
+
+`clearance.core.startupSeconds` (whole seconds, 1 to 3600; unset is the chart's default, 300) sets how long the core may take to
+start (chart `core.startupSeconds`, the startup probe's budget). The core verifies the whole chain from genesis before it
+listens, so a long chain on a slow node needs more than the default or the probe restarts it in a loop. Setting or changing it
+restarts the core once. Only the cluster whose `cluster.yaml` sets it gets the value.
 
 ## Clearance's evidence ledger and its witness (`clearance.ledger`, `clearance.witness`, off by default)
 
@@ -271,6 +705,27 @@ but a map of gate names to `{required: <bool>}`. hangar-dev sets `clearance-gate
 until it is cleared in Tower (glidepath [clearance-gate.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/clearance-gate.md),
 G-ARGO-8). Turn it back to advisory by deleting the entry (or `required: false`) and re-rendering.
 
+## Gate-ledger writer (`promotion.gateLedger.writer`)
+
+`cluster.yaml` `promotion.gateLedger.writer` becomes the glidepath-catalog Application's `promotion.gateLedger.writer` (pipeline trust T4,
+W-8; glidepath [api.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/api.md#gate-verdicts), "Gate verdicts"): who writes
+each gate's verdict into the release record's gate ledger. `direct` (the catalog's default) is the `comment-pr-check-result` task patching
+the record as `pipeline-runner`; `api` is the task asking glidepath-api's `gate-verdict` endpoint, which derives the verdict from the run and
+writes it as its own account. Unset renders no key, so the catalog's default stands and the render is unchanged; `apron check` refuses any
+other value. Set `api` only on a cluster whose glidepath-api serves the route (an older one answers 404: the `promotion-ready` step then decides from the check runs alone and shows as failed).
+hangar-dev sets `api`; rolling back is deleting the entry and re-rendering.
+
+## Gate reports (`glidepath.gateReports.transport`)
+
+`cluster.yaml` `glidepath.gateReports.transport` becomes the glidepath-catalog Application's `gateReports.transport` (pipeline trust T4,
+W-8; glidepath [security.md](https://github.com/jfillman/glidepath/blob/main/docs/admin/security.md#pipeline-identities), "Pipeline
+identities"): how api-compat-gate and policy-validation-gate hand their full report to `comment-pr-check-result`. `configmap` (the
+catalog's default) is the gate writing a `gate-report-<run>` ConfigMap as `pipeline-runner`; `log` is the gate printing the report into
+its own step's log, which `comment-pr-check-result` reads back, so no ConfigMap is written. Unset renders no key, so the catalog's default
+stands and the render is unchanged; `apron render` and `apron check` refuse any other value. Set `log` only on a cluster whose catalog
+has the switch (glidepath#286): the reader and the writer are one catalog release, and a run keeps the Tasks it resolved at its start.
+hangar-dev sets `log`; rolling back is deleting the entry and re-rendering.
+
 ## Flight admission (`admission.flight`, prod profile)
 
 On an upper cluster, Apron renders Glidepath's Flight admission ([ADR-0029](https://github.com/jfillman/glidepath/blob/main/docs/admin/adr/0029-ground-and-flight-registries.md),
@@ -298,16 +753,71 @@ grants. Both match one service account, so no other writer is touched. The polic
 as the plugin builds it: the image **exactly** `versions.clearance.waitImage` (required with `clearance.gate.enabled`),
 args `--change <id> --timeout <d>` only, `CLEARANCE_URL` pinned to `clearance.gate.url`, `hostAliases` pinned to
 `clearance.gate.hostAlias`, no command, `envFrom`, host namespace, privileged container or volume besides the
-audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable).
+audience-`clearance` token (the waiter mounts a clearance token, so its URL must not be changeable). With `clearance.gate.waitCAConfigMap` set, the
+exemption also admits the plugin's optional CA for an https core (clearance I-43): one more volume, `clearance-ca`, that is
+exactly a ConfigMap volume of that ConfigMap with the single item `ca.crt`, mounted read-only at `/etc/clearance-ca` (both
+or neither, after the token). Any other volume, path, Secret, hostPath, projected source, `subPath` or writable mount is
+still refused, and a wait Job without the CA is still exempt.
 
 | Key | Renders | Turn it on when |
 |---|---|---|
 | `enabled` | the CRD, both policies and their bindings, `[Warn, Audit]` with `parameterNotFoundAction: Allow` | the cluster is a gate target (scratch namespace first) |
 | `enforce` | `[Deny, Audit]` **and** `parameterNotFoundAction: Deny` | Warn is clean on every protected namespace, and the agent keeps one active grant on each (with Deny and no active grant, every matched write in the namespace is refused, from any user) |
-| `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`) | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
+| `argocdServiceAccount`, `agentServiceAccount` | the two usernames the policies name (`<namespace>:<name>`); `agentServiceAccount` is also the agent chart's `serviceAccount.name` and, with `gate.agent`, must be in `clearance-system` | the defaults (`argocd-apps:argocd-application-controller`, `clearance-system:clearance-argocd-agent`) are wrong |
+| `waitCAConfigMap` | unset by default: the policy renders byte for byte as without it. A ConfigMap name (the trust-manager `Bundle` that publishes the cluster CA as `ca.crt` in every destination namespace): the wait Job's optional `clearance-ca` volume may name it, nothing else. It only widens the policy; `waitCAInject` (below) later sets the plugin's `CLEARANCE_WAIT_CA_CONFIGMAP` and the agent's `waitJob.caConfigMap` to the same name | the Bundle's ConfigMap exists in every protected namespace, before the plugin is told to mount it (hangar `specs/plans/a17-clearance-tls-rollout.md`) |
+| `waitCAInject` | default off. `true` (needs `waitCAConfigMap`; `render` refuses without it) sets the plugin sidecars' `CLEARANCE_WAIT_CA_CONFIGMAP` and the agent's `waitJob.caConfigMap` to `waitCAConfigMap`: every wait Job the plugin injects mounts the CA, and the agent's pin then expects exactly that shape (an old-shape wait Job is reported out-of-band, in Warn too). Needs `clearance-cmp` and the agent chart from clearance 0.54.0+ | plan step 5b: the policy already admits the volume (5a), and no wait Job is left on any cluster the change reaches |
+| `caConfigMap` | unset by default. A ConfigMap name (the cluster CA's `hangar-cluster-ca`): the plugin sidecars get `CLEARANCE_CA_FILE=/etc/clearance-ca/ca.crt` with that ConfigMap mounted from `argocd-apps`, and the agent gets `tls.caConfigMap` (its ConfigMap in `clearance-system`). Extra roots for an https `clearance.gate.url` or `agent.apiURL`; with http URLs they are unused. A missing ConfigMap keeps the pod from starting. Needs the agent chart 0.54.0+ with `gate.agent` | plan step 4: the Bundle's ConfigMap is in both namespaces, before any URL moves to https |
+| `fsSandbox` | unset by default: no env renders (byte for byte as without it) and the plugin's default, `try`, applies. `try`, `require` or `off` (anything else is refused by `render` and `check`) sets the plugin sidecars' `CLEARANCE_CMP_FS_SANDBOX` (clearance `docs/install-argocd-plugin.md`). `require` makes the plugin refuse to render without its Landlock filesystem sandbox; it stops at start when the kernel has none. Needs `clearance-cmp` from clearance 0.55.0+. Lives directly under `clearance.gate`, like the other plugin settings (`caConfigMap`, `waitCAInject`) | the cluster's repo-server kernel has Landlock (`clearance-cmp doctor` reports "fs-sandbox on"); A-24 sets `require` on hangar-prod only |
+| `previousURL` | unset by default (the policy renders byte for byte as without it). One release only, like `versions.clearance.previousWaitImage`: the wait-Job exemption also admits this `CLEARANCE_URL`, so a wait Job or cached manifest made before a `clearance.gate.url` change keeps working on an **enforcing** cluster. An http(s) URL that differs from `gate.url` (`render` refuses anything else). It widens only the policy: the agent's exception scan still pins the one `gate.url` | the release that changes `clearance.gate.url` on a cluster with `enforce: true`; remove it once no wait Job of the old URL is left |
 
 `tests/policy/test_clearance_gate.py` proves the rendered policies against a real kube-apiserver (envtest); clearance's
 `providers/argocd/crd/test_admission.py` carries the full matrix. The two copies of the manifests are kept in step by hand.
+
+**Removing the gate.** Deleting the `clearance:` gate block and re-rendering only deletes the files: the root Application does
+not prune its child Applications, and `clearance-gate` cannot prune an empty directory (Argo CD refuses a sync that would
+prune everything). So remove it by hand, in this order:
+
+1. Set `clearance.gate.enforce` to false and sync, or remove the `clearance.hangar.io/protected` label from the protected
+   namespaces, so nothing is refused while the gate comes down. This step does not remove any manifest.
+   With `clearance.gate.agent.grantExpiry.mode: enforce`, `clearance.gate.enforce` must be false first (removing the
+   namespace labels does not satisfy `check`'s rule): set it to false and sync, then set `mode: audit` in a later change
+   and sync before step 4, so the webhook is `failurePolicy: Ignore` while its pods go.
+2. If `clearance.gate.agent.optIn` is on, opt out every Application that carries the opt-in annotation before anything
+   else is removed, switched or not (an annotated Application the agent blocked was never switched, but its pair can
+   still be reported to the core): remove its `clearance.hangar.io/protect` annotation (for an Application generated by
+   an ApplicationSet or an app-of-apps, remove it from the parent's template, per the Clearance gate docs), then wait until
+   a switched one shows its original source again and the `clearance.hangar.io/switched` annotation is gone. The agent
+   removes only the namespace labels it set (`clearance.hangar.io/protected-by=optin`); a `protected` label an operator
+   set by hand stays, and is removed by hand once enforcement is off (step 1). Continue only when all three are empty:
+   - `kubectl get applications -A -o json | jq -r '.items[] | select(.metadata.annotations["clearance.hangar.io/protect"] or .metadata.annotations["clearance.hangar.io/switched"]) | .metadata.name'`
+   - `kubectl -n clearance-system get cm clearance-argocd-agent-state -o jsonpath='{.data.optin\.json}'` (the agent's
+     status entries)
+   - the core's protected pairs for this cluster, read directly (not from the agent's log, which has no line when nothing
+     was ever reported or after a restart): `curl -s -H "Authorization: Bearer $TOKEN" $CLEARANCE_URL/v1/protection | jq
+     '[.clusters[] | select(.cluster == "<cluster>") | .pairs[]]'`. Use a Clearance admin's token: the core shows a
+     non-admin only the clusters it may read, so `[]` from any other token can mean "not allowed", not "empty". With an
+     admin token, `[]` or no entry for the cluster is empty. Point `$CLEARANCE_URL` at an `https://` address wherever the
+     core is served over TLS; over plain HTTP the bearer token crosses the network in clear.
+
+   The agent and the plugin sidecar must both still be running for this step: once
+   either is gone, nothing puts a switched Application's source back and Argo CD cannot render it.
+3. Remove the gate from Git: delete the `clearance:` gate block (or set `clearance.gate.enabled: false`), re-render, commit,
+   and let the root sync. The root does not prune, so both Applications stay; but with their manifests gone from Git its
+   `selfHeal` can no longer recreate them after steps 4 and 5 delete them.
+4. Delete the `clearance-argocd-agent` Application. It carries the `resources-finalizer`, so the agent and its RBAC go with it
+   (the agent is stateless). From here nothing rewrites grants.
+5. Delete the `clearance-gate` Application **without cascade**, so `selfHeal` cannot recreate what the next step deletes:
+   `kubectl delete application clearance-gate -n argocd` (the manifest has no finalizer, so this orphans its resources), or
+   `argocd app delete clearance-gate --cascade=false`. Never `argocd app delete` without `--cascade=false`: the CLI adds the
+   finalizer itself, and the cascade would delete the CRD and every stored grant ahead of step 7. The gate is deliberately
+   finalizer-free for that reason.
+6. Delete the policies and bindings: `kubectl delete validatingadmissionpolicybinding clearance-protected-writes
+   clearance-grant-writer`, then `kubectl delete validatingadmissionpolicy clearance-protected-writes clearance-grant-writer`.
+7. Delete the CRD last: `kubectl delete crd clearancegrants.clearance.hangar.io`. **This deletes every stored
+   `ClearanceGrant`.** They are only a cache of the signed grant feed, so re-enabling the gate rebuilds them, but do it only
+   once nothing depends on them.
+8. Verify: `kubectl get crd,validatingadmissionpolicy,validatingadmissionpolicybinding | grep -i clearance` and
+   `kubectl get deploy -n clearance-system` return nothing from the gate.
 
 ## Install
 

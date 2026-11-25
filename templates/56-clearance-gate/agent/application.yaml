@@ -10,11 +10,30 @@ metadata:
   labels:
     hangar.io/component: cluster-config
     hangar.io/subcomponent: policy
+  # Deleting this Application removes the agent (a stateless Deployment) and its RBAC, so it is safe to cascade: step 2 of
+  # README.md, "Clearance gate", "Removing the gate". The grants it wrote stay until the CRD goes.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
+#@if clearance.gate.agent.ownedProject.create
+  # clearance.gate.agent.ownedProject.create: two sources in ONE sync, so the Namespaces and AppProjects of owned.yaml (this folder's
+  # other file; Namespaces wave -1) exist before the chart puts a Role in each protected namespace (wave 0). Sync waves order
+  # resources inside one Application, never one Application against another, so these are not a separate Application.
+  sources:
+  - repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 56-clearance-gate/agent
+    directory:
+      exclude: "application.yaml"
+  # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
+  - repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+#@end
+#@if not clearance.gate.agent.ownedProject.create
   source:
     # OCI Helm source: repoURL without the chart name (Argo CD appends `chart`).
     repoURL: @@REGISTRY_HOST@@/@@REGISTRY_OWNER@@/charts
+#@end
     chart: clearance-argocd-agent
     targetRevision: "@@CLEARANCE_AGENT_CHART_VERSION@@"
     helm:
@@ -31,11 +50,89 @@ spec:
           projects: @@CLEARANCE_AGENT_PROJECTS@@
         protectedNamespaces: @@CLEARANCE_AGENT_PROTECTED_NAMESPACES@@
         hostAliases: @@CLEARANCE_AGENT_HOST_ALIASES@@
+#@if clearance.gate.agentServiceAccount
+        # The account the admission policy and the core's provider entry name (clearance.gate.agentServiceAccount): the chart's default otherwise.
+        serviceAccount:
+          name: "@@CLEARANCE_AGENT_SERVICE_ACCOUNT@@"
+#@end
+#@if clearance.gate.agent.environment
+        # The environment of a protected namespace that has no clearance.hangar.io/environment label (chart default: prod).
+        environment: "@@CLEARANCE_AGENT_ENVIRONMENT@@"
+#@end
+#@if clearance.gate.agent.optIn
+        # The annotation opt-in (clearance docs/gate.md, "Annotation opt-in", G-ARGO-10c): an Application annotated
+        # clearance.hangar.io/protect: "true" is switched to the plugin, its namespace (protectedNamespaces above) is
+        # labelled once its merged grant is active, and the pair is reported to the core. The ClearanceGrant CRD
+        # (clearancegrant-crd.yaml, schema revision 2) must be in the cluster first; the agent reads its schema and does
+        # not run the opt-in against an older one. denyApplications keeps the chart's default (the gate's own Applications).
+        optIn:
+          enabled: true
+#@end
+#@if clearance.gate.agent.rule
+        # The platform's gate rule (clearance.gate.agent.rule, W-42; clearance docs/gate.md, "The gate rule"; agent chart 0.56.0),
+        # passed through verbatim: an Application it selects is gated as if it carried the opt-in annotation, and removing the
+        # annotation does not release it. The chart renders it into the ConfigMap clearance-argocd-agent-gate-rule. It needs optIn
+        # above; projects and protectedNamespaces above are the ceiling it acts inside (apron check holds the rule to them).
+        gateRule: @@CLEARANCE_AGENT_GATE_RULE@@
+#@end
+#@if clearance.gate.agent.ruleOptions
+        # The rule's bounds (clearance.gate.agent.ruleOptions): exemptMax, releaseMax, exemptionRecheck, exemptionRecheckTimeout.
+        gateRuleOptions: @@CLEARANCE_AGENT_GATE_RULE_OPTIONS@@
+#@end
+#@if clearance.gate.enforce
+        # The mode the admission policy runs in (clearance.gate.enforce), so the chart can refuse Deny without an enforcing
+        # grant-expiry webhook (I-44; agent chart 0.55.0). Ignored by an older chart.
+        gate:
+          enforce: true
+#@end
+#@if clearance.gate.agent.grantExpiry
+        # The grant-expiry webhook (clearance.gate.agent.grantExpiry; clearance docs/gate.md, "The grant-expiry webhook"): the clock
+        # beside the admission policy. Its own Deployment (two replicas, a PDB), a cert-manager certificate and the
+        # ValidatingWebhookConfiguration clearance-grant-expiry; audit (failurePolicy Ignore) unless mode is enforce (Fail).
+        grantExpiry: @@CLEARANCE_AGENT_GRANT_EXPIRY@@
+#@end
+#@if clearance.gate.agent.ha.enabled
+        # Two agent replicas behind a coordination.k8s.io Lease (clearance.gate.agent.ha; I-44 option 0): only the holder runs the loops.
+        ha:
+          enabled: true
+#@end
+#@if clearance.gate.agent.statusHeartbeat
+        # status.checkedAt of every valid grant is refreshed at this age, so its age shows a stalled expiry pass.
+        statusHeartbeat: "@@CLEARANCE_AGENT_STATUS_HEARTBEAT@@"
+#@end
+#@if clearance.gate.agent.alerts.enabled
+        # The staleness alerts (clearance.gate.agent.alerts): a PrometheusRule and a PodMonitor for the grant-expiry pods. The label is
+        # what kube-prometheus-stack's ruleSelector matches (40-observability/kube-prometheus-stack).
+        alerts:
+          enabled: true
+          labels: {release: kube-prometheus-stack}
+#@end
         # What the exception scan recognises as the gate's own wait Job: the values admission's exemption is rendered with.
         waitJob:
           image: "@@CLEARANCE_GATE_WAIT_IMAGE@@"
+#@if _agentWaitPreviousImage
+          # The previous wait image (versions.clearance.previousWaitImage, one release only; I-59, agent chart 0.56.0): the agent's
+          # exception scan and the grant-expiry webhook also accept a held wait Job on it, as the admission exemption does.
+          previousImage: "@@CLEARANCE_GATE_PREVIOUS_WAIT_IMAGE@@"
+#@end
           url: "@@CLEARANCE_GATE_URL@@"
           hostAlias: "@@CLEARANCE_GATE_HOST_ALIAS@@"
+#@if clearance.gate.waitCAInject
+          # The wait Job's CA volume (plan step 5b): the agent's pin then expects exactly that shape, the one the plugin builds
+          # with CLEARANCE_WAIT_CA_CONFIGMAP (the same name). Set together with the sidecar's, never apart.
+          caConfigMap: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"
+#@end
+#@if clearance.gate.agent.grantExpiry.enabled and clearance.gate.previousURL
+          # The previous core URL the admission policy's exemption still admits (clearance.gate.previousURL): the grant-expiry
+          # webhook exempts the same wait Job, so it admits it too. The agent's own exception scan still pins the one url.
+          previousURL: "@@CLEARANCE_GATE_PREVIOUS_URL@@"
+#@end
+#@if clearance.gate.caConfigMap
+        # TLS to the core and the API (clearance.gate.caConfigMap; I-43, A-19): extra roots for an https coreURL or apiURL, the
+        # cluster CA's ConfigMap in clearance-system (key ca.crt), mounted and read as CLEARANCE_CA_FILE.
+        tls:
+          caConfigMap: "@@CLEARANCE_GATE_CA_CONFIGMAP@@"
+#@end
   destination:
     server: https://kubernetes.default.svc
     namespace: clearance-system

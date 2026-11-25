@@ -20,7 +20,8 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, get, lab_networking, parse_vkey, resolve  # noqa: E402
+from apronlib import (LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, gate_agent_ceiling,  # noqa: E402
+                      gate_migration_window, gate_rule, get, lab_networking, parse_vkey, resolve, tenant_sync_paused)
 
 TOKEN = re.compile(r"@@([A-Z0-9_]+)@@")
 STATE = ".apron-rendered"
@@ -76,6 +77,27 @@ def allowed_chart_repos(g):
         if not urllib.parse.urlparse(r).hostname:
             raise ApronError(f"allowedChartRepos: {r!r} has no host name (https://host/path)")
     return out
+
+
+def gate_ledger_writer(g):
+    """cluster.yaml promotion.gateLedger.writer: "" when unset, else direct or api (glidepath docs/admin/api.md, Gate verdicts)."""
+    w = g("promotion.gateLedger.writer", None)
+    if w in (None, ""):
+        return ""
+    if w not in ("direct", "api"):
+        raise ApronError(f"promotion.gateLedger.writer is {w!r}: direct (the catalog's default) or api")
+    return w
+
+
+def gate_reports_transport(g):
+    """cluster.yaml glidepath.gateReports.transport: "" when unset, else configmap or log (glidepath catalog gateReports.transport,
+    pipeline trust T4, W-8: how api-compat-gate and policy-validation-gate hand their report to comment-pr-check-result)."""
+    t = g("glidepath.gateReports.transport", None)
+    if t in (None, ""):
+        return ""
+    if t not in ("configmap", "log"):
+        raise ApronError(f"glidepath.gateReports.transport is {t!r}: configmap (the catalog's default) or log")
+    return t
 
 
 def tokens(v):
@@ -168,6 +190,9 @@ def tokens(v):
             "pinDigest": bool(g("promotion.pinDigest", False)),
             # The Flight promoter's dispatch repo (glidepath ADR-0029 phase 2), only when set.
             **({"promoter": {"repo": g("promotion.promoter.repo")}} if g("promotion.promoter.repo", "") else {}),
+            # Who writes the gate ledger (glidepath promotion.gateLedger.writer, pipeline trust T4, W-8), only when set: unset
+            # renders no key, so the catalog's own default (direct) stands and the render is unchanged.
+            **({"gateLedger": {"writer": gate_ledger_writer(g)}} if gate_ledger_writer(g) else {}),
         }),
         "GLIDEPATH_PROMOTER_REPO": g("promotion.promoter.repo", ""),
         # Glidepath's per-app guardrail overrides ({app: {gate: {required: false}}}), a YAML flow map ("{}" when unset);
@@ -176,6 +201,9 @@ def tokens(v):
         # Glidepath's per-cluster guardrail overrides ({gate: {required: bool}}), a YAML flow map ("{}" when unset, and the
         # catalog's key is then not rendered at all: a cluster that sets none renders byte-for-byte what it did before).
         "GLIDEPATH_GUARDRAIL_OVERRIDES": json.dumps(g("releaseGuardrailOverrides", None) or {}),
+        # The catalog's gateReports ({transport: configmap|log}), a YAML flow map ("{}" when unset, and the catalog's key is then not
+        # rendered at all: only used under `#@if glidepath.gateReports.transport`, so an unset cluster renders what it did before).
+        "GLIDEPATH_GATE_REPORTS": json.dumps({"transport": gate_reports_transport(g)} if gate_reports_transport(g) else {}),
         # Pipelines-as-Code's application-name (the check runs' name prefix), quoted: PaC's ConfigMap and the
         # glidepath-catalog's pipelinesAsCode.applicationName, which must match (glidepath docs/admin/github-app.md).
         "PAC_APPLICATION_NAME": json.dumps(g("pipelinesAsCode.applicationName", None) or "Glidepath"),
@@ -187,6 +215,7 @@ def tokens(v):
         "AGENTRUN_REAPER_SCHEDULE": cron_schedule(g("autopilot.reaperSchedule", "") or "7-59/10 * * * *", "autopilot.reaperSchedule"),
         **signing_tokens(v, g),
         **clearance_tokens(g),
+        **clearance_tls_tokens(g),
         **clearance_slack_tokens(v, g),
         **clearance_gate_tokens(g),
         **clearance_ledger_tokens(g),
@@ -196,11 +225,18 @@ def tokens(v):
         **clearance_targets_tokens(v, g),
         **clearance_attest_tokens(v, g),
         **clearance_admission_tokens(g),
+        **rollout_order_tokens(g),
         "AIRFRAME_CATALOG_VERSION": g("versions.airframe.catalog"),
         "AIRFRAME_REGISTRY_VERSION": g("versions.airframe.clusterRegistry"),
         "AIRFRAME_ANALYSIS_VERSION": g("versions.airframe.analysisCatalog"),
         "AIRFRAME_CHART_VERSION": g("versions.airframe.defaultChart"),
         "GLIDEPATH_VERSION": g("versions.glidepath"),
+        # trust-manager's chart (and its image's tag) and image index digest (components.trustManager; versions.yaml).
+        "TRUST_MANAGER_CHART_VERSION": g("versions.trustManager.chart", ""),
+        "TRUST_MANAGER_IMAGE_DIGEST": g("versions.trustManager.imageDigest", ""),
+        # certManager.dns01RecursiveNameservers as the chart's comma list (host:port,...). Only under its #@if in the
+        # cert-manager Application; unset, the chart's default (the pod's resolv.conf) applies and nothing renders.
+        "CERT_MANAGER_DNS01_RECURSIVE_NAMESERVERS": ",".join(str(x) for x in (g("certManager.dns01RecursiveNameservers") or [])),
         "ARGOCD_CHART_VERSION": g("versions.argocdChart"),
         "CNPG_REPLICAS": g("cnpg.replicas"),
         "OBSERVABILITY_FULL": "true" if g("observability.full") else "false",
@@ -217,6 +253,12 @@ def tokens(v):
         "CP_LEASE_DURATION": g("runtime.controlPlane.leaderElection.leaseDuration", ""),
         "CP_RENEW_DEADLINE": g("runtime.controlPlane.leaderElection.renewDeadline", ""),
         "CP_RETRY_PERIOD": g("runtime.controlPlane.leaderElection.retryPeriod", ""),
+        # tenantOnboarding.deleteGuard (W-46 (d)): the binding's validationActions and the controller's username. Only used
+        # in the tenant-onboarding chart's delete-guard.yaml, rendered only with tenantOnboarding.deleteGuard.enabled.
+        **{k: x for k, x in tenant_delete_guard(g).items() if not k.startswith("_")},
+        # tenantOnboarding.syncPaused and clearance.gate.migration: only under their #@if lines in the tenant-onboarding template.
+        **{k: x for k, x in tenant_sync_paused_flags(g).items() if not k.startswith("_")},
+        **tenant_window_tokens(g),
     }
     return {k: ("" if x is None else str(x)) for k, x in t.items()}
 
@@ -359,6 +401,17 @@ def clearance_tokens(g):
         "CLEARANCE_BACKUP_SCHEDULE": str(g("clearance.backup.schedule", "") or "17 2 * * *"),
         "CLEARANCE_BACKUP_KEEP": str(g("clearance.backup.keep", "") or 7),
         "CLEARANCE_BACKUP_STORAGE_SIZE": str(g("clearance.backup.storageSize", "") or "5Gi"),
+        # clearance-pg's sizing (clearance-config postgres.yaml): clearance.postgres.* in cluster.yaml. `parameters` is merged
+        # over the defaults key by key; primaryLease is the CNPG instance manager's lease timing (CNPG 1.30 .spec.primaryLease).
+        "CLEARANCE_PG_CPU_REQUEST": str(g("clearance.postgres.cpuRequest", "") or "250m"),
+        "CLEARANCE_PG_MEMORY_REQUEST": str(g("clearance.postgres.memoryRequest", "") or "512Mi"),
+        "CLEARANCE_PG_MEMORY_LIMIT": str(g("clearance.postgres.memoryLimit", "") or "768Mi"),
+        "CLEARANCE_PG_PARAMETERS": json.dumps({str(k): str(v) for k, v in {
+            "shared_buffers": "128MB", "effective_cache_size": "384MB", "work_mem": "8MB",
+            **(g("clearance.postgres.parameters", None) or {})}.items()}),
+        "CLEARANCE_PG_PRIMARY_LEASE": json.dumps({k: int(v) for k, v in {
+            "leaseDurationSeconds": 60, "renewDeadlineSeconds": 40, "retryPeriodSeconds": 15,
+            **(g("clearance.postgres.primaryLease", None) or {})}.items()}),
         # The registered runtime provider: the Autopilot gateway's service account (55-autopilot gateway.yaml).
         "CLEARANCE_PROVIDERS": json.dumps([{"name": "autopilot-gateway", "version": autopilot_provider_version(g),
                                             "principals": ["autopilot-system/autopilot-gateway"],
@@ -390,8 +443,28 @@ def clearance_tokens(g):
         # clearance-api's coverage result cache (clearance chart api.coverageCacheSeconds, 0.51.0+; 0 to 300): off unless
         # clearance.api.coverageCacheSeconds is set above 0; the template renders the key only then (see TOKENS.md).
         "CLEARANCE_API_COVERAGE_CACHE_SECONDS": str(int((c("api", {}) or {}).get("coverageCacheSeconds", 0) or 0)),
+        # The core's startup probe budget (chart core.startupSeconds, default 300): rendered only when clearance.core.startupSeconds is set.
+        "CLEARANCE_CORE_STARTUP_SECONDS": str(int((c("core", {}) or {}).get("startupSeconds", 0) or 0)),
         # The Clearance GitHub App's id (public; its key and webhook secret stay in Infisical).
         "CLEARANCE_GITHUB_APP_ID": str(c("githubAppId", "") or ""),
+    }
+
+
+def clearance_tls_tokens(g):
+    """The core's and the API's https listener (clearance chart tls.*, I-43; A-19): clearance.tls.enabled, .plainHttp and
+    .gatewayBackendTLS. Only used under `#@if clearance.tls.enabled`, except the routes' backend port, which is 8080 unless the
+    Gateway re-encrypts (gatewayBackendTLS), so a cluster that sets none of them renders what it did before. apron check holds
+    the combinations (hack/check.py)."""
+    cluster_ca = bool(g("components.clusterCA", False))
+    plain = g("clearance.tls.plainHttp", None)
+    return {
+        "CLEARANCE_TLS_PLAIN_HTTP": "false" if plain is False else "true",
+        # The cluster CA's ClusterIssuer (components.clusterCA) or, without it, the chart's own namespaced CA (an empty name).
+        "CLEARANCE_TLS_ISSUER_REF": json.dumps({"name": "hangar-cluster-ca", "kind": "ClusterIssuer"} if cluster_ca
+                                               else {"name": "", "kind": "Issuer"}),
+        "CLEARANCE_TLS_ISSUER_DESC": ("the cluster CA (ClusterIssuer hangar-cluster-ca, components.clusterCA)" if cluster_ca
+                                      else "the chart's own namespaced CA (no components.clusterCA)"),
+        "CLEARANCE_BACKEND_PORT": "8443" if (g("clearance.tls.enabled", False) and g("clearance.tls.gatewayBackendTLS", False)) else "8080",
     }
 
 
@@ -494,37 +567,188 @@ def clearance_gate_tokens(g):
         for a in apps:
             if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", a):
                 raise ApronError(f"clearance.gate.apps: {a!r} is not an app name")
+    # clearance.gate.canary: a second sidecar (clearance-cmp-canary, plugin `clearance-canary`) from another image, named
+    # by the listed apps only (clearance docs/gate.md, "Rolling out a plugin release"). Unset: nothing renders and the
+    # plugin name is the literal `clearance`, so the render is what it was.
+    canary_image = g("clearance.gate.canary.image", "") or ""
+    canary_apps_raw = g("clearance.gate.canary.apps", None) or []
+    canary_apps = [str(a) for a in canary_apps_raw] if isinstance(canary_apps_raw, list) else []
+    plugin_name = "clearance"
+    if on and g("clearance.gate.canary", None):
+        if not re.fullmatch(r"[^\s'\"]+@sha256:[0-9a-f]{64}", canary_image):
+            raise ApronError("clearance.gate.canary.image is a digest reference (<repo>@sha256:<64 hex>)")
+        if not isinstance(canary_apps_raw, list):
+            raise ApronError("clearance.gate.canary.apps is a list of app names ([gate-api]), not a string")
+        if not canary_apps:
+            raise ApronError("clearance.gate.canary.apps lists the apps that use the canary plugin; an image with no app would run an idle sidecar")
+        for a in canary_apps:
+            if not re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", a):
+                raise ApronError(f"clearance.gate.canary.apps: {a!r} is not an app name")
+        if len(set(canary_apps)) != len(canary_apps):
+            raise ApronError("clearance.gate.canary.apps lists an app twice")
+        if apps and not set(canary_apps) <= set(apps):
+            raise ApronError("clearance.gate.canary.apps names an app clearance.gate.apps leaves out: the gate does not cover it, so it would never use the plugin")
+        plugin_name = ('{{ if regexMatch "^(' + "|".join(canary_apps) + ')$" .appName }}clearance-canary{{ else }}clearance{{ end }}')
+    elif not on:
+        canary_image = ""
     agent_api = g("clearance.gate.agent.apiURL", "") or ""
     agent_host = urllib.parse.urlparse(agent_api).hostname or ""
     agent_image = g("versions.clearance.argocdAgentImage", "") or ""
+    # The agent's project ceiling and namespaces: clearance.gate.agent.projects / protectedNamespaces, or, with the gate rule
+    # (clearance.gate.agent.rule) and either unset, the rule's literal projects / namespaces (apron check holds them against the rule).
+    agent_projects, agent_namespaces = gate_agent_ceiling(g)
     if on and g("clearance.gate.agent", None):
-        if not (agent_api and g("clearance.gate.agent.projects", None) and g("clearance.gate.agent.protectedNamespaces", None)):
-            raise ApronError("clearance.gate.agent needs apiURL, projects and protectedNamespaces")
+        if not (agent_api and agent_projects and agent_namespaces):
+            raise ApronError("clearance.gate.agent needs apiURL, projects and protectedNamespaces (or a clearance.gate.agent.rule that names literal projects and namespaces)")
         if "@sha256:" not in agent_image or not g("versions.clearance.argocdAgentChart", ""):
             raise ApronError("clearance.gate.agent needs versions.clearance.argocdAgentImage (by digest) and argocdAgentChart")
     agent_repo, _, agent_digest = agent_image.partition("@")
     agent_chart = g("versions.clearance.argocdAgentChart", "") or ""
+    # clearance.gate.tenantPlugin: false keeps the tenant-onboarding ApplicationSet from giving any Application the plugin, so
+    # the gate covers only what opts in by annotation (clearance docs/gate.md, "Annotation opt-in"). Unset or true: as before.
+    tenant_plugin = g("clearance.gate.tenantPlugin", None)
+    if on and tenant_plugin is not None and not isinstance(tenant_plugin, bool):
+        raise ApronError("clearance.gate.tenantPlugin is true or false")
+    low = g("clearance.gate.lowerZone", None)
+    if on and low is not None and not isinstance(low, bool):
+        raise ApronError("clearance.gate.lowerZone is true or false")
+    # The agent's service account (the policy names it as the only ClearanceGrant writer, and the core's provider entry as a principal): the chart's
+    # default, or clearance.gate.agentServiceAccount "<namespace>:<name>", passed to the chart. The Application installs it in clearance-system.
+    agent_sa = g("clearance.gate.agentServiceAccount", None)
+    agent_sa_name = ""
+    if on and agent_sa and g("clearance.gate.agent", None):
+        sa_ns, _, agent_sa_name = str(agent_sa).partition(":")
+        if sa_ns != "clearance-system" or not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", agent_sa_name):
+            raise ApronError("clearance.gate.agentServiceAccount is clearance-system:<name> with gate.agent (the agent runs in clearance-system, as that account)")
+    opt_in = g("clearance.gate.agent.optIn", None)
+    agent_env = g("clearance.gate.agent.environment", None)
+    if on and g("clearance.gate.agent", None):
+        if opt_in is not None and not isinstance(opt_in, bool):
+            raise ApronError("clearance.gate.agent.optIn is true or false")
+        if agent_env is not None and not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", str(agent_env)):
+            raise ApronError("clearance.gate.agent.environment is a DNS label (the environment of a protected namespace that carries no clearance.hangar.io/environment label)")
+        if opt_in:
+            # The opt-in is in the agent chart from clearance 0.49.0 (G-ARGO-10c); an older chart ignores the value and would render an agent that does nothing.
+            try:
+                chart_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", agent_chart).groups())
+            except AttributeError:
+                chart_v = (0, 0, 0)
+            if chart_v < (0, 49, 0):
+                raise ApronError("clearance.gate.agent.optIn needs versions.clearance.argocdAgentChart 0.49.0 or later (the annotation opt-in, clearance G-ARGO-10c)")
+            # The core must let this cluster's agent report protected pairs (its provider entry's `protection`), or every report is a 403
+            # and no Application is ever switched. Checked where the core runs here; a core on another cluster is that cluster's file.
+            # The principal is the agent's service account as the core knows a caller on its own cluster: <namespace>/<name>. An entry counts when
+            # its glob matches that principal, the cluster after the `=` is this one, and the same entry lists a principal that glob covers.
+            cluster = g("name", "")
+            principal = (g("clearance.gate.agentServiceAccount", None) or "clearance-system:clearance-argocd-agent").replace(":", "/", 1)
+
+            def _grants_protection(entry):
+                for x in (entry.get("protection") or []):
+                    glob, _, cl = str(x).rpartition("=")
+                    if cl == cluster and fnmatch.fnmatchcase(principal, glob) and any(
+                            fnmatch.fnmatchcase(principal, str(q)) for q in (entry.get("principals") or [])):
+                        return True
+                return False
+            if g("components.clearance", False) and not any(_grants_protection(p) for p in (g("clearance.extraProviders", None) or []) if isinstance(p, dict)):
+                raise ApronError(f"clearance.gate.agent.optIn needs a clearance.extraProviders entry with protection: [\"{principal}={cluster}\"] "
+                                 f"and {principal} among its principals (clearance docs/gate.md, \"Turning it on\"): without it the core refuses the agent's reports")
+    # clearance.gate.agent.ownedProject {create: true}: apron renders the agent's own Namespaces and AppProjects
+    # (56-clearance-gate/agent/owned.yaml, a second source of the agent's Application), for a rehearsal whose project and namespaces nothing else makes. Off unless create is true.
+    owned_ns, owned_proj = "", ""
+    owned = g("clearance.gate.agent.ownedProject", None)
+    if on and g("clearance.gate.agent", None) and owned is not None:
+        if not isinstance(owned, dict):
+            raise ApronError("clearance.gate.agent.ownedProject is a map: {create: true, sourceRepos: [...]}")
+        for k in owned:
+            if k not in ("create", "sourceRepos"):
+                raise ApronError(f"clearance.gate.agent.ownedProject.{k} is not a setting (create, sourceRepos)")
+        if not isinstance(owned.get("create", False), bool):
+            raise ApronError("clearance.gate.agent.ownedProject.create is true or false")
+        if owned.get("create"):
+            dns = r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"
+            projs, nss = agent_projects, agent_namespaces
+            for key, vals in (("projects", projs), ("protectedNamespaces", nss)):
+                if not isinstance(vals, list) or not all(isinstance(x, str) and re.fullmatch(dns, x) for x in vals):
+                    raise ApronError(f"clearance.gate.agent.ownedProject.create needs clearance.gate.agent.{key} to be a list of DNS labels")
+            if "default" in projs:
+                raise ApronError("clearance.gate.agent.ownedProject.create would own the AppProject 'default': name the agent's own projects")
+            repos = owned.get("sourceRepos", None)
+            if repos is None:
+                repos = [g("repoURL", "")]
+            if not isinstance(repos, list) or not repos or not all(isinstance(x, str) and x for x in repos):
+                raise ApronError("clearance.gate.agent.ownedProject.sourceRepos is a non-empty list of repository URLs (unset: this cluster's gitops repository)")
+            labels = "  labels:\n    hangar.io/component: cluster-config\n    hangar.io/subcomponent: policy\n"
+            # Prune=false,Delete=false: Argo CD never deletes these on a prune or when the Application goes (the agent labels the
+            # namespaces; a deleted namespace is the outage this was added for). Wave -1: the namespace before anything in it.
+            owned_ns = "---\n".join(
+                f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {json.dumps(n)}\n{labels}"
+                f"  annotations:\n    argocd.argoproj.io/sync-wave: \"-1\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n" for n in nss)
+            dests = "".join(f"    - {{server: https://kubernetes.default.svc, namespace: {json.dumps(n)}}}\n" for n in nss)
+            srcs = "".join(f"    - {json.dumps(r)}\n" for r in repos)
+            owned_proj = "---\n".join(
+                f"apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: {json.dumps(pr)}\n  namespace: argocd-apps\n{labels}"
+                f"  annotations:\n    argocd.argoproj.io/sync-wave: \"0\"\n    argocd.argoproj.io/sync-options: Prune=false,Delete=false\n"
+                f"spec:\n  description: \"The Clearance agent's own project; it may deploy only into the agent's protected namespaces\"\n"
+                f"  sourceRepos:\n{srcs}  destinations:\n{dests}" for pr in projs)
     return {
+        "CLEARANCE_AGENT_OWNED_NAMESPACES": owned_ns,
+        "CLEARANCE_AGENT_OWNED_PROJECTS": owned_proj,
         "CLEARANCE_GATE_ENV_REGEX": regex,
         # gate.apps limits the plugin to those apps, so a cluster can turn the gate on one app at a time. Empty: every
         # app in a protected environment. No backslash: the regex sits in a Go-template double-quoted string.
-        "CLEARANCE_GATE_APP_REGEX": f"^({'|'.join(apps)})$" if apps else "^.*$",
+        # tenantPlugin: false matches no app (an app name is never empty), so no tenant Application is given the plugin.
+        "CLEARANCE_GATE_APP_REGEX": ("^$" if (on and tenant_plugin is False) else (f"^({'|'.join(apps)})$" if apps else "^.*$")),
+        "CLEARANCE_AGENT_ENVIRONMENT": str(agent_env or ""),
+        "CLEARANCE_AGENT_SERVICE_ACCOUNT": agent_sa_name,
         "CLEARANCE_GATE_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts}] if alias else []),
         "CLEARANCE_AGENT_CHART_VERSION": agent_chart,
         "CLEARANCE_AGENT_IMAGE_REPOSITORY": agent_repo,
         # The chart builds <repository>:<tag>, so the digest pin goes in the tag.
         "CLEARANCE_AGENT_IMAGE_TAG": f"v{agent_chart}@{agent_digest}" if agent_digest else "",
         "CLEARANCE_AGENT_API_URL": agent_api,
-        "CLEARANCE_AGENT_PROJECTS": json.dumps(list(g("clearance.gate.agent.projects", None) or [])),
-        "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(list(g("clearance.gate.agent.protectedNamespaces", None) or [])),
+        "CLEARANCE_AGENT_PROJECTS": json.dumps(agent_projects),
+        "CLEARANCE_AGENT_PROTECTED_NAMESPACES": json.dumps(agent_namespaces),
+        # clearance.gate.agent.rule (W-42; agent chart 0.56.0 gateRule) verbatim, and ruleOptions (gateRuleOptions, only the keys
+        # set), each a JSON flow mapping. Only under their #@if lines; apron check validates both.
+        "CLEARANCE_AGENT_GATE_RULE": json.dumps(gate_rule(g) or {}),
+        "CLEARANCE_AGENT_GATE_RULE_OPTIONS": json.dumps(g("clearance.gate.agent.ruleOptions", None) or {}),
         "CLEARANCE_AGENT_HOST_ALIASES": json.dumps([{"ip": alias_ip, "hostnames": hosts + ([agent_host] if agent_host and agent_host not in hosts else [])}]
                                                    if alias else []),
+        # clearance.gate.agent.grantExpiry (I-44; agent chart 0.55.0 grantExpiry): the chart's values as one flow mapping. mode audit (the
+        # default) or enforce is the chart's enforce; argocdUser is the controller the admission policy names, so the webhook matches the
+        # same writer. Only under `#@if clearance.gate.agent.grantExpiry`; check.py validates the block.
+        "CLEARANCE_AGENT_GRANT_EXPIRY": json.dumps(_agent_grant_expiry(g)),
+        # clearance.gate.agent.statusHeartbeat: the chart's statusHeartbeat (one unit: 90s, 5m, 1h). Only under its #@if.
+        "CLEARANCE_AGENT_STATUS_HEARTBEAT": str(g("clearance.gate.agent.statusHeartbeat", "") or ""),
+        # clearance.gate.previousURL as the agent chart's waitJob.previousURL: read only by the grant-expiry webhook, which exempts the
+        # same wait Job the admission policy does. Only under `#@if clearance.gate.agent.grantExpiry.enabled and clearance.gate.previousURL`.
+        "CLEARANCE_GATE_PREVIOUS_URL": str(g("clearance.gate.previousURL", "") or ""),
         # How the plugin and the wait Job reach the core: in-cluster on the control plane, else a gateway route.
         "CLEARANCE_GATE_URL": g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080",
         "CLEARANCE_GATE_HOST_ALIAS": alias,
         "CLEARANCE_CMP_IMAGE": cmp_image,
+        "CLEARANCE_CMP_CANARY_IMAGE": canary_image,
+        "CLEARANCE_PLUGIN_NAME": plugin_name,
         "CLEARANCE_WAIT_IMAGE": wait_image,
     }
+
+
+def _agent_grant_expiry(g):
+    """clearance.gate.agent.grantExpiry -> the agent chart's grantExpiry values. Keys that are unset stay out (the chart's
+    defaults apply), so the rendered mapping names only what cluster.yaml set, plus argocdUser whenever the webhook is on."""
+    ge = g("clearance.gate.agent.grantExpiry", None)
+    if not isinstance(ge, dict):
+        return {}
+    out = {}
+    if ge.get("enabled") is not None:
+        out["enabled"] = ge.get("enabled") is True
+    if ge.get("mode") is not None:
+        out["enforce"] = ge.get("mode") == "enforce"
+    if ge.get("acceptResidualRisk") is not None:
+        out["acceptResidualRisk"] = ge.get("acceptResidualRisk") is True
+    if out.get("enabled"):
+        out["argocdUser"] = "system:serviceaccount:" + (g("clearance.gate.argocdServiceAccount", None) or "argocd-apps:argocd-application-controller")
+    return out
 
 
 def _host_alias(g, key):
@@ -697,6 +921,9 @@ TARGET_ID = re.compile(r"^[a-z0-9][a-z0-9._:/-]{0,126}$")
 TARGET_TIER = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 TARGET_SOURCE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
 # An application namespace is app-<app>-<env> (Glidepath, airframe): the environment is the last word.
+# The -cicd service accounts the Glidepath clearance-gate check may register changes as (W-8 pipeline-trust T4: the old shared
+# runner and the new clearance-gate account). Each is a gate instance on the Map; drop "pipeline-runner" at W-8 step 7.
+GLIDEPATH_GATE_ACCOUNTS = ("pipeline-runner", "clearance-gate")
 APP_NAMESPACE = re.compile(r"^app-(?P<app>[a-z0-9][a-z0-9-]*)-(?P<env>[a-z0-9]+)$")
 
 
@@ -765,7 +992,7 @@ def clearance_targets_tokens(v, g):
     argo_instance = str(g("clearance.targets.argoInstance", "") or "argocd-agent")
     protected = [str(e) for e in (g("clearance.protectedEnvironments", None) or [])]
     observe_ns = [str(n) for n in (g("clearance.observe.protectedNamespaces", None) or [])] if g("clearance.observe.enabled", False) else []
-    agent_ns = [str(n) for n in (g("clearance.gate.agent.protectedNamespaces", None) or [])] if gate_on and g("clearance.gate.agent", None) else []
+    agent_ns = [str(n) for n in gate_agent_ceiling(g)[1]] if gate_on and g("clearance.gate.agent", None) else []
     gate_apps = [str(a) for a in (g("clearance.gate.apps", None) or [])]
     targets = []
     for ns in sorted(set(observe_ns) | set(agent_ns)):
@@ -773,13 +1000,17 @@ def clearance_targets_tokens(v, g):
         app, env = (m.group("app"), m.group("env")) if m else ("", "")
         gates = []
         if app:
-            # The Glidepath clearance-gate check registers the change as the pipeline-runner of the app's -cicd namespace (the
-            # core's CLEARANCE_VERIFIERS entry app-*-cicd/pipeline-runner): that principal is what the record's change names
+            # The Glidepath clearance-gate check registers the change as a service account of the app's -cicd namespace (the
+            # core's CLEARANCE_VERIFIERS entries app-*-cicd/pipeline-runner and, from W-8, app-*-cicd/clearance-gate): that principal is what the record's change names
             # (registered_by), so it is the gate's instance. It refuses (enforce) where the environment is protected; elsewhere
             # a change clears at tier 0 and is recorded (flag).
             # An empty clearance.protectedEnvironments protects EVERY environment (the core fails closed), so unset is enforce.
             prot = any(fnmatch.fnmatchcase(f"{cluster}/{env}", e) for e in protected) if protected else True
-            gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/pipeline-runner", "mode": "enforce" if prot else "flag"})
+            # W-8 step 1 (additive): during the split-runner overlap the check may run as either account, so declare both
+            # principals (GLIDEPATH_GATE_ACCOUNTS) so neither is undeclared. Until an app has moved, its unused instance
+            # shows as silent (info only, clearance internal/api/map.go:705). Step 7 drops pipeline-runner.
+            for sa in GLIDEPATH_GATE_ACCOUNTS:
+                gates.append({"type": "glidepath", "instance": f"app-{app}-cicd/{sa}", "mode": "enforce" if prot else "flag"})
             if gate_on and (ns in agent_ns if agent_ns else (not gate_apps or app in gate_apps)):
                 # The Argo CD gate's agent reports every sync outcome and refused write as provider argocd-agent.
                 gates.append({"type": "g-argo", "instance": argo_instance, "mode": "enforce" if g("clearance.gate.enforce", False) else "flag"})
@@ -977,6 +1208,9 @@ def glidepath_run_tokens(g):
         "GLIDEPATH_SOURCE_TASK_PIPELINES": json.dumps(sorted(sources)),
         "GLIDEPATH_PUSHER_TASKS": json.dumps(dict(lists.get("pusherTasks") or {}), sort_keys=True),
         "GLIDEPATH_CLOUD_DEPLOYER_TASKS": json.dumps(dict(lists.get("cloudDeployerTasks") or {}), sort_keys=True),
+        "GLIDEPATH_RECORD_WRITER_TASKS": json.dumps(dict(lists.get("recordWriterTasks") or {}), sort_keys=True),
+        "GLIDEPATH_CLEARANCE_TASKS": json.dumps(dict(lists.get("clearanceTasks") or {}), sort_keys=True),
+        "GLIDEPATH_TEST_RUNNER_TASKS": json.dumps(dict(lists.get("testRunnerTasks") or {}), sort_keys=True),
         "GLIDEPATH_RUN_SHAPE_ACTIONS": "[Deny]" if shape == "deny" else "[Warn, Audit]",
         "GLIDEPATH_REF_PROTECTION": json.dumps(rp),
         # Pipelines-as-Code's per-repository concurrency limit for every app's Repository CRs (omitted from the values when unset).
@@ -988,13 +1222,75 @@ def glidepath_run_tokens(g):
     }
 
 
+def _cel_safe_url(key, url):
+    """An http(s) URL that can sit in a single-quoted CEL string literal: parsed with urllib (an IPv6 host in brackets is fine),
+    with a host, a valid port, no user info, query or fragment, and no quote, backslash, space or control character, the only
+    characters that could end the literal or change what it says."""
+    bad = ApronError(f"{key} is {url!r}: an http(s) URL (scheme, host, optional port and path) with no quote, backslash or space")
+    if any(c in url for c in "'\"\\") or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        raise bad
+    try:
+        u = urllib.parse.urlsplit(url)
+        u.port  # noqa: B018 - raises ValueError for a port that is not a number in range
+    except ValueError:
+        raise bad from None
+    if u.scheme not in ("http", "https") or not u.hostname or u.username is not None or u.password is not None or u.query or u.fragment:
+        raise bad
+
+
 def clearance_admission_tokens(g):
     """The Clearance gate on an upper cluster (clearance G-ARGO-2, templates/56-clearance-gate): Warn until
     clearance.gate.enforce, which flips validationActions and parameterNotFoundAction together (an enforcing binding
     with no active grant refuses every matched write in a protected namespace)."""
     enforce = bool(g("clearance.gate.enforce", False))
     sa = lambda key, d: "system:serviceaccount:" + (g(f"clearance.gate.{key}", None) or d)  # noqa: E731
+    # clearance.gate.waitCAConfigMap (I-43, A-17): the ConfigMap (key ca.crt) the wait Job may mount as its CA, the
+    # trust-manager Bundle's target in each destination namespace. Unset: the policy renders byte for byte as before and
+    # refuses any second volume. Only read under `#@if clearance.gate.waitCAConfigMap`; it is a CEL string literal there, so
+    # it must be a ConfigMap name (a DNS subdomain: no quote can reach the expression).
+    wait_ca = g("clearance.gate.waitCAConfigMap", None)
+    if wait_ca is not None and wait_ca != "" and not (
+            isinstance(wait_ca, str) and len(wait_ca) <= 253 and
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", wait_ca)):
+        raise ApronError(f"clearance.gate.waitCAConfigMap is {wait_ca!r}: a ConfigMap name (a DNS subdomain), the trust-manager "
+                         "Bundle the wait Job mounts its CA from; unset for none")
+    gate_ca = g("clearance.gate.caConfigMap", None)
+    if gate_ca is not None and gate_ca != "" and not (
+            isinstance(gate_ca, str) and len(gate_ca) <= 253 and
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*", gate_ca)):
+        raise ApronError(f"clearance.gate.caConfigMap is {gate_ca!r}: a ConfigMap name (a DNS subdomain), the cluster CA's "
+                         "ConfigMap the plugin and the agent trust; unset for none")
+    inject = g("clearance.gate.waitCAInject", None)
+    if inject is not None and not isinstance(inject, bool):
+        raise ApronError("clearance.gate.waitCAInject is true or false")
+    if inject and not wait_ca:
+        raise ApronError("clearance.gate.waitCAInject needs clearance.gate.waitCAConfigMap: the plugin would inject a CA volume "
+                         "the admission policy refuses (set the policy's key first, plan step 5a)")
+    # clearance.gate.fsSandbox (A-24): the plugin's CLEARANCE_CMP_FS_SANDBOX (clearance docs/install-argocd-plugin.md). Unset: nothing
+    # renders and the plugin's default (try) applies. Only read under `#@if clearance.gate.fsSandbox`.
+    fs_sandbox = g("clearance.gate.fsSandbox", None)
+    if fs_sandbox is not None and fs_sandbox not in ("try", "require", "off"):
+        raise ApronError(f"clearance.gate.fsSandbox is {fs_sandbox!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
+    ns = g("clearance.namespace", None) or "clearance-system"
+    gate_url = g("clearance.gate.url", "") or f"http://clearance-core.{ns}.svc:8080"
+    prev_url = str(g("clearance.gate.previousURL", "") or "")
+    if prev_url:
+        _cel_safe_url("clearance.gate.previousURL", prev_url)
+        if prev_url == gate_url:
+            raise ApronError("clearance.gate.previousURL equals clearance.gate.url: remove it (it is for the one release after a url change)")
+        _cel_safe_url("clearance.gate.url (with previousURL set)", gate_url)
     return {
+        "CLEARANCE_GATE_WAIT_CA_CONFIGMAP": wait_ca or "",
+        "CLEARANCE_GATE_FS_SANDBOX": fs_sandbox or "",
+        # clearance.gate.caConfigMap (A-19): the ConfigMap (key ca.crt) the plugin sidecar (argocd-apps) and the agent
+        # (clearance-system) trust as extra roots for an https core and API. Only read under `#@if clearance.gate.caConfigMap`.
+        "CLEARANCE_GATE_CA_CONFIGMAP": gate_ca or "",
+        # The CEL test of the wait Job's CLEARANCE_URL. With clearance.gate.previousURL set (one release only) it is a list of the
+        # current and the previous URL, so a wait Job or cached manifest made before a clearance.gate.url change keeps working
+        # where the policy enforces. Unset: the single-URL test, byte for byte as before.
+        "CLEARANCE_GATE_URL_MATCH": (
+            "variables.waitctr.env[0].value in ['%s', '%s']" % (gate_url, prev_url) if prev_url
+            else "variables.waitctr.env[0].value == '%s'" % gate_url),
         "CLEARANCE_GATE_ACTIONS": "[Deny, Audit]" if enforce else "[Warn, Audit]",
         "CLEARANCE_GATE_PARAM_NOT_FOUND": "Deny" if enforce else "Allow",
         # <namespace>:<name> of the service accounts the policies name: Argo CD's apps controller on this cluster, and
@@ -1003,6 +1299,9 @@ def clearance_admission_tokens(g):
         # The pinned wait image the policy exempts as G-ARGO-4's injected PreSync Job: the same digest reference the
         # plugin injects (versions.clearance.waitImage, required with clearance.gate.enabled); empty = no exemption.
         "CLEARANCE_GATE_WAIT_IMAGE": g("versions.clearance.waitImage", "") or "",
+        # The agent chart's waitJob.previousImage (I-59): versions.clearance.previousWaitImage, the same previous digest the
+        # exemption and Flight admission admit. Only read under `#@if _agentWaitPreviousImage`.
+        "CLEARANCE_GATE_PREVIOUS_WAIT_IMAGE": g("versions.clearance.previousWaitImage", "") or "",
         # The CEL test of the Job's container image. With versions.clearance.previousWaitImage set (one release only) it is a
         # list of the new and the previous digest, so a wait Job or cached manifest naming the old digest keeps working once
         # this policy is deployed. It does not order the roll-out: the policy must update before the sidecar generates the
@@ -1082,11 +1381,177 @@ def render_text(text, rel, v, toks, errors):
     return "\n".join(out)
 
 
+def tenant_gated_set_flags(g):
+    """clearance.gate.agent.gatedSet (W-43): the tenant-onboarding chart renders a second ApplicationSet,
+    tenant-onboarding-gated, for the environments whose identity.yaml says `clearanceGate: true` (Airframe
+    ApplicationEnvironment spec.clearanceGate), and tenant-onboarding stops generating them. clearance.gate.agent.gatedSetHandover
+    opens the handover window (both sets applicationsSync: create-update). Both default off; off, the chart is what it was.
+    Returned as the `_tenantGatedSet` / `_tenantGatedHandover` values the templates' #@if lines read."""
+    gated, handover = g("clearance.gate.agent.gatedSet", None), g("clearance.gate.agent.gatedSetHandover", None)
+    for key, val in (("gatedSet", gated), ("gatedSetHandover", handover)):
+        if val is not None and not isinstance(val, bool):
+            raise ApronError(f"clearance.gate.agent.{key} is true or false")
+    wprobs, window, held = gate_migration_window(g)
+    if wprobs:
+        raise ApronError(wprobs[0])
+    if gated:
+        # Only where the agent runs the annotation opt-in: the gated set exists for the agent, and without it the set's
+        # Applications would sit annotated with nothing to switch them (and nothing to un-switch them).
+        gate_here = g("zone", "") == "upper" or bool(g("clearance.gate.lowerZone", False))
+        if not (gate_here and g("clearance.gate.enabled", False) and g("clearance.gate.agent", None) and g("clearance.gate.agent.optIn", False)):
+            raise ApronError("clearance.gate.agent.gatedSet needs the gate and its agent on this cluster (clearance.gate.enabled, clearance.gate.agent, "
+                             "clearance.gate.agent.optIn: true, and zone: upper or clearance.gate.lowerZone: true)")
+        # Not with tenantPlugin (default true): tenant-onboarding would give an environment the static plugin source, and a
+        # handover into the gated set keeps that source (its ignore rule preserves /spec/sources), so the agent refuses the
+        # Application ("on the plugin and the agent did not put it there") and it stays on a static plugin source the gated set
+        # never updates. Which environments are gated is data (identity.yaml), not known here, so the combination is refused.
+        # The one exception is the migration window (clearance.gate.migration, apron README "Migrating off the static plugin"):
+        # it names the apps moving now, each by the runbook (paused, handed over, its sources put back on Helm by hand), and
+        # holds every other app of clearance.gate.apps in tenant-onboarding, so none of those can reach the gated set on the plugin.
+        if g("clearance.gate.tenantPlugin", None) is not False and not window:
+            raise ApronError("clearance.gate.agent.gatedSet needs clearance.gate.tenantPlugin: false: an Application tenant-onboarding put on the "
+                             "static plugin keeps that source when it is handed over to tenant-onboarding-gated, and the agent refuses to switch it "
+                             "(apron README, \"Gated environments\"; to move apps off the plugin one at a time, the migration window, "
+                             "clearance.gate.migration)")
+    if handover and not gated:
+        raise ApronError("clearance.gate.agent.gatedSetHandover is the handover window between tenant-onboarding and tenant-onboarding-gated: it needs clearance.gate.agent.gatedSet")
+    return {"_tenantGatedSet": bool(gated), "_tenantGatedHandover": bool(handover),
+            "_tenantMigrationWindow": bool(window), "_tenantWindowHeld": bool(window and held)}
+
+
+def tenant_window_tokens(g):
+    """The migration window's one token: the apps of clearance.gate.apps outside the window, as a YAML flow list, for the
+    generator selectors that hold them in tenant-onboarding (only under `#@if _tenantWindowHeld`)."""
+    _, window, held = gate_migration_window(g)
+    return {"TENANT_WINDOW_HELD_APPS": json.dumps(held) if window else ""}
+
+
+def tenant_sync_paused_flags(g):
+    """tenantOnboarding.syncPaused: the `_tenantSyncPaused` flag the tenant-onboarding template's #@if lines read, and the
+    regex over "<appName>/<env>" its templatePatch matches (TENANT_SYNC_PAUSED_REGEX). Unset: off, and the chart is byte for
+    byte what it was. App and env are DNS labels (checked), so the regex needs no escaping."""
+    probs, pairs = tenant_sync_paused(g)
+    if probs:
+        raise ApronError(probs[0])
+    return {"_tenantSyncPaused": bool(pairs), "TENANT_SYNC_PAUSED_REGEX": f"^({'|'.join(pairs)})$" if pairs else ""}
+
+
+# The ServiceAccount argocd-apps-install's ApplicationSet controller runs as: the argo-cd chart's default
+# (applicationSet.serviceAccount.name), which argocd-apps-install does not override (tests/run.sh checks it).
+APPSET_CONTROLLER_SA = "argocd-applicationset-controller"
+# A ServiceAccount name: a DNS subdomain (RFC 1123, at most 253 characters), matched with fullmatch (no trailing newline).
+_DNS_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*")
+
+
+def tenant_delete_guard(g):
+    """tenantOnboarding.deleteGuard (W-46 option (d); hangar specs/plans/w46-clearancegate-flip-guard.md): the tenant-onboarding
+    chart renders a ValidatingAdmissionPolicy that refuses the ApplicationSet controller's DELETE of an Application that
+    tenant-onboarding or tenant-onboarding-gated controls. Off by default (nothing renders: the chart is byte for byte what it
+    was); `enabled: true` per cluster turns it on. `validationActions` is Audit (the default, the first rollout step) or Deny.
+    `controllerServiceAccount` is the controller's ServiceAccount in argocd-apps (default: the chart's). Returns the
+    `_tenantDeleteGuard` flag (templates/MANIFEST) and the two tokens."""
+    enabled = g("tenantOnboarding.deleteGuard.enabled", None)
+    actions = g("tenantOnboarding.deleteGuard.validationActions", None)
+    sa = g("tenantOnboarding.deleteGuard.controllerServiceAccount", None)
+    block = g("tenantOnboarding.deleteGuard", None)
+    if block is not None and not isinstance(block, dict):
+        raise ApronError("tenantOnboarding.deleteGuard is a mapping: {enabled, validationActions, controllerServiceAccount}")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ApronError("tenantOnboarding.deleteGuard.enabled is true or false")
+    if actions is not None and actions not in ("Audit", "Deny"):
+        raise ApronError("tenantOnboarding.deleteGuard.validationActions is Audit or Deny")
+    # A CEL string literal in the policy: a DNS subdomain only (no quote, no newline), so it cannot end the literal.
+    if sa is not None and not (isinstance(sa, str) and len(sa) <= 253 and _DNS_SUBDOMAIN.fullmatch(sa)):
+        raise ApronError("tenantOnboarding.deleteGuard.controllerServiceAccount is a ServiceAccount name (a DNS subdomain)")
+    return {
+        "_tenantDeleteGuard": bool(enabled),
+        "TENANT_DELETE_GUARD_ACTIONS": actions or "Audit",
+        "TENANT_DELETE_GUARD_USER": f"system:serviceaccount:argocd-apps:{sa or APPSET_CONTROLLER_SA}",
+    }
+
+
+def agent_wait_previous_flag(g):
+    """versions.clearance.previousWaitImage to the agent chart's waitJob.previousImage (I-59, clearance#218; agent chart 0.56.0):
+    the agent and its grant-expiry webhook then accept a wait Job on the previous image too, for the one release of a wait-image
+    rollover, instead of reporting it out-of-band. On only with the gate and its agent, previousWaitImage set and an agent chart
+    of 0.56.0 or later (an older chart has no such value; check.py refuses that combination). Returned as the
+    `_agentWaitPreviousImage` value the agent template's #@if reads; off, the agent renders as before."""
+    if not (g("clearance.gate.enabled", False) is True and g("clearance.gate.agent", None) and g("versions.clearance.waitImage", "")
+            and g("versions.clearance.previousWaitImage", "")):
+        return {"_agentWaitPreviousImage": False}
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(g("versions.clearance.argocdAgentChart", "") or ""))
+    return {"_agentWaitPreviousImage": bool(m) and tuple(int(x) for x in m.groups()) >= (0, 56, 0)}
+
+
+# The gate's rollout-order hook (I-77; README.md, "Rollout order for Clearance releases"): where its checks look.
+ROLLOUT_ORDER_REPO_SERVER = "argocd-apps/argocd-apps-repo-server"
+ROLLOUT_ORDER_AGENT_NAMESPACE = "clearance-system"
+ROLLOUT_ORDER_GATE_POLICY = "clearance-protected-writes"
+ROLLOUT_ORDER_FLIGHT_POLICY = "flight-only-images"
+ROLLOUT_ORDER_TIMEOUT_SECONDS = 600
+
+
+def rollout_order_flags(g):
+    """I-77: the PreSync hook in argocd-apps-install that holds a repo-server wait-image change until the policies admit the new
+    wait image and the gate's agent runs it, Ready. On with the gate on a cluster that renders its policies (zone upper or
+    clearance.gate.lowerZone), unless clearance.gate.rolloutOrder is false. `_rolloutOrderFlight`: Flight admission's
+    flight-only-images is rendered too (the same condition as templates/MANIFEST's flight-images.yaml), so the hook checks it.
+    Off: argocd-apps-install renders byte for byte as before."""
+    order = g("clearance.gate.rolloutOrder", None)
+    gate = g("clearance.gate.enabled", False) is True
+    if gate and order is not None and not isinstance(order, bool):
+        raise ApronError("clearance.gate.rolloutOrder is true or false")
+    on = gate and order is not False and (g("zone", "") == "upper" or g("clearance.gate.lowerZone", False) is True)
+    flight = on and bool(g("components.policy", False)) and g("zone", "") == "upper" and bool(g("admission.flight.enabled", False))
+    return {"_rolloutOrder": on, "_rolloutOrderFlight": flight}
+
+
+def rollout_order_tokens(g):
+    """The hook's checks as one JSON document (the Job's CHECKS) and the Deployments its ClusterRole may read. Only read under
+    `#@if _rolloutOrder`. The policy and Deployment names are the ones apron renders (56-clearance-gate/admission.yaml,
+    30-policy/kyverno-policies/flight-images.yaml) and the agent chart's (its Deployment, and clearance-grant-expiry with
+    grantExpiry.enabled)."""
+    flags = rollout_order_flags(g)
+    if not flags["_rolloutOrder"]:
+        return {k: "" for k in ("CLEARANCE_ROLLOUT_ORDER_CHECKS", "CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS",
+                                "CLEARANCE_ROLLOUT_ORDER_TIMEOUT", "CLEARANCE_ROLLOUT_ORDER_DEADLINE")}
+    policies = [{"name": ROLLOUT_ORDER_GATE_POLICY, "kind": "vap",
+                 "path": f"/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/{ROLLOUT_ORDER_GATE_POLICY}"}]
+    if flags["_rolloutOrderFlight"]:
+        policies.append({"name": ROLLOUT_ORDER_FLIGHT_POLICY, "kind": "kyverno",
+                         "path": f"/apis/policies.kyverno.io/v1/validatingpolicies/{ROLLOUT_ORDER_FLIGHT_POLICY}"})
+    agent = None
+    if g("clearance.gate.agent", None):
+        repo, _, digest = (g("versions.clearance.argocdAgentImage", "") or "").partition("@")
+        deps = [f"{ROLLOUT_ORDER_AGENT_NAMESPACE}/clearance-argocd-agent"]
+        ge = g("clearance.gate.agent.grantExpiry", None)
+        if isinstance(ge, dict) and ge.get("enabled") is True:
+            deps.append(f"{ROLLOUT_ORDER_AGENT_NAMESPACE}/clearance-grant-expiry")
+        # The image the agent Application sets (repository:v<chart>@<digest>, CLEARANCE_AGENT_IMAGE_TAG).
+        agent = {"image": f"{repo}:v{g('versions.clearance.argocdAgentChart', '')}@{digest}", "deployments": deps}
+    checks = {"waitImage": g("versions.clearance.waitImage", "") or "", "repoServer": ROLLOUT_ORDER_REPO_SERVER,
+              "container": "clearance-cmp", "policies": policies, "agent": agent}
+    names = [ROLLOUT_ORDER_REPO_SERVER.split("/", 1)[1]] + [d.split("/", 1)[1] for d in (agent or {}).get("deployments", [])]
+    return {
+        # A YAML double-quoted scalar holding the JSON (json.dumps twice); the hook's argo-cd chart runs extraObjects through
+        # Helm's tpl, and compact JSON never has two opening braces in a row.
+        "CLEARANCE_ROLLOUT_ORDER_CHECKS": json.dumps(json.dumps(checks, separators=(",", ":"))),
+        "CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS": json.dumps(names),
+        "CLEARANCE_ROLLOUT_ORDER_TIMEOUT": str(ROLLOUT_ORDER_TIMEOUT_SECONDS),
+        "CLEARANCE_ROLLOUT_ORDER_DEADLINE": str(ROLLOUT_ORDER_TIMEOUT_SECONDS + 120),
+    }
+
+
 def render(v, out_dir, root=ROOT):
     tdir = os.path.join(root, "templates")
     rules = manifest(root)
     signing_dir_check(out_dir)
-    v = dict(v, _dir=os.path.abspath(out_dir))
+    guard = tenant_delete_guard(lambda k, d=None: get(v, k, d))
+    v = dict(v, _dir=os.path.abspath(out_dir), _tenantDeleteGuard=guard["_tenantDeleteGuard"],
+             **tenant_gated_set_flags(lambda k, d=None: get(v, k, d)),
+             _tenantSyncPaused=tenant_sync_paused_flags(lambda k, d=None: get(v, k, d))["_tenantSyncPaused"],
+             **agent_wait_previous_flag(lambda k, d=None: get(v, k, d)),
+             **rollout_order_flags(lambda k, d=None: get(v, k, d)))
     toks = tokens(v)
     errors, files = [], {}
     for d, dirs, fs in os.walk(tdir):
@@ -1248,6 +1713,9 @@ def main():
     for label, lst in (("added", added), ("changed", changed), ("removed", removed)):
         for rel in lst:
             print(f"  {label:8} {rel}")
+    from check import warnings
+    for w in warnings(v):
+        print(f"warning: {w}", file=sys.stderr)
     return 0
 
 

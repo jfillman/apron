@@ -1,0 +1,33 @@
+# apron's offline tests (tests/run.sh): the renderer, the checks, and the admission policies against a real kube-apiserver
+# (envtest binaries). APRON_REQUIRE_ENVTEST=1 makes an envtest suite that cannot find its binaries fail instead of skip, so a
+# green run here means the policies were proven, not skipped.
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.11"
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml cel-python
+      - run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
+      - name: tests/run.sh
+        run: |
+          set -euo pipefail
+          assets="$("$(go env GOPATH)/bin/setup-envtest" use 1.36.2 -p path)"
+          test -n "$assets"
+          test -x "$assets/kube-apiserver"
+          command -v kubectl jq openssl
+          KUBEBUILDER_ASSETS="$assets" APRON_REQUIRE_ENVTEST=1 bash tests/run.sh

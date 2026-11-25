@@ -1,0 +1,35 @@
+# The Gateway re-encrypts to the core and the API (clearance.tls.gatewayBackendTLS; A-19, owner decision 1): the routes in
+# routes.yaml and github-app.yaml send to the https port (8443, the Service port named https) instead of 8080, and these
+# policies make the Gateway (Traefik, Gateway API v1 BackendTLSPolicy) open TLS to it and verify the certificate against the
+# cluster CA (the trust-manager Bundle's ConfigMap hangar-cluster-ca in this namespace, key ca.crt) for the Service's own name,
+# which is in the certificate (the clearance chart's tls.yaml). Callers that come through the Gateway (hangar-prod's wait Jobs
+# and agent, GitHub's webhooks, Tower) are unchanged: what changes is the hop from the Gateway to the pod, so nothing that
+# crosses the Gateway speaks plain http to the core. A ConfigMap that is missing or has no ca.crt leaves the route without a
+# backend (Traefik reports ResolvedRefs false), never a fallback to plain http.
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: clearance-core
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  targetRefs:
+    - {group: "", kind: Service, name: clearance-core, sectionName: https}
+  validation:
+    caCertificateRefs:
+      - {group: "", kind: ConfigMap, name: hangar-cluster-ca}
+    hostname: clearance-core.@@CLEARANCE_NAMESPACE@@.svc
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: clearance-api
+  namespace: @@CLEARANCE_NAMESPACE@@
+  labels: {hangar.io/component: clearance}
+spec:
+  targetRefs:
+    - {group: "", kind: Service, name: clearance-api, sectionName: https}
+  validation:
+    caCertificateRefs:
+      - {group: "", kind: ConfigMap, name: hangar-cluster-ca}
+    hostname: clearance-api.@@CLEARANCE_NAMESPACE@@.svc

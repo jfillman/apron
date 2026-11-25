@@ -1,0 +1,65 @@
+# The cluster CA and its Bundle (application.yaml, beside this file, says what each object is for).
+# Replacing the CA (clearance docs/tls.md, I-43 section 4): add the new CA as a second Bundle source, restart the clients that
+# read ca.crt only at start, re-issue the leaves, check each against the new CA alone, and only then drop the old source.
+# Delete the Bundle only after every workload that mounts its ConfigMap is gone: a pod that mounts a missing ConfigMap does
+# not start.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: hangar-cluster-ca-bootstrap
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: cluster-ca}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: hangar-cluster-ca
+  namespace: cert-manager
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: cluster-ca}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  isCA: true
+  commonName: "@@CLUSTER_NAME@@ cluster CA"
+  secretName: hangar-cluster-ca
+  # 10 years, re-issued a year before it ends. rotationPolicy Never keeps the key, so a re-issued CA certificate still
+  # verifies every leaf the old one signed.
+  duration: 87600h
+  renewBefore: 8760h
+  privateKey: {algorithm: ECDSA, size: 256, rotationPolicy: Never}
+  issuerRef: {name: hangar-cluster-ca-bootstrap, kind: ClusterIssuer, group: cert-manager.io}
+---
+# The CA ClusterIssuer reads its Secret from cert-manager's cluster resource namespace (cert-manager's own namespace).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: hangar-cluster-ca
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: cluster-ca}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  ca:
+    secretName: hangar-cluster-ca
+---
+# trust-manager reads the source from its trust namespace (cert-manager) and writes ConfigMap hangar-cluster-ca (the Bundle's
+# name), key ca.crt, into every namespace: no namespaceSelector. Only the CA certificate is copied (the Secret's ca.crt; the
+# key stays in cert-manager). The ConfigMaps carry a controller ownerReference to the Bundle, so the Clearance agent's
+# exception scan skips them.
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: hangar-cluster-ca
+  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: cluster-ca}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  sources:
+    - secret:
+        name: hangar-cluster-ca
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt

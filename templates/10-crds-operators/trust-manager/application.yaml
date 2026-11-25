@@ -1,0 +1,52 @@
+# trust-manager (components.trustManager; A-19, hangar specs/plans/a17-clearance-tls-rollout.md step P2): jetstack's chart. It
+# copies CA certificates from its trust namespace (cert-manager) into a ConfigMap in other namespaces, through its Bundle
+# resource (trust.cert-manager.io/v1alpha1, the only Bundle API this chart version installs). 10-crds-operators/cluster-ca/ is
+# the one Bundle Apron renders. It publishes public certificates only, never a key.
+#   - The chart and the image are versions.trustManager: the image index by digest. It is multi-arch (linux/amd64 and
+#     linux/arm64, among others), so one pin serves an arm64 cluster and an amd64 one.
+#   - defaultPackage off: no public-CA package image runs (a second, unpinned image). A Bundle therefore cannot use
+#     useDefaultCAs, and its ConfigMap holds only the CAs it names.
+#   - secretTargets off (the chart's default): a Bundle may write ConfigMaps, never Secrets.
+#   - The webhook's serving certificate comes from cert-manager (the chart's own self-signed Issuer), so it needs
+#     components.certManager, and the first sync can fail until cert-manager's webhook answers: the retry below covers that.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trust-manager
+  namespace: argocd
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: crds-operators
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: trust-manager
+    targetRevision: @@TRUST_MANAGER_CHART_VERSION@@
+    helm:
+      releaseName: trust-manager
+      valuesObject:
+        crds:
+          enabled: true
+          keep: true
+        image:
+          tag: "@@TRUST_MANAGER_CHART_VERSION@@"
+          digest: "@@TRUST_MANAGER_IMAGE_DIGEST@@"
+        defaultPackage:
+          enabled: false
+        secretTargets:
+          enabled: false
+        app:
+          trust:
+            namespace: cert-manager
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff: {duration: 30s, factor: 2, maxDuration: 10m}

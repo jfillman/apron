@@ -1,0 +1,64 @@
+# The tenant-onboarding delete guard (tenantOnboarding.deleteGuard; W-46 option (d), hangar
+# specs/plans/w46-clearancegate-flip-guard.md section 2 (d); apron README "Tenant delete guard"). Refuses a DELETE of an
+# Argo CD Application in argocd-apps by argocd-apps' ApplicationSet controller when tenant-onboarding or
+# tenant-onboarding-gated is that Application's controller. An ApplicationSet deletes an Application it owns and no longer
+# generates; a tenant-onboarding Application carries the resources finalizer, so that delete takes the workload and its data
+# with it. Whatever made the set stop generating it (a bare clearanceGate flip, a hand edit or a bad commit in the tenants
+# repo, a selector bug), the Application stays: the set reports ErrorOccurred (DeleteApplicationError), its create and update
+# steps still ran, and the workload is untouched. Removing an environment on purpose: delete its identity, then delete the
+# Application by hand (a person is not matched).
+#
+# Blast radius: the first matchCondition is a username comparison, false for every other requester, and a false condition
+# skips the policy even if a later one would error. So a CEL error can only refuse the controller's own deletes of
+# Applications in argocd-apps (the safe direction). Every field the second condition reads is has()-guarded. Not covered:
+# deleting a whole ApplicationSet (the garbage collector deletes its Applications, and it is not matched).
+# Tested against a real kube-apiserver (tests/policy/test_tenant_delete_guard.py) and with the real ApplicationSet controller
+# (tests/appset, TestDeleteGuard).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tenant-onboarding-no-set-delete
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: argocd-apps
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["*"]
+        operations: ["DELETE"]
+        resources: ["applications"]
+  matchConditions:
+    # First, so that no other requester is ever evaluated further.
+    - name: by-applicationset-controller
+      expression: "request.userInfo.username == '@@TENANT_DELETE_GUARD_USER@@'"
+    - name: tenant-set-controlled
+      expression: >-
+        oldObject != null && has(oldObject.metadata) && has(oldObject.metadata.ownerReferences) &&
+        oldObject.metadata.ownerReferences.exists(r,
+          has(r.controller) && r.controller == true &&
+          has(r.apiVersion) && r.apiVersion.startsWith('argoproj.io/') &&
+          has(r.kind) && r.kind == 'ApplicationSet' &&
+          has(r.name) && r.name in ['tenant-onboarding', 'tenant-onboarding-gated'])
+  validations:
+    - expression: "false"
+      messageExpression: >-
+        'The ApplicationSet controller may not delete tenant Application ' + oldObject.metadata.name + '. If its
+        environment changed sets, finish the handover (move the controller reference). If it was removed on purpose,
+        delete the Application by hand (apron README, "Tenant delete guard").'
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tenant-onboarding-no-set-delete
+  labels:
+    hangar.io/component: cluster-config
+    hangar.io/subcomponent: tenant-onboarding
+spec:
+  policyName: tenant-onboarding-no-set-delete
+  # tenantOnboarding.deleteGuard.validationActions: Audit (records, refuses nothing) for the first step, Deny after it.
+  validationActions: [@@TENANT_DELETE_GUARD_ACTIONS@@]

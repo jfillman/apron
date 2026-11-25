@@ -13,13 +13,127 @@ import sys
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from apronlib import LAB_ONLY_KEYS, ApronError, clearance_slack_problems, get, lab_networking, load_yaml, parse_vkey, resolve  # noqa: E402
+from apronlib import (LAB_ONLY_KEYS, ApronError, clearance_slack_problems, gate_migration_window, gate_rule, gate_rule_problems, get,  # noqa: E402
+                      lab_networking, load_yaml, parse_vkey, resolve, tenant_sync_paused)
 
 DEFAULT_ISSUER = "https://kubernetes.default.svc.cluster.local"
 DNS1123 = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 ROLES = ("control-plane", "workloads", "platform-services")
 # A managed cluster's own issuer: EKS publishes https://oidc.eks.<region>.amazonaws.com/id/<hex> for every cluster.
 EKS_ISSUER = re.compile(r"^https://oidc\.eks\.[a-z0-9-]+\.amazonaws\.com/id/[0-9A-Fa-f]+$")
+
+
+HEARTBEAT = re.compile(r"[1-9][0-9]*[smh]")
+# The agent chart's alerts.checkedAtStaleAfter (Apron keeps the chart's default): a heartbeat must stay below it.
+CHECKED_AT_STALE_AFTER_S = 15 * 60
+
+
+def _agent_chart(v):
+    try:
+        return tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.argocdAgentChart") or "")).groups())
+    except AttributeError:
+        return (0, 0, 0)
+
+
+def gate_agent_i44_problems(v):
+    """clearance.gate.agent.{grantExpiry, ha, statusHeartbeat, alerts} and the chart's gate.enforce rule (clearance
+    docs/gate.md, "The grant-expiry webhook"). Called only with the gate and its agent on this cluster."""
+    out = []
+    add = out.append
+    on = lambda key: get(v, key) is True  # noqa: E731
+    ge, ha, hb, al = (get(v, f"clearance.gate.agent.{k}") for k in ("grantExpiry", "ha", "statusHeartbeat", "alerts"))
+    for key, val, keys in (("grantExpiry", ge, ("enabled", "mode", "acceptResidualRisk")), ("ha", ha, ("enabled",)), ("alerts", al, ("enabled",))):
+        if val is None:
+            continue
+        if not isinstance(val, dict):
+            add(f"clearance.gate.agent.{key} is a mapping ({{{', '.join(keys)}}})")
+            continue
+        for k in sorted(set(val) - set(keys)):
+            add(f"clearance.gate.agent.{key}.{k} is not a setting (only {', '.join(keys)})")
+        for k in keys:
+            if k != "mode" and val.get(k) is not None and not isinstance(val.get(k), bool):
+                add(f"clearance.gate.agent.{key}.{k} is true or false")
+    ge = ge if isinstance(ge, dict) else {}
+    if ge.get("mode") is not None and ge.get("mode") not in ("audit", "enforce"):
+        add(f"clearance.gate.agent.grantExpiry.mode is {ge.get('mode')!r}: audit (allow, warn and record; failurePolicy Ignore) or enforce (refuse; Fail)")
+    if hb is not None and not (isinstance(hb, str) and HEARTBEAT.fullmatch(hb)):
+        add(f"clearance.gate.agent.statusHeartbeat is {hb!r}: a positive duration of one unit (90s, 5m, 1h)")
+    ge_on = ge.get("enabled") is True
+    enforce = ge_on and ge.get("mode") == "enforce"
+    used = [k for k, val in (("grantExpiry", ge), ("ha", ha), ("statusHeartbeat", hb), ("alerts", al)) if val not in (None, {}, "")]
+    if used and _agent_chart(v) < (0, 55, 0):
+        add(f"clearance.gate.agent.{', '.join(used)} need versions.clearance.argocdAgentChart 0.55.0 or later (the grant-expiry webhook, "
+            "agent HA and the staleness alerts, I-44): an older chart ignores them")
+    if ge.get("mode") == "enforce" and not ge_on:
+        add("clearance.gate.agent.grantExpiry.mode: enforce needs grantExpiry.enabled: true")
+    if ge_on and not on("components.certManager"):
+        add("clearance.gate.agent.grantExpiry needs components.certManager: the webhook's serving certificate and its CA are cert-manager's "
+            "(the CA injector writes the configuration's caBundle)")
+    alerts_on = isinstance(al, dict) and al.get("enabled") is True
+    if alerts_on:
+        if not ge_on:
+            add("clearance.gate.agent.alerts needs grantExpiry.enabled: the grant-expiry pods export the grant times the alerts read")
+        if not hb:
+            add("clearance.gate.agent.alerts needs statusHeartbeat (e.g. 5m): without it status.checkedAt says nothing about a stalled agent")
+        elif isinstance(hb, str) and HEARTBEAT.fullmatch(hb) and int(hb[:-1]) * {"s": 1, "m": 60, "h": 3600}[hb[-1]] >= CHECKED_AT_STALE_AFTER_S:
+            add(f"clearance.gate.agent.statusHeartbeat {hb} must be below 15m with alerts (the chart's alerts.checkedAtStaleAfter)")
+        if not on("components.observability"):
+            add("clearance.gate.agent.alerts needs components.observability: kube-prometheus-stack (40-observability) provides the "
+                "PrometheusRule and PodMonitor CRDs and the Prometheus that reads them")
+    # The chart's rule, refused here first so a render never leaves the agent's Application failing in Argo CD: the policy may deny
+    # only with the webhook enabled and enforcing (turn it to enforce first, the policy to Deny after; leave in reverse order).
+    if on("clearance.gate.enforce") and not enforce and ge.get("acceptResidualRisk") is not True and _agent_chart(v) >= (0, 55, 0):
+        add("clearance.gate.enforce needs clearance.gate.agent.grantExpiry {enabled: true, mode: enforce} (agent chart 0.55.0+ refuses it otherwise): "
+            "the admission policy has no clock, so without an enforcing grant-expiry webhook an expired grant admits writes while the agent is "
+            "stalled (I-44). Turn the webhook to enforce first and the policy to Deny in a later change; leave in reverse order. The only "
+            "override is grantExpiry.acceptResidualRisk: true")
+    return out
+
+
+HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*\.?")
+
+
+def host_port_problem(s):
+    """None when s is host:port (an IPv4 address, a DNS name or a bracketed IPv6 address, and a port 1-65535), else why not."""
+    import ipaddress
+    m = re.fullmatch(r"\[([^\]]+)\]:([0-9]+)", s) or re.fullmatch(r"([^:\[\]]+):([0-9]+)", s)
+    if not m:
+        return "not host:port (an IPv6 address goes in brackets: [2606:4700:4700::1111]:53)"
+    host, port = m.groups()
+    if not 1 <= int(port) <= 65535:
+        return f"port {port} is not 1-65535"
+    if s.startswith("["):
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            return f"{host} is not an IPv6 address"
+    elif re.fullmatch(r"[0-9.]+", host):
+        try:
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            return f"{host} is not an IPv4 address"
+    elif not HOSTNAME.fullmatch(host):
+        return f"{host} is not a DNS name"
+    return None
+
+
+def certmanager_dns01_problems(v):
+    """certManager.dns01RecursiveNameservers: a list of host:port resolvers, set only with components.certManager."""
+    val = get(v, "certManager.dns01RecursiveNameservers")
+    if val is None:
+        return []
+    out = []
+    if not isinstance(val, list):
+        return [f"certManager.dns01RecursiveNameservers is a list of host:port resolvers (e.g. [\"1.1.1.1:53\", \"8.8.8.8:53\"]), got {val!r}"]
+    if val and get(v, "components.certManager") is not True:
+        out.append("certManager.dns01RecursiveNameservers needs components.certManager: it configures cert-manager's controller")
+    for x in val:
+        why = host_port_problem(x) if isinstance(x, str) else "not a string"
+        if why:
+            out.append(f"certManager.dns01RecursiveNameservers entry {x!r}: {why}")
+    if len(set(map(str, val))) != len(val):
+        out.append("certManager.dns01RecursiveNameservers lists a resolver twice")
+    return out
 
 
 def violations(v, fleet=None):
@@ -187,23 +301,153 @@ def violations(v, fleet=None):
             add(f"{go}.egress.apiServerCIDRs is required: the egress policy admits the API server by address, which is the cluster's "
                 f"to say (or set {go}.egress.enabled: false to render no egress policy)")
         for k in (get(v, f"{go}.plainHttp") or {}):
-            if k not in ("glidepath", "broker", "logs", "catalog", "jwks"):
-                add(f"{go}.plainHttp.{k} is not a plain-http switch (glidepath, broker, logs, catalog, jwks)")
+            if k not in ("glidepath", "broker", "logs", "catalog", "jwks", "clearanceApi"):
+                add(f"{go}.plainHttp.{k} is not a plain-http switch (glidepath, broker, logs, catalog, jwks, clearanceApi)")
         # Every http link the templates render needs its switch (plain-http options are off by default, so a render that would start a
         # gateway that refuses its own URLs is refused here, naming the switch).
         ph = lambda k: bool(get(v, f"{go}.plainHttp.{k}"))  # noqa: E731
         if not ph("glidepath"):
             add(f"{go}.plainHttp.glidepath must be true: glidepath-api is an in-cluster http Service, and the Go gateway refuses a plain http URL it was not told to allow")
+        if not ph("clearanceApi"):
+            add(f"{go}.plainHttp.clearanceApi must be true: CLEARANCE_API_URL is the in-cluster clearance-api http Service, and the Go gateway refuses to start with a plain http URL it was not told to allow")
         if on("components.observability") and on("observability.full") and not ph("logs"):
             add(f"{go}.plainHttp.logs must be true: the log collector's OTLP endpoint is an in-cluster http Service")
-        if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks"):
-            add(f"{go}.plainHttp.jwks must be true: people-dex's key set is an in-cluster http Service")
+        if (get(v, "autopilot.people") and on("components.gatewayRoutes")) and not ph("jwks") and not get(v, "autopilot.peopleTls"):
+            add(f"{go}.plainHttp.jwks must be true: people-dex's key set is an in-cluster http Service (or set autopilot.peopleTls: true, which serves it over https)")
         if get(v, "tower.cluster") and str(get(v, "tower.baseUrl") or "").startswith("http://") and not ph("catalog"):
             add(f"{go}.plainHttp.catalog must be true: tower.baseUrl is plain http")
         if str(get(v, f"{go}.brokerUrl") or "").startswith("http://") and not ph("broker"):
             add(f"{go}.plainHttp.broker must be true: {go}.brokerUrl is plain http")
         if get(v, f"{go}.plainHttp.broker") and str(get(v, f"{go}.brokerUrl") or "").startswith("https://"):
             add(f"{go}.plainHttp.broker is on and {go}.brokerUrl is https: turn the switch off")
+    if get(v, "autopilot.peopleTls"):
+        # people-dex's in-cluster https (templates/55-identity/people-dex/tls.yaml, I-28)
+        if not (get(v, "autopilot.people") and on("components.gatewayRoutes")):
+            add("autopilot.peopleTls needs autopilot.people and components.gatewayRoutes (people-dex is rendered with them)")
+        if not on("components.certManager"):
+            add("autopilot.peopleTls needs components.certManager: the serving certificate and its CA are cert-manager's")
+        if (get(v, "autopilot.gateway.implementation") or "python") != "go":
+            add("autopilot.peopleTls needs autopilot.gateway.implementation: go: only the Go gateway can trust the CA (AUTOPILOT_JWKS_CA_FILE); the Python gateway keeps the http listener")
+    # people-dex on the cluster CA (A-19, plan step P6)
+    if get(v, "autopilot.peopleTlsClusterCA") is not None and not isinstance(get(v, "autopilot.peopleTlsClusterCA"), bool):
+        add("autopilot.peopleTlsClusterCA is true or false")
+    if on("autopilot.peopleTlsClusterCA"):
+        if not get(v, "autopilot.peopleTls"):
+            add("autopilot.peopleTlsClusterCA needs autopilot.peopleTls: it changes who signs people-dex's https certificate")
+        if not on("components.clusterCA"):
+            add("autopilot.peopleTlsClusterCA needs components.clusterCA: the ClusterIssuer hangar-cluster-ca and its Bundle ConfigMap")
+    # trust-manager and the cluster CA (A-19, 10-crds-operators/trust-manager and cluster-ca)
+    if on("components.trustManager"):
+        if not on("components.certManager"):
+            add("components.trustManager needs components.certManager: its webhook's certificate is cert-manager's")
+        if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", str(get(v, "versions.trustManager.chart") or "")):
+            add("components.trustManager needs versions.trustManager.chart, a chart version (vX.Y.Z)")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(get(v, "versions.trustManager.imageDigest") or "")):
+            add("components.trustManager needs versions.trustManager.imageDigest, the image index's digest (sha256:<64 hex>)")
+    # cert-manager's DNS-01 propagation self-check resolvers (docs/cert-manager.md)
+    out.extend(certmanager_dns01_problems(v))
+    if on("components.clusterCA") and not (on("components.certManager") and on("components.trustManager")):
+        add("components.clusterCA needs components.certManager (it makes the CA) and components.trustManager (its Bundle publishes it)")
+    # clearance.gate.agent.ownedProject renders the agent's Namespaces and AppProjects: only with the gate and its agent (else it would silently do nothing).
+    if get(v, "clearance.gate.agent.ownedProject.create") and not (on("clearance.gate.enabled") and get(v, "clearance.gate.agent")):
+        add("clearance.gate.agent.ownedProject.create needs clearance.gate.enabled and clearance.gate.agent: the namespaces and projects it makes are the agent's")
+    # The gate's clients' CA (A-19, plan steps 4 and 5b): the agent chart's tls.caConfigMap and waitJob.caConfigMap are 0.54.0's.
+    if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and (get(v, "clearance.gate.caConfigMap") or on("clearance.gate.waitCAInject")):
+        try:
+            agent_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.argocdAgentChart") or "")).groups())
+        except AttributeError:
+            agent_v = (0, 0, 0)
+        if agent_v < (0, 54, 0):
+            add("clearance.gate.caConfigMap and clearance.gate.waitCAInject need versions.clearance.argocdAgentChart 0.54.0 or later "
+                "(the agent chart's tls.caConfigMap and waitJob.caConfigMap): an older chart ignores them")
+    # The previous wait image (I-59, clearance#218): render passes versions.clearance.previousWaitImage to the agent chart as
+    # waitJob.previousImage, which the agent chart has from 0.56.0. An older agent accepts only waitImage, so during the rollover
+    # it reports every held wait Job still on the previous image as an out-of-band exception, a false record.
+    if (on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and get(v, "versions.clearance.waitImage")
+            and get(v, "versions.clearance.previousWaitImage") and _agent_chart(v) < (0, 56, 0)):
+        add("versions.clearance.previousWaitImage with clearance.gate.agent needs versions.clearance.argocdAgentChart 0.56.0 or later "
+            "(the agent chart's waitJob.previousImage, I-59): an older agent reports a held wait Job on the previous image as out-of-band")
+    # The grant-expiry webhook, agent HA, the status heartbeat and the staleness alerts (I-44; agent chart 0.55.0). Unset: nothing renders.
+    if on("clearance.gate.enabled") and get(v, "clearance.gate.agent"):
+        out.extend(gate_agent_i44_problems(v))
+    # The platform's gate rule (W-42; agent chart 0.56.0 gateRule): its shape, the opt-in, the chart, and the project and
+    # namespace ceiling it acts inside (derived from its literal values when unset). Unset: nothing renders.
+    # Normalized as render reads it: an empty rule is unset (nothing renders, nothing to check); a rule that is not a mapping, or
+    # ruleOptions, still needs the gate here and is refused there.
+    raw_rule = get(v, "clearance.gate.agent.rule")
+    if gate_rule(lambda k, d=None: get(v, k, d)) is not None or (raw_rule is not None and not isinstance(raw_rule, dict)) \
+            or get(v, "clearance.gate.agent.ruleOptions") is not None:
+        gate_here = get(v, "zone") == "upper" or on("clearance.gate.lowerZone")
+        if not (gate_here and on("clearance.gate.enabled") and get(v, "clearance.gate.agent")):
+            add("clearance.gate.agent.rule and ruleOptions need the gate and its agent on this cluster (clearance.gate.enabled, "
+                "clearance.gate.agent, and zone: upper or clearance.gate.lowerZone: true): otherwise nothing reads them")
+        else:
+            out.extend(gate_rule_problems(v))
+    # The migration off the static plugin (apron README, "Migrating off the static plugin"): the per-environment sync pause
+    # and the migration window. Unset: nothing renders and nothing is checked.
+    out.extend(tenant_sync_paused(lambda k, d=None: get(v, k, d))[0])
+    out.extend(gate_migration_window(lambda k, d=None: get(v, k, d))[0])
+    # The Clearance core's and API's https (clearance.tls; A-19, clearance chart tls.*)
+    if get(v, "clearance.gate.fsSandbox") is not None and get(v, "clearance.gate.fsSandbox") not in ("try", "require", "off"):
+        add(f"clearance.gate.fsSandbox is {get(v, 'clearance.gate.fsSandbox')!r}: try, require or off (the plugin's CLEARANCE_CMP_FS_SANDBOX); unset for the plugin's default")
+    # clearance.gate.rolloutOrder (I-77): the rollout-order hook in argocd-apps-install, on by default with the gate; false turns it off.
+    if on("clearance.gate.enabled") and get(v, "clearance.gate.rolloutOrder") is not None and not isinstance(get(v, "clearance.gate.rolloutOrder"), bool):
+        add("clearance.gate.rolloutOrder is true or false (README.md, \"Rollout order for Clearance releases\")")
+    # The audit collector and the target registry publisher call clearance.gate.url and have no CA setting (their charts in
+    # clearance 0.54.0): an https URL to the in-cluster core is signed by a private CA they cannot trust (CodeRabbit on #270).
+    gate_host = (urlparse(str(get(v, "clearance.gate.url") or "")).hostname or "") if str(get(v, "clearance.gate.url") or "").startswith("https://") else ""
+    if gate_host.endswith((".svc", ".svc.cluster.local")):
+        for key, who in (("clearance.observe.enabled", "the audit collector"), ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key):
+                add(f"clearance.gate.url is https to the in-cluster core ({gate_host}), whose certificate a private CA signs, and {who} "
+                    f"({key}) has no CA setting to trust it: keep clearance.gate.url on http until it has one")
+    for k in ("enabled", "plainHttp", "gatewayBackendTLS"):
+        if get(v, f"clearance.tls.{k}") is not None and not isinstance(get(v, f"clearance.tls.{k}"), bool):
+            add(f"clearance.tls.{k} is true or false")
+    if on("clearance.tls.enabled"):
+        if not on("components.clearance"):
+            add("clearance.tls.enabled needs components.clearance: it is the core's and the API's own listener")
+        if not on("components.certManager"):
+            add("clearance.tls.enabled needs components.certManager: the chart's certificates are cert-manager's")
+        try:
+            chart_v = tuple(int(x) for x in re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", str(get(v, "versions.clearance.chart") or "")).groups())
+        except AttributeError:
+            chart_v = (0, 0, 0)
+        if chart_v < (0, 54, 0):
+            add("clearance.tls.enabled needs versions.clearance.chart 0.54.0 or later (the chart's tls.*, clearance I-43)")
+    if on("clearance.tls.gatewayBackendTLS"):
+        if not on("clearance.tls.enabled"):
+            add("clearance.tls.gatewayBackendTLS needs clearance.tls.enabled: the routes move to the https port it opens")
+        if not on("components.clusterCA"):
+            add("clearance.tls.gatewayBackendTLS needs components.clusterCA: the Gateway verifies the core against the Bundle's ConfigMap hangar-cluster-ca")
+        if not on("components.gatewayRoutes"):
+            add("clearance.tls.gatewayBackendTLS needs components.gatewayRoutes: there is no route to re-encrypt")
+    if get(v, "clearance.tls.plainHttp") is False:
+        if not on("clearance.tls.enabled"):
+            add("clearance.tls.plainHttp false needs clearance.tls.enabled (the https listener is then the only one)")
+        # Every caller Apron renders that still calls the core or the API on plain 8080 (step 7 of hangar
+        # specs/plans/a17-clearance-tls-rollout.md: verify, then turn plain http off).
+        still = []
+        if on("components.gatewayRoutes") and not on("clearance.tls.gatewayBackendTLS"):
+            still.append("the Gateway's routes (set clearance.tls.gatewayBackendTLS)")
+        for key, who in (("clearance.web.enabled", "the web UI"), ("clearance.slack.enabled", "clearance-slack"),
+                         ("components.autopilot", "the Autopilot gateway and read API"),
+                         # its apiURL is the in-cluster http clearance-api (58-clearance-observe-aws)
+                         ("clearance.observeAWS.enabled", "the AWS collector")):
+            if on(key):
+                still.append(who)
+        if on("components.glidepath") and on("components.clearance"):
+            still.append("Glidepath's agent gates and deployment gate (the glidepath-catalog's clearanceUrl is plain http)")
+        # The plugin, the wait Job, the audit collector and the target registry publisher all call clearance.gate.url.
+        gate_url_plain = not str(get(v, "clearance.gate.url") or "").startswith("https://")
+        for key, who in (("clearance.gate.enabled", "the gate's plugin and wait Job"), ("clearance.observe.enabled", "the audit collector"),
+                         ("clearance.targets.enabled", "the target registry publisher")):
+            if on(key) and gate_url_plain:
+                still.append(f"{who} (clearance.gate.url is plain http)")
+        if on("clearance.gate.enabled") and get(v, "clearance.gate.agent") and not str(get(v, "clearance.gate.agent.apiURL") or "").startswith("https://"):
+            still.append("the gate's agent (clearance.gate.agent.apiURL is plain http)")
+        if still:
+            add("clearance.tls.plainHttp false would cut off callers that still use plain http: " + ", ".join(still))
     if on("components.autopilot") and not (on("components.serviceCatalog.enabled")
                                             and get(v, "components.serviceCatalog.scope") == "full"):
         add("components.autopilot needs components.serviceCatalog.enabled with scope: full (the AgentRun XRD)")
@@ -224,6 +468,9 @@ def violations(v, fleet=None):
     ttl = get(v, "clearance.api.coverageCacheSeconds")
     if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= 300):
         add("clearance.api.coverageCacheSeconds is whole seconds, 0 to 300 (0 is off): clearance-api refuses anything else at start")
+    sus = get(v, "clearance.core.startupSeconds")
+    if sus is not None and (isinstance(sus, bool) or not isinstance(sus, int) or not 1 <= sus <= 3600):
+        add("clearance.core.startupSeconds is whole seconds, 1 to 3600 (unset is the chart's 300)")
     # the standalone web UI (clearance web, clearance chart web.enabled): signs people in at people-dex, so it needs the same
     if get(v, "clearance.web.enabled") is not None and not isinstance(get(v, "clearance.web.enabled"), bool):
         add("clearance.web.enabled must be true or false")
@@ -345,6 +592,14 @@ def violations(v, fleet=None):
     if rp is not None and rp is not False and rp not in ("required", "off"):
         add(f"glidepath.refProtection is {rp!r}: required (default) or off (off only for a git host plan without rulesets; "
             "glidepath docs/admin/security.md, Ref protection)")
+    glw = get(v, "promotion.gateLedger.writer", None)
+    if glw not in (None, "", "direct", "api"):
+        add(f"promotion.gateLedger.writer is {glw!r}: direct (the catalog's default) or api (glidepath-api writes the gate "
+            "ledger; glidepath docs/admin/api.md, Gate verdicts)")
+    grt = get(v, "glidepath.gateReports.transport", None)
+    if grt not in (None, "", "configmap", "log"):
+        add(f"glidepath.gateReports.transport is {grt!r}: configmap (the catalog's default) or log (api-compat and policy-validation "
+            "hand their report over in the gate's own step log; glidepath docs/admin/security.md)")
     rs = get(v, "glidepath.runShape", None)
     if rs is not None and rs not in ("deny", "warn"):
         add(f"glidepath.runShape is {rs!r}: deny (default) or warn (only while upgrading)")
@@ -430,6 +685,22 @@ def fleet_violations(fleet, v=None):
     return out
 
 
+def warnings(v):
+    """Settings that are valid but must not stay on unnoticed: printed by `apron check` and `render` on every run."""
+    g = lambda k, d=None: get(v, k, d)  # noqa: E731
+    out = []
+    probs, pairs = tenant_sync_paused(g)
+    if pairs and not probs:
+        out.append(f"tenantOnboarding.syncPaused: automated sync is off for {', '.join(pairs)}: no deploy reaches "
+                   f"{'these environments' if len(pairs) > 1 else 'this environment'} until it is removed")
+    probs, window, held = gate_migration_window(g)
+    if window and not probs:
+        out.append(f"clearance.gate.migration.window is open for {', '.join(window)}"
+                   + (f" ({', '.join(held)} held in tenant-onboarding)" if held else "")
+                   + ": close it (delete clearance.gate.migration) once each is switched, granted and labelled, and dropped from clearance.gate.apps")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--cluster", required=True)
@@ -448,6 +719,8 @@ def main():
         print(f"error: {b}", file=sys.stderr)
     if not bad:
         print(f"ok: {v.get('name')} ({v.get('profile')} on {get(v, 'runtime.type')}) passes every check")
+        for w in warnings(v):
+            print(f"warning: {w}", file=sys.stderr)
     return 1 if bad else 0
 
 

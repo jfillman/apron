@@ -13,6 +13,7 @@ Infisical projects, ServiceAccount issuer and hostnames. Apron's code, templates
 - [The fleet file](clusters-file.md): the hub's `clusters.yaml`, one record per cluster.
 - [Cluster identity](cluster-identity.md): each cluster's issuer, and how the hub trusts Tower's cluster.
 - [Control-plane tuning](control-plane-tuning.md): longer leader-election timings for the controller manager and scheduler on a slow kiac/kind node.
+- [cert-manager](cert-manager.md): `certManager.dns01RecursiveNameservers`, explicit resolvers for the DNS-01 self-check (split-horizon or unreliable in-cluster DNS), off by default.
 - [Signing PKI](signing-pki.md): the C-2a flags (managed Fulcio and Rekor keys, the trusted root, Clearance's keyless attestations), off by default.
 
 The repository README has the install walkthrough, profiles and runtimes, and the repo layout.

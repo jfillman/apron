@@ -20,7 +20,7 @@ Apron renders it **off by default** and an off cluster renders byte for byte wha
 | `10-crds-operators/traefik/gateway.yaml` | `tls.mode: dns01-route53` only: an https listener `clearance-slack-https` for that one host on the Gateway, referencing `clearance-slack-tls` (the route attaches to it by name, so the host is never served in clear text) |
 | `55-identity/people-dex` | the confidential static client `clearance-slack` (redirect `<publicUrl>/link/idp`), its secret read by Dex from the Secret `clearance-slack-idp` (ExternalSecret, same Infisical key as the service's `idp-client-secret`) |
 
-Apron creates no secret and does no DNS. `apron check` refuses an enabled cluster that is missing what it needs, by name.
+Apron creates no secret and does no DNS (the zone comes from the Clearance Cloud setup; the operator adds one record). `apron check` refuses an enabled cluster that is missing what it needs, by name.
 
 ## The knobs
 
@@ -44,9 +44,9 @@ clearance:
     tls:
       mode: dns01-route53
       dns01:
-        hostedZoneID: Z0XXXXXXXXXXXXXXXXXXX            # the clearance.hangarplatform.dev hosted zone
+        hostedZoneID: Z0XXXXXXXXXXXXXXXXXXX            # the clearance.hangarplatform.dev hosted zone (made once by the Clearance Cloud setup)
         email: you@example.com                           # Let's Encrypt contact
-        roleARN: arn:aws:iam::<account>:role/hangar-dev-clearance-dns01     # auth: serviceAccount (default)
+        roleARN: arn:aws:iam::<zone-account-id>:role/<cluster>-clearance-dns01   # auth: serviceAccount (default); a role in the zone's account
     idp:
       hostAlias: 192.168.1.NN       # an address where dex.hangar-dev.local answers, on the URL's port, for the pod (the lab has no DNS for it)
 ```
@@ -74,7 +74,7 @@ clearance:
 | `tls.dns01.region` | `us-east-1` | the region the solver signs with (Route 53 is global) |
 | `tls.dns01.server` | Let's Encrypt production | the ACME directory (use the staging URL while trying it) |
 | `tls.dns01.auth` | `serviceAccount` | `serviceAccount`: no stored key (see below). `static`: an IAM user's key pair in Infisical |
-| `tls.dns01.roleARN` | required with `serviceAccount` | the IAM role cert-manager assumes |
+| `tls.dns01.roleARN` | required with `serviceAccount` | the IAM role cert-manager assumes, in the account that holds the zone (step 2) |
 | `idp.hostAlias` | none | lab only (`runtime.labNetworking`: kiac, kind; refused elsewhere, docs/lab-networking.md): an IP for `dex.<domain>` in the pod's `hostAliases`, and egress narrowed to that `/32` on the issuer URL's port (80 on a plain-http gateway, 443 on https) |
 | `idp.cidrs` | `["0.0.0.0/0"]` | without a hostAlias: the CIDRs that name resolves to; egress to them on that port |
 
@@ -82,27 +82,28 @@ clearance:
 
 Nothing here is done by Apron or the service.
 
-### 1. DNS (Route 53)
+### 1. DNS (one record)
 
-1. Create the public hosted zone **`clearance.hangarplatform.dev`** in Route 53. Note its **zone id** (`Z...`; the `hostedZoneID` knob).
-2. Delegate it: at the parent zone `hangarplatform.dev`, add an `NS` record for `clearance` with the four name servers Route 53
-   shows for the new zone.
-3. In the new zone create the record for the one host the service uses:
+The hosted zone **`clearance.<domain>`** is not created here. It is created and delegated once, as part of the Clearance Cloud
+setup, in the Clearance Cloud AWS account (the account that holds the zone, `<zone-account-id>` below). Note its **zone id**
+(`Z...`; the `hostedZoneID` knob). The operator adds one record in that zone, for the one host the service uses:
 
-   | Where it runs | Record | Value |
-   |---|---|---|
-   | Lab (today) | `slack.clearance.hangarplatform.dev` `A` | the lab Gateway's LAN address. A private address in public DNS is fine: only browsers on the LAN need the link pages, and Slack uses Socket Mode (outbound). Nothing is exposed |
-   | EKS (later) | `slack.clearance.hangarplatform.dev` `A` (alias) or `CNAME` | the cluster's public endpoint: the Traefik Service's NLB. Change the record; nothing else moves |
+| Where it runs | Record | Value |
+|---|---|---|
+| Lab (today) | `slack.clearance.<domain>` `A` | the cluster Gateway's IP address (the lab's is a LAN address). With `transport: socket` (the default), a private address in public DNS is fine: only browsers on the LAN need the link pages, and Slack uses Socket Mode (outbound). Nothing is exposed. With `transport: events`, Slack must reach the host, so the address must be publicly reachable |
+| EKS (later) | `slack.clearance.<domain>` `A` (alias) or `CNAME` | the cluster's public endpoint: the Traefik Service's NLB. Change the record; nothing else moves |
 
-   Do **not** create `_acme-challenge.slack...`: cert-manager creates and removes that TXT record itself.
-4. Lab only: the LAN address must answer on **443** and forward it to Traefik's https NodePort (`traefik.httpsNodePort`, 30443 on
-   kiac). The lab's ingress relays today carry 80; add the same relay for 443 if it is not there.
+Do **not** create `_acme-challenge.slack...`: cert-manager creates and removes that TXT record itself.
+
+Lab only: the LAN address must answer on **443** and forward it to Traefik's https NodePort (`traefik.httpsNodePort`, 30443 on
+kiac). The lab's ingress relays today carry 80; add the same relay for 443 if it is not there.
 
 ### 2. The certificate's credential (Route 53 DNS-01)
 
-cert-manager proves control of the host by writing a TXT record into the zone, so it needs a credential limited to that zone. Both
-variants use this permission policy (replace `Z0XXXXXXXXXXXXXXXXXXX` with the zone id and the host if it differs); it can only
-touch `_acme-challenge.slack.clearance.hangarplatform.dev` TXT records in that one zone:
+cert-manager proves control of the host by writing a TXT record into the zone, so it needs a credential limited to that zone.
+Everything in this step is created **in the account that holds the zone** (`<zone-account-id>`), not in the management account and
+not in the cluster's own account. Both variants use this permission policy (replace `<zone-id>` and `<domain>`); it can only touch
+`_acme-challenge.slack.clearance.<domain>` TXT records in that one zone:
 
 ```json
 {
@@ -110,12 +111,12 @@ touch `_acme-challenge.slack.clearance.hangarplatform.dev` TXT records in that o
   "Statement": [
     {"Effect": "Allow", "Action": "route53:GetChange", "Resource": "arn:aws:route53:::change/*"},
     {"Effect": "Allow", "Action": "route53:ListResourceRecordSets",
-     "Resource": "arn:aws:route53:::hostedzone/Z0XXXXXXXXXXXXXXXXXXX"},
+     "Resource": "arn:aws:route53:::hostedzone/<zone-id>"},
     {"Effect": "Allow", "Action": "route53:ChangeResourceRecordSets",
-     "Resource": "arn:aws:route53:::hostedzone/Z0XXXXXXXXXXXXXXXXXXX",
+     "Resource": "arn:aws:route53:::hostedzone/<zone-id>",
      "Condition": {
        "ForAllValues:StringEquals": {
-         "route53:ChangeResourceRecordSetsNormalizedRecordNames": ["_acme-challenge.slack.clearance.hangarplatform.dev"],
+         "route53:ChangeResourceRecordSetsNormalizedRecordNames": ["_acme-challenge.slack.clearance.<domain>"],
          "route53:ChangeResourceRecordSetsRecordTypes": ["TXT"],
          "route53:ChangeResourceRecordSetsActions": ["UPSERT", "DELETE"]
        }
@@ -126,31 +127,40 @@ touch `_acme-challenge.slack.clearance.hangarplatform.dev` TXT records in that o
 
 **Preferred, no stored key (`auth: serviceAccount`, the default).** cert-manager asks this cluster's API server for a token of the
 ServiceAccount `clearance-dns01` in the Gateway's namespace (audience `sts.amazonaws.com`) and exchanges it with
-`AssumeRoleWithWebIdentity`. It works wherever the cluster's issuer is already an IAM OIDC provider (on EKS it is the cluster's
-own provider; for the lab, the keyless AWS deploys rely on the same federation: confirm under IAM > Identity providers). Create an IAM role with the policy above and this **trust policy**:
+`AssumeRoleWithWebIdentity`. Two things are needed in `<zone-account-id>`:
+
+1. **An IAM OIDC identity provider for the cluster's issuer**: URL `https://<domain>/oidc/<cluster>` (the cluster's `issuer`, from
+   `apron render --print-values`), audience `sts.amazonaws.com`. A provider in another account does not count: IAM looks for it in
+   the account of the role. If the account already has one for this issuer, reuse it.
+2. **An IAM role** (for example `<cluster>-clearance-dns01`) with the permission policy above and this **trust policy**:
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Principal": {"Federated": "arn:aws:iam::<account>:oidc-provider/<issuer without https://>"},
+    "Principal": {"Federated": "arn:aws:iam::<zone-account-id>:oidc-provider/<domain>/oidc/<cluster>"},
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {"StringEquals": {
-      "<issuer without https://>:aud": "sts.amazonaws.com",
-      "<issuer without https://>:sub": "system:serviceaccount:hangar-gateway:clearance-dns01"
+      "<domain>/oidc/<cluster>:aud": "sts.amazonaws.com",
+      "<domain>/oidc/<cluster>:sub": "system:serviceaccount:<gateway-namespace>:clearance-dns01"
     }}
   }]
 }
 ```
 
-`<issuer>` is the cluster's `issuer` (`apron render --print-values`; `https://hangarplatform.dev/oidc/hangar-dev` for the lab, so
-`hangarplatform.dev/oidc/hangar-dev`) and the namespace is `gateway.namespace` (default `hangar-gateway`). Put the role's ARN in
-`clearance.slack.tls.dns01.roleARN`. If the cluster's issuer is not an IAM OIDC provider yet, register it first (audience
-`sts.amazonaws.com`) or use the fallback.
+The provider ARN and the condition keys use the issuer without `https://`. `<gateway-namespace>` is `gateway.namespace` (default
+`hangar-gateway`); `clearance-dns01` is the ServiceAccount Apron renders in `slack-tls.yaml`. The role's ARN is
 
-**Fallback (`auth: static`).** An IAM **user** with only the policy above and one access key. Put the pair in Infisical as
-`clearance-dns01-route53-access-key-id` and `clearance-dns01-route53-secret-access-key` (step 3). Rotate it like any key.
+```
+arn:aws:iam::<zone-account-id>:role/<cluster>-clearance-dns01
+```
+
+Put it in `clearance.slack.tls.dns01.roleARN`.
+
+**Fallback (`auth: static`).** An IAM **user**, also in `<zone-account-id>`, with only the permission policy above and one access
+key. Put the pair in Infisical as `clearance-dns01-route53-access-key-id` and `clearance-dns01-route53-secret-access-key`
+(step 3). Rotate it like any key.
 
 ### 3. Slack app and Infisical keys
 
@@ -205,10 +215,21 @@ serve it (one Socket Mode connection: run it on one cluster at a time, and turn 
 
 ## Things to know
 
-- **Not verified live.** Apron's tests render and parse every object; nothing here has run against a cluster, a Route 53 zone or a
-  Slack workspace. Three things worth watching on the first apply: the `Secret` `clearance-slack` carries `dsn` (the ExternalSecret
-  merges it from the generated Secret with `templateFrom`), the pod reaches `dex.<domain>` (the issuer URL it discovers and posts
-  the code to; `idp.hostAlias`/`idp.cidrs`), and the certificate's first DNS-01 challenge.
+- **First live apply (lab).** The ExternalSecrets synced, the `Secret` `clearance-slack` carries `dsn` (merged from the generated
+  Secret with `templateFrom`), and the pod connected over Socket Mode. Still worth watching: the pod reaching `dex.<domain>` (the
+  issuer URL it discovers and posts the code to; `idp.hostAlias`/`idp.cidrs`) and the certificate's first DNS-01 challenge.
+- **Sync order (`dns01-route53`).** In `clearance-config`, the Issuer is wave 1, the Certificate wave 2 and the route wave 3. The
+  https listener is not Programmed until cert-manager writes `clearance-slack-tls`, and a route on it is not Accepted until then;
+  Argo CD counts that route Degraded and starts no later wave. With the route in wave 0 (before this order) the Certificate was
+  never created and the sync retried forever. A route that stays OutOfSync after a merge usually means the sync has not reached
+  wave 3 yet: read the Application's sync result first (which wave and resource it is waiting on), then the Certificate
+  (`kubectl -n <gateway-namespace> get certificate,order,challenge`). If the Certificate is Ready and the route is still
+  OutOfSync, the cause is elsewhere: look at the route's diff. The `traefik` Application shows
+  Degraded for the same reason (the listener's `InvalidCertificateRef`) until the Secret exists. `gateway-existing` has no
+  certificate and no wave.
+- **Challenge stuck on `Could not determine the zone ... SERVFAIL` (`dns01-route53`).** cert-manager's propagation self-check
+  could not get the zone's SOA through the cluster's DNS (CoreDNS and whatever it forwards to), even though the TXT record is in
+  Route 53. Point the self-check at public resolvers with `certManager.dns01RecursiveNameservers` ([cert-manager](cert-manager.md)).
 - The link flow needs the browser to reach both `https://slack.clearance.hangarplatform.dev` and people-dex (`dex.<domain>`).
 - The service's database is not in the nightly dump of `clearance-pg`: it holds links and message ids, never evidence; people
   re-link after a rebuild.

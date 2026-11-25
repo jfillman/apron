@@ -203,24 +203,497 @@ spec:
                 # defaultChart and the tenant AppProjects' idpServiceCatalogRepoUrl, plus cluster.yaml allowedChartRepos
                 # (which the AppProjects also allow): what Argo CD allowed an app before the gate. Comma-separated.
                 - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+                # clearance.gate.caConfigMap (I-43, A-19): extra roots for an https clearance.gate.url, the cluster CA's ConfigMap
+                # (trust-manager's Bundle target in argocd-apps), read once at start: a missing ConfigMap keeps the pod from starting.
+                - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
+#@end
+#@if clearance.gate.enabled and clearance.gate.fsSandbox
+                # clearance.gate.fsSandbox (A-24): the plugin's Landlock filesystem sandbox mode (try, require or off); unset, the plugin's default (try).
+                - {name: CLEARANCE_CMP_FS_SANDBOX, value: "@@CLEARANCE_GATE_FS_SANDBOX@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.waitCAInject
+                # clearance.gate.waitCAInject (plan step 5b): the injected wait Job mounts this ConfigMap (key ca.crt) at /etc/clearance-ca,
+                # which clearance-protected-writes admits only with clearance.gate.waitCAConfigMap (the same name; apron check).
+                - {name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"}
+#@end
+#@if clearance.gate.enabled
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
-                limits: {memory: 512Mi}
+                # I-78: CLEARANCE_CMP_MAX_RENDERS (4) renders at once, each bounded at CLEARANCE_CMP_RENDER_MAX_MEMORY (512Mi): 2Gi,
+                # plus 512Mi for the plugin processes and the cmp-server (clearance docs/examples/argo-cd-repo-server-values.yaml;
+                # `clearance-cmp doctor` render-limits). Needs clearance-cmp from 0.57.1+.
+                limits: {memory: 2560Mi}
               volumeMounts:
                 - {name: var-files, mountPath: /var/run/argocd}
                 - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
                 - {name: cmp-tmp, mountPath: /tmp}
                 - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+                - {name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
+            # The canary sidecar (clearance.gate.canary; clearance docs/gate.md, "Rolling out a plugin release"): the same
+            # plugin from another image, registered as `clearance-canary` (the image's config-canary/plugin.yaml, which
+            # sets version: canary, so the socket is plugins/clearance-canary.sock). Only the Applications listed in
+            # clearance.gate.canary.apps name it. Settings and security context are the first sidecar's; its /tmp (the
+            # render cache and work directory) is its own volume, so the two never share state.
+            - name: clearance-cmp-canary
+              image: @@CLEARANCE_CMP_CANARY_IMAGE@@
+              command: [/var/run/argocd/argocd-cmp-server, --config-dir-path, /home/argocd/cmp-server/config-canary]
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+                seccompProfile: {type: RuntimeDefault}
+              env:
+                - {name: CLEARANCE_URL, value: "@@CLEARANCE_GATE_URL@@"}
+                - {name: CLEARANCE_TOKEN_FILE, value: /var/run/secrets/tokens/clearance}
+                - {name: CLEARANCE_WAIT_IMAGE, value: "@@CLEARANCE_WAIT_IMAGE@@"}
+                - {name: CLEARANCE_WAIT_HOST_ALIAS, value: "@@CLEARANCE_GATE_HOST_ALIAS@@"}
+                - {name: CLEARANCE_CMP_CACHE_DIR, value: /tmp/clearance-cmp-cache}
+                - {name: CLEARANCE_CHART_REPOS, value: "@@CLEARANCE_GATE_CHART_REPOS@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.caConfigMap
+                - {name: CLEARANCE_CA_FILE, value: /etc/clearance-ca/ca.crt}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.fsSandbox
+                - {name: CLEARANCE_CMP_FS_SANDBOX, value: "@@CLEARANCE_GATE_FS_SANDBOX@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.waitCAInject
+                - {name: CLEARANCE_WAIT_CA_CONFIGMAP, value: "@@CLEARANCE_GATE_WAIT_CA_CONFIGMAP@@"}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                # I-78: CLEARANCE_CMP_MAX_RENDERS (4) renders at once, each bounded at CLEARANCE_CMP_RENDER_MAX_MEMORY (512Mi): 2Gi,
+                # plus 512Mi for the plugin processes and the cmp-server (clearance docs/examples/argo-cd-repo-server-values.yaml;
+                # `clearance-cmp doctor` render-limits). Needs clearance-cmp from 0.57.1+.
+                limits: {memory: 2560Mi}
+              volumeMounts:
+                - {name: var-files, mountPath: /var/run/argocd}
+                - {name: plugins, mountPath: /home/argocd/cmp-server/plugins}
+                - {name: cmp-tmp-canary, mountPath: /tmp}
+                - {name: clearance-token, mountPath: /var/run/secrets/tokens, readOnly: true}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image and clearance.gate.caConfigMap
+                - {name: clearance-ca, mountPath: /etc/clearance-ca, readOnly: true}
+#@end
+#@if clearance.gate.enabled
           volumes:
             - {name: cmp-tmp, emptyDir: {}}
+#@end
+#@if clearance.gate.enabled and clearance.gate.canary.image
+            - {name: cmp-tmp-canary, emptyDir: {}}
+#@end
+#@if clearance.gate.enabled
             - name: clearance-token
               projected:
                 sources:
                   - serviceAccountToken: {audience: clearance, expirationSeconds: 3600, path: clearance}
+                # I-78: not world-readable (`clearance-cmp doctor` token check). The pod's fsGroup 999 (global.securityContext below) is the
+                # sidecar's (uid 999) group, so 0440 leaves the token readable by the sidecar alone.
+                defaultMode: 0440
+#@end
+#@if clearance.gate.enabled and clearance.gate.caConfigMap
+            - name: clearance-ca
+              configMap:
+                name: "@@CLEARANCE_GATE_CA_CONFIGMAP@@"
+                items: [{key: ca.crt, path: ca.crt}]
+#@end
+#@if clearance.gate.enabled
         # The core on another cluster, for the sidecar (it shares the repo-server pod's hosts). The chart has no
         # repo-server-only key; the other components never use the name.
         global:
           hostAliases: @@CLEARANCE_GATE_HOST_ALIASES@@
+          # I-78: the pod's fsGroup, so the token volume's group is the sidecar's (999). Chart 10.3.2 has no repo-server-only
+          # key for the pod securityContext (repoServer has no podSecurityContext), so this is global: every Argo CD pod of this
+          # instance gets supplementary group 999 and its volumes' group (clearance docs/examples/argo-cd-repo-server-values.yaml).
+          securityContext:
+            fsGroup: 999
+#@end
+#@if _rolloutOrder
+        # I-77, the rollout order of a Clearance release (README.md, "Rollout order for Clearance releases"). A release that
+        # changes the wait image changes three things that sync on their own: the policies that admit the wait Job
+        # (clearance-gate's clearance-protected-writes and, with Flight admission, kyverno-policies' flight-only-images), the
+        # agent (clearance-argocd-agent) and this repo-server's CLEARANCE_WAIT_IMAGE. The repo-server must go last: before the
+        # policies, a new-image wait Job is refused where admission enforces; before the agent, an old agent reports it as
+        # out-of-band. The root's sync waves cannot order them (the policies change inside their own Applications' sources, not
+        # in any Application the root applies, and Argo CD has no Application health since 1.8), so this Application holds its
+        # own sync: a PreSync hook Job that passes at once unless this sync changes the repo-server's wait image (or the
+        # repo-server is not there yet), and otherwise waits until every policy admits the new image and every agent
+        # Deployment runs it, rolled out and available. It fails after CLEARANCE_ROLLOUT_ORDER_TIMEOUT seconds; syncPolicy.retry
+        # below tries again. Off with clearance.gate.rolloutOrder: false. Helm runs extraObjects through tpl: no double
+        # opening braces anywhere below (tests/run.sh checks). I-79: the ServiceAccount, its ClusterRole and binding and the
+        # ConfigMap are deleted when each sync operation ends, passed or failed (Argo CD deletes a hook only then, after
+        # every hook has finished), and created again by the next sync; the Job is deleted with them when it passed. A
+        # revert of the hook leaves no RBAC behind: Argo CD never prunes a live hook, and this Application does not prune.
+        extraObjects:
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
+                argocd.argoproj.io/sync-wave: "-1"
+          # Read only, and only the named objects: the repo-server and agent Deployments and the policies it checks.
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: clearance-rollout-order
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
+                argocd.argoproj.io/sync-wave: "-1"
+            rules:
+              - apiGroups: [apps]
+                resources: [deployments]
+                verbs: [get]
+                resourceNames: @@CLEARANCE_ROLLOUT_ORDER_DEPLOYMENTS@@
+              - apiGroups: [admissionregistration.k8s.io]
+                resources: [validatingadmissionpolicies]
+                verbs: [get]
+                resourceNames: [clearance-protected-writes]
+#@end
+#@if _rolloutOrderFlight
+              - apiGroups: [policies.kyverno.io]
+                resources: [validatingpolicies]
+                verbs: [get]
+                resourceNames: [flight-only-images]
+#@end
+#@if _rolloutOrder
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: clearance-rollout-order
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
+                argocd.argoproj.io/sync-wave: "-1"
+            roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: clearance-rollout-order}
+            subjects:
+              - {kind: ServiceAccount, name: clearance-rollout-order, namespace: argocd-apps}
+          - apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded,HookFailed
+                argocd.argoproj.io/sync-wave: "-1"
+            data:
+              order.py: |
+                """Hold argocd-apps-install's sync until a new Clearance wait image is safe for the repo-server (apron I-77).
+
+                CHECKS (JSON): waitImage, the image this sync gives the repo-server's clearance-cmp sidecar; repoServer and
+                container, where the live one is read; policies, each {name, kind (vap or kyverno), path}; agent, null or
+                {image, deployments}. Passes at once when the repo-server is not there (a first install: no old wait image
+                runs) or already has waitImage (this sync does not change it). Otherwise waits until every policy's spec
+                names waitImage and is loaded (a ValidatingAdmissionPolicy's observedGeneration, Kyverno's ready, then SETTLE for both),
+                and every agent Deployment passes --wait-image=waitImage on the agent's image, rolled out and available. A transient
+                read error (5xx, 429, a timeout, a dropped connection) is read again with backoff; nothing runs or is accepted past
+                TIMEOUT_SECONDS, then it exits 1. Standard library only; reads with the pod's own token.
+                """
+
+                import http.client
+                import json
+                import os
+                import signal
+                import ssl
+                import sys
+                import time
+                import urllib.error
+                import urllib.request
+
+                SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+                API = "https://kubernetes.default.svc"
+                # A policy counts only once this hook has seen the same object (uid) at the same generation name the image, loaded, for
+                # SETTLE seconds, timed from after each read; a delete, a re-create or any later spec change restarts it. Kyverno's status
+                # has no observedGeneration (conditionStatus.ready is about its webhook and RBAC, not which spec it loaded). A
+                # ValidatingAdmissionPolicy's observedGeneration is set by kube-controller-manager's status controller once it has type
+                # checked that generation, but each API server's admission plugin loads the policy from its own informer, so it can still
+                # be on the previous spec for a moment (watch latency, under a second). SETTLE is longer than either informer takes: a
+                # heuristic, not proof. A server-side dry-run create of a wait Job was not used instead (apron I-79): the gate policy
+                # matches only Argo CD's application controller (its matchConditions), so a dry run as this hook is never evaluated by it,
+                # and one as the controller needs `impersonate` on that service account, which is the controller's cluster-wide write
+                # rights (RBAC cannot limit a create to dry runs); it would also need a protected namespace with an active grant and would
+                # still reach only one API server.
+                SETTLE = 30
+                seen = {}
+                # Set by main: the transient-error retries stop at the deadline. Without one (a direct call) nothing is retried.
+                CLOCK, SLEEP, DEADLINE = time.monotonic, time.sleep, None
+                # Reads that were read again. A poll with one is not accepted (main): what it read before the retry may be stale by now.
+                RETRIES = 0
+
+
+                class Expired(BaseException):
+                    """The timer of bounded. Not an OSError, nor even an Exception, so nothing inside fn swallows it: socket.create_connection
+                    treats an OSError as "try the next address", and would carry on past the deadline."""
+
+
+                def bounded(seconds, fn):
+                    """fn(), stopped with TimeoutError once seconds have passed, wherever it is blocked. The socket timeout bounds each
+                    blocking call only, so a response that keeps trickling in could outlast it; a real-time interval timer bounds the whole
+                    request (connect, headers, body, JSON). SIGALRM: the hook is one thread, its main one."""
+                    def expired(signum, frame):
+                        raise Expired()
+                    previous = signal.signal(signal.SIGALRM, expired)
+                    signal.setitimer(signal.ITIMER_REAL, seconds)
+                    try:
+                        return fn()
+                    except Expired:
+                        raise TimeoutError(f"no complete response within {seconds:g}s") from None
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+                        signal.signal(signal.SIGALRM, previous)
+
+
+                def get(path, timeout=30):
+                    """The object at path, or None when it does not exist; all of it, the token and TLS setup too, within timeout seconds
+                    (bounded), which read() takes from the deadline just before. Known limit: a signal waits for native code, so OpenSSL
+                    loading the pod's own few-KB ca.crt is not interrupted (no network, well under a millisecond); a late result is still
+                    refused, and the Job's activeDeadlineSeconds is the outer stop."""
+                    def fetch():
+                        with open(f"{SA}/token") as f:
+                            token = f.read().strip()
+                        req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
+                        ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+                        try:
+                            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as r:
+                                return json.load(r)
+                        except urllib.error.HTTPError as e:
+                            if e.code == 404:
+                                return None
+                            raise
+                    return bounded(timeout, fetch)
+
+
+                def transient(e):
+                    """An error worth reading again: the API server busy or briefly away. A refusal (401, 403, 4xx) or a bad
+                    certificate is not."""
+                    if isinstance(e, urllib.error.HTTPError):
+                        return e.code == 429 or e.code >= 500
+                    if isinstance(e, urllib.error.URLError):
+                        return not isinstance(e.reason, ssl.SSLCertVerificationError)
+                    return isinstance(e, (TimeoutError, ConnectionError, http.client.HTTPException))
+
+
+                def read(path):
+                    """get, a transient error read again after 1s, doubling to 8s, while the deadline leaves room; then it raises.
+                    No read starts once the deadline has passed, and none is given longer than what is left: get bounds the whole request
+                    by that (bounded), and a read that still finishes past the deadline is refused too."""
+                    global RETRIES
+                    delay = 1
+                    while True:
+                        left = None if DEADLINE is None else DEADLINE - CLOCK()
+                        if left is not None and left <= 0:
+                            raise TimeoutError(f"{path}: not read, the deadline has passed")
+                        try:
+                            obj = get(path, timeout=30 if left is None else min(30, left))
+                        except Exception as e:
+                            left = None if DEADLINE is None else DEADLINE - CLOCK()
+                            if not transient(e) or left is None or left <= delay:
+                                raise
+                            print(f"{path}: {e}; reading again in {delay}s", flush=True)
+                            SLEEP(delay)
+                            RETRIES += 1
+                            delay = min(2 * delay, 8)
+                            continue
+                        if DEADLINE is not None and CLOCK() > DEADLINE:
+                            raise TimeoutError(f"{path}: read finished after the deadline")
+                        return obj
+
+
+                def deployment(ref):
+                    ns, name = ref.split("/", 1)
+                    return read(f"/apis/apps/v1/namespaces/{ns}/deployments/{name}")
+
+
+                def live_wait_image(dep, container):
+                    """The sidecar's CLEARANCE_WAIT_IMAGE, "" without one, None without the sidecar."""
+                    for c in dep["spec"]["template"]["spec"].get("containers") or []:
+                        if c.get("name") == container:
+                            for e in c.get("env") or []:
+                                if e.get("name") == "CLEARANCE_WAIT_IMAGE":
+                                    return e.get("value", "")
+                            return ""
+                    return None
+
+
+                def change(cfg):
+                    """Why this sync needs the order, or None when it does not."""
+                    dep = deployment(cfg["repoServer"])
+                    if dep is None:
+                        return None
+                    live = live_wait_image(dep, cfg["container"])
+                    if live == cfg["waitImage"]:
+                        return None
+                    return f"repo-server wait image {live or '(none)'} -> {cfg['waitImage']}"
+
+
+                def policy_pending(p, image, clock):
+                    obj = read(p["path"])
+                    now = clock()
+                    if obj is None:
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: not found"
+                    if image not in json.dumps(obj.get("spec") or {}):
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: does not admit {image} yet"
+                    st = obj.get("status") or {}
+                    if p["kind"] == "vap" and st.get("observedGeneration") != obj["metadata"].get("generation"):
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: generation {obj['metadata'].get('generation')} not observed yet"
+                    if p["kind"] == "kyverno" and (st.get("conditionStatus") or {}).get("ready") is not True:
+                        seen.pop(p["name"], None)
+                        return f"{p['name']}: not ready"
+                    ident = (obj["metadata"].get("uid"), obj["metadata"].get("generation"))
+                    if seen.get(p["name"], (None, 0))[0] != ident:
+                        seen[p["name"]] = (ident, now)
+                    first = seen[p["name"]][1]
+                    if now - first < SETTLE:
+                        return f"{p['name']}: admits {image}; settling ({int(now - first)}s of {SETTLE}s)"
+                    return None
+
+
+                def agent_pending(ref, dep, image, wait):
+                    if dep is None:
+                        return f"{ref}: not found"
+                    cs = [c for c in dep["spec"]["template"]["spec"].get("containers") or []
+                          if any(a.startswith("--wait-image=") for a in c.get("args") or [])]
+                    if not cs:
+                        return f"{ref}: no container passes --wait-image"
+                    for c in cs:
+                        got = [a.split("=", 1)[1] for a in c["args"] if a.startswith("--wait-image=")]
+                        if got != [wait]:
+                            return f"{ref}: {c.get('name')} has --wait-image={','.join(got)}, not {wait}"
+                        if image and c.get("image") != image:
+                            return f"{ref}: {c.get('name')} runs {c.get('image')}, not {image}"
+                    want = dep["spec"].get("replicas", 1)
+                    st = dep.get("status") or {}
+                    if st.get("observedGeneration", 0) < dep["metadata"].get("generation", 0):
+                        return f"{ref}: generation {dep['metadata'].get('generation')} not observed yet"
+                    for k in ("updatedReplicas", "availableReplicas", "replicas"):
+                        if st.get(k, 0) != want:
+                            return f"{ref}: {k} {st.get(k, 0)} of {want}"
+                    return None
+
+
+                def pending(cfg, clock):
+                    """What still stands between the policies and the agent and this sync, in rollout order."""
+                    out = []
+                    for p in cfg.get("policies") or []:
+                        out.append(policy_pending(p, cfg["waitImage"], clock))
+                    agent = cfg.get("agent") or {}
+                    for ref in agent.get("deployments") or []:
+                        out.append(agent_pending(ref, deployment(ref), agent.get("image"), cfg["waitImage"]))
+                    return [r for r in out if r]
+
+
+                def main(cfg, timeout, interval=10, clock=time.monotonic, sleep=time.sleep):
+                    global CLOCK, SLEEP, DEADLINE
+                    deadline = clock() + timeout
+                    CLOCK, SLEEP, DEADLINE = clock, sleep, deadline
+                    try:
+                        why = change(cfg)
+                    except Exception as e:  # unreadable past its retries: fail closed, the repo-server does not roll
+                        print(f"cannot read the repo-server: {e}", file=sys.stderr)
+                        return 1
+                    if clock() > deadline:  # a late result is not accepted, here as in the polling loop
+                        print(f"gave up after {timeout}s: the repo-server read finished after the deadline", file=sys.stderr)
+                        return 1
+                    if why is None:
+                        print("no wait-image change for the repo-server: nothing to order")
+                        return 0
+                    print(f"{why}: waiting for the policies, then the agent")
+                    last = None
+                    while True:
+                        if clock() >= deadline:  # no poll starts once the budget is spent
+                            print(f"gave up after {timeout}s: " + "; ".join(last or ["no poll finished in time"]), file=sys.stderr)
+                            return 1
+                        before = RETRIES
+                        try:
+                            left = pending(cfg, clock)
+                        except Exception as e:  # past its retries, or not transient: one more wait, not a failed sync
+                            left = [f"API error: {e}"]
+                        if not left and RETRIES != before:  # what this poll read before the retry may be stale: poll again
+                            left = ["a read was retried during this poll; polling again"]
+                        now = clock()
+                        if now > deadline:  # a result that came in late is not accepted, ready or not
+                            print(f"gave up after {timeout}s: " + ("; ".join(left) or "ready only after the deadline"), file=sys.stderr)
+                            return 1
+                        if not left:
+                            print("policies admit the new wait image and the agent runs it: the repo-server may roll")
+                            return 0
+                        if left != last:
+                            print("waiting: " + "; ".join(left), flush=True)
+                            last = left
+                        if now >= deadline:
+                            print(f"gave up after {timeout}s: " + "; ".join(left), file=sys.stderr)
+                            return 1
+                        sleep(min(interval, deadline - now))
+
+
+                if __name__ == "__main__":
+                    sys.exit(main(json.loads(os.environ["CHECKS"]), int(os.environ.get("TIMEOUT_SECONDS", "600"))))
+          - apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: clearance-rollout-order
+              namespace: argocd-apps
+              labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+              annotations:
+                argocd.argoproj.io/hook: PreSync
+                # Deleted when a sync it let through ends. One that failed is kept, with its log of what it waited for, until
+                # the next sync replaces it or a day has passed (ttlSecondsAfterFinished), so a revert leaves nothing for long.
+                argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+            spec:
+              backoffLimit: 0
+              ttlSecondsAfterFinished: 86400
+              activeDeadlineSeconds: @@CLEARANCE_ROLLOUT_ORDER_DEADLINE@@
+              template:
+                metadata:
+                  labels: {hangar.io/component: cluster-config, hangar.io/subcomponent: clearance-rollout-order}
+                spec:
+                  serviceAccountName: clearance-rollout-order
+                  automountServiceAccountToken: true
+                  restartPolicy: Never
+                  securityContext:
+                    runAsNonRoot: true
+                    runAsUser: 65534
+                    runAsGroup: 65534
+                    seccompProfile: {type: RuntimeDefault}
+                  containers:
+                    - name: order
+                      # Multi-arch index digest (linux/amd64 + linux/arm64 among others), the agentrun-reaper's.
+                      image: docker.io/library/python:3.13.18-alpine@sha256:bbc0290146ebe0a8b9a8ed07d3f2c7bdeb4d917fc93300a4e47490c8b5a11b48
+                      command: ["python3", "-I", "/order/order.py"]
+                      env:
+                        - {name: CHECKS, value: @@CLEARANCE_ROLLOUT_ORDER_CHECKS@@}
+                        - {name: TIMEOUT_SECONDS, value: "@@CLEARANCE_ROLLOUT_ORDER_TIMEOUT@@"}
+                      resources:
+                        requests: {cpu: 10m, memory: 32Mi}
+                        limits: {memory: 64Mi}
+                      securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        capabilities: {drop: ["ALL"]}
+                      volumeMounts:
+                        - {name: order, mountPath: /order, readOnly: true}
+                  volumes:
+                    - name: order
+                      configMap: {name: clearance-rollout-order}
 #@end
         # One controller block for every cluster (it used to sit twice inside the
         # not-isControlPlane branch only). GOMEMLIMIT + memory limit added 2026-10-28,
@@ -679,3 +1152,12 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+#@if _rolloutOrder
+    # I-77: an automated sync is not retried on the same revision after it fails, so a rollout-order hook that gave up
+    # (above, extraObjects) would leave the repo-server change unsynced until the next commit. Retried instead: limit 5 is
+    # five retries after the first try, six tries in all, each waiting up to its timeout (10m), with 1m doubling to 10m
+    # between them (25m), so up to about 85 minutes; once Argo CD reports the sync failed with its retries used up, Sync by hand.
+    retry:
+      limit: 5
+      backoff: {duration: 1m, factor: 2, maxDuration: 10m}
+#@end
