@@ -262,6 +262,14 @@ r = json.load(sys.stdin)["runtime"]
 assert r["type"] == "eks" and r["eks"]["region"] == "us-east-1", r' \
   && ok "eks: --print-values carries runtime.eks (apron up phase 1 reads its region)" \
   || bad "eks: --print-values lacks runtime.eks.region"
+python3 hack/render.py --cluster "${K}/dev/cluster.yaml" --print-values | python3 -c '
+import json, sys
+for s in json.load(sys.stdin)["bootstrapSecrets"]:
+    assert "kubectl" not in s["create"] and "bootstrap_secrets" in s["create"], s
+    if s["name"] == "provider-infisical-creds":
+        assert "client_id" in s["create"] and "client_secret" in s["create"], s' \
+  && ok "eks: bootstrap Secrets point at Terraform, never kubectl" \
+  || bad "eks: a bootstrap Secret still says kubectl create"
 mkdir -p "${K}/badiss"
 sed "s#issuer: ${ISS}/AAA1#issuer: https://hangarplatform.dev/oidc/eks-dev#" "${K}/dev/cluster.yaml" >"${K}/badiss/cluster.yaml"
 python3 hack/check.py --cluster "${K}/badiss/cluster.yaml" >/dev/null 2>&1 && bad "eks: accepted a non-EKS issuer" \
