@@ -383,8 +383,16 @@ spec:
 #@end
           # Cilium matches the API server as the kube-apiserver entity, not an ipBlock: the chart renders the
           # CiliumNetworkPolicy for TokenReview (clearance 0.31.0; it replaced clearance-config's own).
+          # Not on eks: EKS runs the VPC CNI (its own network policy agent, which matches the API server by
+          # ipBlock), and there are no cilium.io CRDs, so the CiliumNetworkPolicy made the whole Application fail
+          # to sync ("failed to discover server resources for group version cilium.io/v2", eks-dev 2026-11-26).
           kubeAPIServer:
+#@if runtime.type != 'eks'
             ciliumEntity: true
+#@end
+#@if runtime.type == 'eks'
+            ciliumEntity: false
+#@end
           postgres:
             to:
               - podSelector: {matchLabels: {cnpg.io/cluster: clearance-pg}}
