@@ -1,0 +1,33 @@
+# 50-glidepath/sigstore-namespace/application.yaml
+#
+# fulcio-system, declared. The glidepath-control-plane chart deploys Fulcio into fulcio-system, and its fulcio-bootstrap
+# Role and RoleBinding there are PreSync hooks, but the chart never creates the namespace, and Argo CD's
+# CreateNamespace only creates an Application's destination namespace (platform-system). On a fresh cluster the
+# hooks fail with `namespaces "fulcio-system" not found` and glidepath-control-plane never syncs (first seen on
+# eks-dev, 2026-11-26; the lab's namespace had been applied by hand on 2026-10-21).
+#
+# Its own Application, not a file in glidepath-control-plane: PreSync hooks run before any non-hook resource of the
+# same Application, and a hook Namespace would be deleted and recreated by Argo CD's default BeforeHookCreation
+# policy, taking Fulcio with it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sigstore-namespace
+  namespace: argocd
+  labels:
+    hangar.io/component: glidepath
+    hangar.io/subcomponent: sigstore-namespace
+spec:
+  project: default
+  source:
+    repoURL: @@REPO_URL@@
+    targetRevision: main
+    path: 50-glidepath/sigstore-namespace
+    directory:
+      exclude: "application.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fulcio-system
+  syncPolicy:
+    automated:
+      selfHeal: true

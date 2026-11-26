@@ -1,0 +1,7 @@
+# fulcio-system (see application.yaml). Never pruned or deleted with the Application: Fulcio's root lives here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fulcio-system
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
