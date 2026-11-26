@@ -1,0 +1,54 @@
+# Tekton step pods in an app's CI namespace get fsGroup 65532, so their steps can write workspace volumes.
+#
+# A fresh EBS (gp3) volume's root is root:root 0755, and the Glidepath catalog's toolbox runs as uid 65532, so the first
+# step to write a workspace failed: "/workspace/source/.git: Permission denied" (Backstage's first build on eks-dev,
+# 2026-11-26). The lab never showed it: local-path volumes are 0777. With fsGroup, the kubelet gives the volume group
+# 65532 with group write; OnRootMismatch skips the recursive chown once the root already matches.
+#
+# On the Pod, not the PipelineRun: Tekton's config-defaults default-pod-template is copied into every PipelineRun's
+# taskRunTemplate.podTemplate, which cicd-run-shape and this directory's run-shape rules hold to hostAliases only
+# (apron#301, reverted in #302). A Pod mutation leaves those rules as they are.
+#
+# Scope: Pods Tekton creates for a TaskRun (label tekton.dev/taskRun) in app-*-cicd namespaces, and only when the Pod
+# sets no fsGroup of its own. failurePolicy Ignore: if Kyverno is down, pods still start (a step may hit the permission
+# error again) rather than every CI pod being refused.
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: tekton-workspace-fsgroup
+  annotations:
+    policies.kyverno.io/title: Tekton workspace fsGroup
+    policies.kyverno.io/description: Sets fsGroup 65532 on Tekton TaskRun pods in app-*-cicd namespaces that set none.
+spec:
+  failurePolicy: Ignore
+  evaluation:
+    admission:
+      enabled: true
+    mutateExisting:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: tekton-taskrun-pod-in-app-cicd-namespace
+      expression: >-
+        request.namespace.startsWith('app-') && request.namespace.endsWith('-cicd') &&
+        has(object.metadata.labels) && 'tekton.dev/taskRun' in object.metadata.labels
+    - name: no-fsgroup-set
+      expression: >-
+        !has(object.spec.securityContext) || !has(object.spec.securityContext.fsGroup)
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            spec: Object.spec{
+              securityContext: Object.spec.securityContext{
+                fsGroup: 65532,
+                fsGroupChangePolicy: "OnRootMismatch"
+              }
+            }
+          }

@@ -70,6 +70,7 @@
 30-policy/kyverno-policies/no-long-lived-sa-tokens.yaml               components.policy and components.towerAccessHub
 30-policy/kyverno-policies/testkube-rbac.yaml                         components.policy and components.glidepath
 30-policy/kyverno-policies/testkube-secret-usage.yaml                 components.policy and components.glidepath
+30-policy/kyverno-policies/tekton-workspace-fsgroup.yaml              components.policy and components.glidepath
 30-policy/kyverno-policies/tower-breakglass.yaml                      components.policy and components.towerAccessHub
 30-policy/kyverno-policies/tower-identity-writes.yaml                 components.policy and components.towerAccessHub
 30-policy/breakglass/                   components.policy and components.towerAccess
