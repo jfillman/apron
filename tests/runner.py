@@ -65,15 +65,46 @@ def shard(cases, i, n):
     return bins[i - 1][1]
 
 
+PROCS, PROCS_LOCK = set(), threading.Lock()
+
+
+def stop_cases():
+    """End every running case's process group and reap it."""
+    with PROCS_LOCK:
+        procs = list(PROCS)
+    for p in procs:
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    for p in procs:
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            p.wait()
+
+
 def run_case(c, tmp):
     fd, res = tempfile.mkstemp(prefix="result-", dir=tmp)
     os.close(fd)
     env = dict(os.environ, APRON_TEST_TMP=tmp, APRON_CASE_RESULT=res)
     t = time.time()
-    p = subprocess.run(["bash", os.path.join(HERE, "case.sh"), os.path.basename(c.path)], cwd=APRON, env=env,
-                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # its own process group, so a stopped run can end the case and whatever it started (renders, envtest servers)
+    p = subprocess.Popen(["bash", os.path.join(HERE, "case.sh"), os.path.basename(c.path)], cwd=APRON, env=env,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+    with PROCS_LOCK:
+        PROCS.add(p)
+    try:
+        out, _ = p.communicate()
+    finally:
+        with PROCS_LOCK:
+            PROCS.discard(p)
     c.elapsed = time.time() - t
-    c.output = p.stdout.decode(errors="replace")
+    c.output = out.decode(errors="replace")
     with open(res) as f:
         r = f.read().split()
     os.unlink(res)
@@ -97,6 +128,8 @@ def main():
     ap.add_argument("--list", action="store_true", help="print the selected cases and exit")
     ap.add_argument("case", nargs="*", help="only these cases (and, as setup, what they need)")
     a = ap.parse_args()
+    if a.jobs < 1:
+        ap.error("-j/APRON_TEST_JOBS must be 1 or more")
     cases, by = load()
     sel = cases
     if a.case:
@@ -180,6 +213,7 @@ def main():
                     break
                 lock.wait()
     finally:
+        stop_cases()  # nothing left on a normal end; on a signal, the cases go before their directory does
         subprocess.run(["rm", "-rf", tmp])
     counted = [c for c in run if not c.setup or c.failed]
     p = sum(c.passed for c in counted if not c.setup)
