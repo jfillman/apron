@@ -151,8 +151,18 @@ spec:
   # anyway. On a multi-node cluster with node-pinned storage (local-path), the PV's own node affinity still pulls
   # every consumer to one node; with network-attached ReadWriteOnce storage switch to `pipelineruns`, which pins a
   # whole PipelineRun to one node (and also allows more than one PVC workspace per TaskRun).
+  #
+  # eks: `pipelineruns`. EBS volumes are ReadWriteOnce and attach to one node at a time, with no node affinity of their
+  # own, so with coschedule off a run's parallel tasks landed on different nodes and waited on each other's volume
+  # ("Volume is already used by pod(s) ...", Backstage's build on eks-dev, 2026-11-26). Each run's pods now share one
+  # node, at the cost of the placeholder pod's start.
   pipeline:
+#@if runtime.type == 'eks'
+    coschedule: pipelineruns
+#@end
+#@if runtime.type != 'eks'
     coschedule: disabled
+#@end
     # Default requests for every Tekton container that sets none (2026-10-09, glidepath
     # docs/admin/pipeline-performance.md "Step resources"). Without any request a step pod is BestEffort: the
     # kubelet puts every BestEffort pod in one cgroup with the minimum CPU weight, so under load all pipeline
