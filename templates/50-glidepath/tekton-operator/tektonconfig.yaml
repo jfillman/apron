@@ -173,16 +173,6 @@ spec:
                 requests:
                   cpu: 25m
                   memory: 32Mi
-            # Workspace volumes writable by the steps (first seen on eks-dev, 2026-11-26: a fresh gp3 PVC's root is
-            # root:root 0755, and the catalog's toolbox runs as 65532, so stage-preflight died on
-            # "/workspace/source/.git: Permission denied"; the lab's local-path dirs are 0777, so it never showed).
-            # fsGroup gives each pod's volumes group 65532 with group write; OnRootMismatch skips the recursive chown
-            # once the root already matches. A run's own podTemplate (hostAliases only, per the Kyverno policies)
-            # merges over this default, so it is not something a PipelineRun sets or can drop.
-            default-pod-template: |
-              securityContext:
-                fsGroup: 65532
-                fsGroupChangePolicy: OnRootMismatch
   platforms:
     kubernetes:
       pipelinesAsCode:
