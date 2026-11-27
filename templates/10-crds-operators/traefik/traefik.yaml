@@ -92,6 +92,10 @@ spec:
 # On a cloud load balancer (traefik.loadBalancer.certificateArn, runtime eks): the AWS Load Balancer Controller's NLB
 # ends TLS on 443 with the ACM certificate and forwards it to the plain-HTTP `web` entrypoint, the Gateway's one
 # listener. It admits only traefik.loadBalancer.sourceRanges (admin CIDRs, the fleet's NAT addresses, GitHub's hooks).
+# ALPN HTTP2Preferred: without an ALPN policy the NLB offers only HTTP/1.1, and a browser then holds at most 6
+# connections to a host; Tower's live views (glidepath-api streamLiveRuns, server-sent events) used them up and every
+# other Tower request waited (eks-man, 2026-11-27). With it the NLB negotiates h2 and forwards it in clear to `web`,
+# which Traefik serves as h2c; clients that only speak HTTP/1.1 still get HTTP/1.1.
 apiVersion: v1
 kind: Service
 metadata:
@@ -105,6 +109,7 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-ssl-cert: @@TRAEFIK_LB_CERT_ARN@@
     service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    service.beta.kubernetes.io/aws-load-balancer-alpn-policy: HTTP2Preferred
 #@end
 spec:
 #@if traefik.loadBalancer.class
