@@ -117,6 +117,7 @@ spec:
         # Tower's backend (Backstage's service account on Tower's cluster) acts for the person it names.
         foreignCluster:
           issuer: "@@TOWER_ISSUER@@"
+          jwksURL: "@@TOWER_JWKS_URL@@"
           cluster: "@@TOWER_CLUSTER@@"
           serviceAccounts: @@CLEARANCE_FOREIGN_SERVICE_ACCOUNTS_LIST@@
         # The gate's group directory and app owners: Tower's catalog, with a token for audience backstage-catalog

@@ -19,6 +19,9 @@ import re
 import sys
 import urllib.parse
 
+# An EKS cluster's OIDC issuer (hack/check.py holds the same pattern).
+EKS_ISSUER = re.compile(r"^https://oidc\.eks\.[a-z0-9-]+\.amazonaws\.com/id/[0-9A-Fa-f]+$")
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apronlib import (LAB_ONLY_KEYS, ROOT, ApronError, clearance_slack_problems, clearance_slack_url, evaluate, gate_agent_ceiling,  # noqa: E402
                       gate_migration_window, gate_rule, get, lab_networking, parse_vkey, resolve, tenant_sync_paused)
@@ -150,6 +153,11 @@ def tokens(v):
                                              if (g("fleet.hubAddress") or g("fleet.hubDomain")) else ""),
         "TOWER_CLUSTER": g("tower.cluster", ""),
         "TOWER_ISSUER": g("tower.issuer", ""),
+        # Where Tower's issuer serves its keys. An EKS issuer publishes them at <issuer>/keys (its discovery document's
+        # jwks_uri; <issuer>/jwks.json answers 403), the lab's public issuers at <issuer>/jwks.json, which is what
+        # Clearance and the Autopilot gateway assume when no URL is given.
+        "TOWER_JWKS_URL": (g("tower.issuer", "").rstrip("/") + ("/keys" if EKS_ISSUER.match(str(g("tower.issuer", "") or ""))
+                                                               else "/jwks.json")) if g("tower.issuer", "") else "",
         "TOWER_NAMESPACE": g("tower.namespace"),
         "TOWER_BASE_URL": g("tower.baseUrl", ""),
         "TOWER_HOST_ALIAS_IP": g("tower.hostAliasIP", ""),

@@ -54,6 +54,7 @@ the render with `file:line`.
 |---|---|
 | `@@TOWER_CLUSTER@@` | `tower.cluster` - the cluster Tower runs on (`apron init --tower-cluster` on the hub) |
 | `@@TOWER_ISSUER@@` | `tower.issuer`, derived `https://<issuerBase>/oidc/<tower.cluster>` |
+| `@@TOWER_JWKS_URL@@` | where `tower.issuer` serves its keys: `<issuer>/keys` for an EKS OIDC issuer (its discovery `jwks_uri`; `<issuer>/jwks.json` answers 403 there), else `<issuer>/jwks.json`; empty without `tower.issuer`. Clearance's `foreignCluster.jwksURL` |
 | `@@TOWER_NAMESPACE@@` | `tower.namespace`, derived `app-backstage-<tower.env>` (Airframe's `app-<app>-<env>`; env default `prod`) |
 | `@@TOWER_BASE_URL@@` | `tower.baseUrl`, derived `http://backstage.<tower.cluster>.local` (optional) |
 | `@@TOWER_HOST_ALIAS_IP@@` | `tower.hostAliasIP` - only when pods can't resolve Tower's hostname (optional, empty by default) |
